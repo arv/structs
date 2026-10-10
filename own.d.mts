@@ -46,9 +46,35 @@ export declare function partition<T>(items: sending T[], parts: number): (sendin
 /** Takes element `index` out of an array of owned values, so the caller owns it. Trusted. */
 export declare function take<T>(items: (sending T)[], index: number): sending T;
 
+/** A shared struct's value as a type: what `new SharedArray(Struct, n)` takes. */
+export interface SharedStructType<T> {
+  new (): T;
+}
+
+/**
+ * A fixed-length array in the shared heap, of numbers or of shared structs stored inline. Threads
+ * share it with no copying: every thread reads and writes the same elements. Reads and writes are
+ * not ordered between threads: use a Barrier (or another cell) to order them.
+ */
+export interface SharedArray<T> {
+  readonly length: number;
+  [index: number]: T;
+}
+export declare const SharedArray: {
+  new (type: NumberConstructor, length: number): SharedArray<number>;
+  new <T>(type: SharedStructType<T>, length: number): SharedArray<T>;
+};
+
 /** Prints a line, synchronously, from any thread. */
 export declare function log(...args: unknown[]): void;
 
+/** Runtime support for the typed layouts, which the compiler emits; not called by hand. */
+export declare const __F64: Float64Array, __I32: Int32Array;
+export declare function __newStruct(type: unknown): number;
+export declare function __newSharedArray(type: unknown, length: number): number;
+export declare function __oob(array: number, index: number): never;
+export declare function __box(address: number): object;
+export declare function __unbox(value: unknown): number;
 /** Runtime support for `shared struct`, which the compiler emits; not called by hand. */
 export declare function __sharedStruct(name: string, fields: readonly string[]): any;
 /** Runtime support for spawning: the compiler registers a module's top-level functions. */

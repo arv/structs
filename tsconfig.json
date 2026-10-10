@@ -12,5 +12,5 @@
     "outDir": "build/ts",
     "ownRuntime": "./own.mjs"
   },
-  "files": ["nbody-ts.mts"]
+  "files": ["nbody-ts.mts", "nbody-struct.mts", "tutorial.mts"]
 }

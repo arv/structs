@@ -11,6 +11,11 @@
 //   ts-node     the program written in the TypeScript extension (<program>-ts.mts), as the tsgo fork
 //               emitted it (build/ts/<program>-ts.mjs: compile first, see tsconfig.json), on node
 //   ts-chrome   the same, on Web Workers in Chrome
+//   cells-node  own and shared values with the hot data in a shared typed-array cell (<program>-cells.mjs)
+//   cells-chrome  the same, in Chrome
+//   struct-node the TypeScript extension with SharedArray and shared struct typed layouts
+//               (<program>-struct.mts, emitted as build/ts/<program>-struct.mjs), on node
+//   struct-chrome the same, in Chrome
 //   v8          plain V8 (node) running the original preset, with an inline Thread shim: 1 thread
 // every program runs its thread counts twice, 1, 2, 4, 8 and again: the first pass is cold (it
 // includes JIT warm-up in every worker), the second warm. checks that every configuration
@@ -103,15 +108,19 @@ for (const p of programs) {
       return r.output;
     };
   }
-  const emitted = path.join(here, 'build', 'ts', `${p}-ts.mjs`);
-  if (fs.existsSync(emitted)) {
-    if (want('ts-node')) configs['ts-node'] = () => node(path.join(here, 'run.mjs'), emitted, `--threads=${COUNTS}`);
-    if (want('ts-chrome')) configs['ts-chrome'] = async () => {
-      const r = await runInChrome({ query: { program: expandForChrome(emitted), threads: COUNTS.join(',') } });
-      if (!r.ok) throw new Error(`ts-chrome ${p}: ${r.error}`);
+  // a module run on node and in Chrome, as configs <name>-node and <name>-chrome
+  const both = (name, file) => {
+    if (!fs.existsSync(file)) return;
+    if (want(`${name}-node`)) configs[`${name}-node`] = () => node(path.join(here, 'run.mjs'), file, `--threads=${COUNTS}`);
+    if (want(`${name}-chrome`)) configs[`${name}-chrome`] = async () => {
+      const r = await runInChrome({ query: { program: expandForChrome(file), threads: COUNTS.join(',') } });
+      if (!r.ok) throw new Error(`${name}-chrome ${p}: ${r.error}`);
       return r.output;
     };
-  }
+  };
+  both('ts', path.join(here, 'build', 'ts', `${p}-ts.mjs`));
+  both('cells', path.join(here, `${p}-cells.mjs`));
+  both('struct', path.join(here, 'build', 'ts', `${p}-struct.mjs`));
   if (want('v8')) {
     // the original with an inline shim: threads run to completion when made, so only 1 means anything
     const shimmed = path.join(work, `${p}-v8.mjs`);
