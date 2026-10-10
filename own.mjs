@@ -8,7 +8,8 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, setThreadEntry } from './runtime.mjs';
+import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, setThreadEntry, setAfterTask,
+  $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
 const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB), U8 = SAB && new Uint8Array(SAB), U16 = SAB && new Uint16Array(SAB);
@@ -21,7 +22,7 @@ export { $log as log };
 //   string body: [length] then utf-16 units     array body: [length] then value words
 //   object body: [count] then count key words (interned key address) then count value words
 const BOX = 0xFFF80000 | 0;
-const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9;
+const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9, T_COUNTED = 10;
 
 // writing: into a growing private buffer, then copied into the heap in one piece
 let wf = new Float64Array(1024), wi = new Int32Array(wf.buffer), wn = 0;
@@ -58,6 +59,7 @@ function put(at, v, moved, seen) {
     return box(at, T_STR, body);
   }
   if (typeof v !== 'object') throw new TypeError(`own: cannot send a ${typeof v}`);
+  if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
   const shared = sharedAddr.get(v);
   if (shared !== undefined) return box(at, T_SHARED, shared);
   if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
@@ -120,6 +122,7 @@ function get(base, at, frozen) {
     }
     case T_SHARED: return materialize(p);
     case T_CELL: return cell(p);
+    case T_COUNTED: threadArgs.push(p); return p;
   }
   throw new Error('own: bad value word');
 }
@@ -190,15 +193,27 @@ function materialize(a) {
 
 // ---- cells: shared and mutable, explicitly ----
 const K_BARRIER = 20, K_SLOTS = 21, K_F64 = 22, K_SHARED_ARRAY = 23;
-const cells = new Map(); // address -> this thread's cell object
+const counted = kind => kind === K_SHARED_ARRAY || kind >= 100; // structs and SharedArrays (REFCOUNT.md)
+// address -> this thread's cell object. a struct's or SharedArray's handle holds a count of its own
+// and is held weakly: when V8 collects it, the registry gives the count back
+const cells = new Map();
+let finalizable = 0;
+const handles = new FinalizationRegistry(a => {
+  const r = cells.get(a);
+  if (r instanceof WeakRef && r.deref() === undefined) cells.delete(a);
+  finalizable--;
+  __release(a);
+});
+const holdFor = (h, a) => { __retain(a); handles.register(h, a); finalizable++; };
 function cell(a) {
   let c = cells.get(a);
+  if (c instanceof WeakRef) c = c.deref();
   if (c === undefined) {
     const kind = I32[a >> 2], Cls = cellKinds.get(kind);
     if (kind === K_F64) { c = new Float64Array(SAB, a + 16, I32[(a >> 2) + 1]); c.$cell = a; }
       else if (kind === K_SHARED_ARRAY) c = sharedArrayHandle(a);
       else c = Cls ? Object.assign(Object.create(Cls.prototype), { $cell: a }) : $h(a); // Lock, Condition
-    cells.set(a, c);
+    if (counted(kind)) { holdFor(c, a); cells.set(a, new WeakRef(c)); } else cells.set(a, c);
   }
   return c;
 }
@@ -217,14 +232,17 @@ export class Barrier {
   constructor(n) { const a = newCell(K_BARRIER, 16, this); I32[(a >> 2) + 1] = n; }
   wait() {
     const i = this.$cell >> 2, gen = Atomics.load(I32, i + 3);
+    $waitBegin(); // a quiescent point (REFCOUNT.md), and quiescent while it waits
     if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
       Atomics.store(I32, i + 2, 0);
       Atomics.add(I32, i + 3, 1);
       Atomics.notify(I32, i + 3);
-      return;
+    } else {
+      let k = 0;
+      while (k < SPINS && Atomics.load(I32, i + 3) === gen) k++;
+      while (Atomics.load(I32, i + 3) === gen) Atomics.wait(I32, i + 3, gen);
     }
-    for (let k = 0; k < SPINS; k++) if (Atomics.load(I32, i + 3) !== gen) return;
-    while (Atomics.load(I32, i + 3) === gen) Atomics.wait(I32, i + 3, gen);
+    $waitEnd();
   }
 }
 cellKinds.set(K_BARRIER, Barrier);
@@ -265,21 +283,35 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `shared struct Name { a: number; b: number }` compiles to __sharedStruct('Name', ['a', 'b']). a
-// struct's block is a header word (its kind) and then its fields, 8 bytes each, in order. compiled
-// with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
+// `shared struct Name { a: number; b: Name | null }` compiles to __sharedStruct('Name', ['a', 'b'], [1]).
+// a struct's block is [kind][count] and then its fields, 8 bytes each, in order: a number field is an
+// f64, a reference field (refs: a struct or a SharedArray) the address in its low half, 0 for null.
+// compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
 // `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
 // boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
 // read and write the same block. uncompiled code can use the class directly. every worker evaluates
 // the same modules in the same order, so a struct gets the same kind in each
 let structKinds = 100;
-export function __sharedStruct(name, fields) {
-  const kind = structKinds++, n = fields.length;
-  const Struct = { [name]: class { constructor() { newCell(kind, 8 + n * 8, this); } } }[name];
+export function __sharedStruct(name, fields, refs = []) {
+  const kind = structKinds++, n = fields.length, size = 8 + n * 8;
+  const Struct = { [name]: class {
+    constructor() {
+      const a = __newStruct(Struct);
+      this.$cell = a;
+      holdFor(this, a);
+      cells.set(a, new WeakRef(this));
+      __release(a);
+    }
+  } }[name];
   Struct.kind = kind;
-  Struct.size = 8 + n * 8;
+  Struct.size = size;
   Struct.fields = fields;
-  fields.forEach((field, k) => Object.defineProperty(Struct.prototype, field, {
+  Struct.refs = refs;
+  fields.forEach((field, k) => Object.defineProperty(Struct.prototype, field, refs.includes(k) ? {
+    get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
+    set(v) { __store((this.$cell >> 2) + 2 + 2 * k, v == null ? 0 : __retain(__unbox(v))); },
+    enumerable: true
+  } : {
     get() { return F64[(this.$cell >> 3) + 1 + k]; },
     set(v) { F64[(this.$cell >> 3) + 1 + k] = +v; },
     enumerable: true
@@ -293,21 +325,87 @@ export function __sharedStruct(name, fields) {
 // it along as a number and all use the same memory: nothing is copied. the compiler reads and writes
 // fields and elements through these views
 export { I32 as __I32, F64 as __F64 };
-// a zeroed struct: its kind, then its fields from byte 8
+// a zeroed struct: [kind][count 1], then its fields from byte 8. the caller owns the count
 export function __newStruct(type) {
-  const a = $alloc(type.size);
+  const a = $allocBlock(type.size);
   I32[a >> 2] = type.kind;
+  I32[(a >> 2) + 1] = 1;
   return a;
 }
-// [kind][length][element size][-] then the elements from byte 16: numbers (type 8, their size) or
-// whole struct blocks, each with its own header so an element's address can be boxed like any struct
+// [kind][length][element size][count] then the elements from byte 16: numbers (type 8, their size) or
+// whole struct blocks, each with its own header so an element's address can be boxed like any struct.
+// an element's header is [kind][back], back the array's address minus its own: an element lives as
+// long as its array, and counting it counts the array
 export function __newSharedArray(type, length) {
   const size = typeof type === 'number' ? type : type.size;
-  const a = $alloc(16 + length * size);
-  I32[a >> 2] = K_SHARED_ARRAY; I32[(a >> 2) + 1] = length; I32[(a >> 2) + 2] = size;
-  if (typeof type !== 'number') for (let e = a + 16, end = e + length * size; e < end; e += size) I32[e >> 2] = type.kind;
+  const a = $allocBlock(16 + length * size);
+  I32[a >> 2] = K_SHARED_ARRAY; I32[(a >> 2) + 1] = length; I32[(a >> 2) + 2] = size; I32[(a >> 2) + 3] = 1;
+  if (typeof type !== 'number') for (let e = a + 16, end = e + length * size; e < end; e += size) { I32[e >> 2] = type.kind; I32[(e >> 2) + 1] = a - e; }
   return a;
 }
+
+// ---- reference counts (REFCOUNT.md) ----
+// the block whose count an address's lifetime is, and where that count is
+const owner = p => { const w = I32[(p >> 2) + 1]; return w < 0 ? p + w : p; };
+const countAt = o => I32[o >> 2] === K_SHARED_ARRAY ? (o >> 2) + 3 : (o >> 2) + 1;
+export function __retain(p) {
+  if (p !== 0) Atomics.add(I32, countAt(owner(p)), 1);
+  return p;
+}
+export function __release(p) {
+  if (p === 0) return;
+  const o = owner(p);
+  if (Atomics.sub(I32, countAt(o), 1) === 1) destroy(o);
+}
+// count 0: no thread holds an uncounted address of the block or of anything read through it, so
+// its reference fields are released at once, and so on down, with a work list rather than recursion
+function destroy(o) {
+  const work = [ o ];
+  const drop = p => {
+    if (p === 0) return;
+    const q = owner(p);
+    if (Atomics.sub(I32, countAt(q), 1) === 1) work.push(q);
+  };
+  while (work.length !== 0) {
+    const b = work.pop(), kind = I32[b >> 2];
+    if (kind === K_SHARED_ARRAY) {
+      const n = I32[(b >> 2) + 1], size = I32[(b >> 2) + 2];
+      if (size !== 8 && n !== 0) {
+        const refs = cellKinds.get(I32[(b + 16) >> 2]).refs;
+        if (refs.length !== 0) for (let e = b + 16, end = e + n * size; e < end; e += size) for (const k of refs) drop(I32[(e >> 2) + 2 + 2 * k]);
+      }
+      $freeBlock(b, 16 + n * size);
+    } else {
+      const T = cellKinds.get(kind);
+      for (const k of T.refs) drop(I32[(b >> 2) + 2 + 2 * k]);
+      $freeBlock(b, T.size);
+    }
+  }
+}
+// a reference field store at i32 index i: takes over v's count. a thread may have read the old value
+// and not counted it yet, so its decrement waits for every thread's next quiescent point
+export function __store(i, v) {
+  const old = Atomics.exchange(I32, i, v);
+  if (old !== 0) $defer(old);
+  return v;
+}
+setDeferHandler(__release);
+export const __quiescent = $quiescent;
+export const __heapStats = $heapStats;
+// works off the decrements that wait: all of them when no other thread runs
+export const __collect = $drain;
+// a closure that captures counted addresses holds a count on each until V8 collects it
+const closures = new FinalizationRegistry(ps => { finalizable--; for (const p of ps) __release(p); });
+export function __hold(fn, ...ps) {
+  for (const p of ps) __retain(p);
+  closures.register(fn, ps);
+  finalizable++;
+  return fn;
+}
+// a counted spawn argument: retained for the thread, which releases it when its function returns
+class CountedArg { constructor(a) { this.a = a; } }
+export const __ref = a => new CountedArg(__retain(a));
+let threadArgs = [];
 
 // boxing: where a struct or SharedArray value (an address) flows into `any`, `unknown`, a generic
 // and the like, the compiler wraps it in this thread's one handle object for that address (so ===
@@ -316,7 +414,11 @@ export function __newSharedArray(type, length) {
 export const __box = a => cell(a);
 // for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
 export class SharedArray {
-  constructor(type, length) { return cell(__newSharedArray(type === Number ? 8 : type, length)); }
+  constructor(type, length) {
+    const a = __newSharedArray(type === Number ? 8 : type, length), h = cell(a);
+    __release(a); // the handle holds its own count
+    return h;
+  }
 }
 export function __unbox(v) {
   const a = v !== null && typeof v === 'object' ? v.$cell : undefined;
@@ -371,16 +473,24 @@ export function __register(url, table) {
 }
 export const fns = table => __register('', table);
 setThreadEntry(t => {
-  const [ key, ...args ] = read(I32[(t + 16) >> 2], false);
-  const f = byKey.get(key);
-  if (f === undefined) throw new Error(`own: no function ${key} in this worker`);
-  return send(f(...args));
+  threadArgs = [];
+  const [ key, ...args ] = read(I32[(t + 16) >> 2], false), mine = threadArgs;
+  try {
+    const f = byKey.get(key);
+    if (f === undefined) throw new Error(`own: no function ${key} in this worker`);
+    return send(f(...args));
+  } finally {
+    for (const p of mine) __release(p);
+  }
 });
+// between threads, a worker yields to its event loop when handles or closures wait to be finalized
+setAfterTask(() => finalizable > 0);
 class Thread {
   constructor(t) { this.t = t; this.joined = false; }
   join() {
     if (this.joined) throw new TypeError('own: a thread is joined once (its result moves out)');
     this.joined = true;
+    $quiescent();
     return read(threadJoin(this.t), false);
   }
 }
@@ -390,6 +500,7 @@ export function spawn(fn, ...args) {
   const t = $alloc(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 16) >> 2] = send([ key, ...args ]);
+  $quiescent();
   spawnThread(t);
   return new Thread(t);
 }
@@ -409,6 +520,7 @@ export function scope(body) {
     return body(s);
   } finally {
     for (const th of s.threads) if (!th.joined) th.join();
+    $quiescent();
   }
 }
 

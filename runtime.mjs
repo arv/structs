@@ -24,14 +24,18 @@ const C_RING_HEAD = 8, C_RING_TAIL = 9, C_PENDING = 10, C_IDLE = 11, C_SHUTDOWN 
 const C_LIVE = 13;       // threads spawned and not finished
 const C_STR_TABLE = 14, C_STR_CAP = 15;
 const C_HEAP_END = 16;
+const C_EPOCH = 17;      // reclamation's global epoch (see $defer)
+const C_FREE_LOCK = 18;  // guards the free lists
+const C_PEND = 19, C_PEND_LEN = 20, C_PEND_CAP = 21, C_PEND_LOCK = 22; // decrements left by threads that ended
+const C_FREE = 1100;     // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for larger
 const C_CNT = 32;        // counters, see COUNTERS
 const C_RING = 64, RING = 1024;
 const C_THREADS = 2048, T_ENTRY = 8, MAX_THREADS = 4096;
-const T_ALIVE = 0, T_CLEAN = 1, T_LEN = 2, T_CAP = 3, T_LIST = 4;
+const T_ALIVE = 0, T_CLEAN = 1, T_LEN = 2, T_CAP = 3, T_LIST = 4, T_QS = 5;
 const CTRL_BYTES = 1 << 20;
 
-export const COUNTERS = [ 'publishes', 'takeovers', 'directTakeovers', 'handoverRequests', 'handedOver', 'lockedWrites', 'slowPolls', 'threads', 'slowGets', 'slowSets' ];
-const N_PUB = 0, N_TAKEOVER = 1, N_DIRECT = 2, N_REQUEST = 3, N_HANDED = 4, N_LOCKED = 5, N_SLOWPOLL = 6, N_THREADS = 7, N_SLOWGET = 8, N_SLOWSET = 9;
+export const COUNTERS = [ 'publishes', 'takeovers', 'directTakeovers', 'handoverRequests', 'handedOver', 'lockedWrites', 'slowPolls', 'threads', 'slowGets', 'slowSets', 'blocksAllocated', 'blocksFreed', 'deferred' ];
+const N_PUB = 0, N_TAKEOVER = 1, N_DIRECT = 2, N_REQUEST = 3, N_HANDED = 4, N_LOCKED = 5, N_SLOWPOLL = 6, N_THREADS = 7, N_SLOWGET = 8, N_SLOWSET = 9, N_BALLOC = 10, N_BFREE = 11, N_DEFER = 12;
 // counted per thread, added to the shared totals when the thread ends: one shared counter
 // bumped on every locked write would itself be the most contended word in the program
 const LC = new Int32Array(COUNTERS.length);
@@ -235,7 +239,7 @@ const newHandle = (a, kind) => {
   return h;
 };
 
-// ---- allocation: bump, per-thread chunks, never freed (the prototype has no collector) ----
+// ---- allocation: bump, per-thread chunks. only blocks own.mjs counts are freed ($freeBlock) ----
 const CHUNK = 64 << 10;
 let acur = 0, aend = 0;
 export function $alloc(bytes) {
@@ -256,6 +260,161 @@ const mlock = i => {
 const munlock = i => {
   if (Atomics.sub(I32, i, 1) !== 1) { Atomics.store(I32, i, 0); Atomics.notify(I32, i, 1); }
 };
+
+// ---- free lists, for the blocks own.mjs frees ----
+// a block of up to 2 KiB goes on the list for its size; a larger one on one list of large blocks,
+// reused only at the same size. each thread keeps a cache per size and trades with the global
+// lists, under one lock, a batch at a time. a free block is [K_FREE][next] ([K_FREE][bytes][next]
+// when large); with --check its other words are POISON, so a read after free stands out
+const SMALL = 256, BATCH = 32;
+export const K_FREE = 99, POISON = -1.2345e300;
+const caches = [];
+const cacheFor = c => caches[c] ?? (caches[c] = []);
+export function $allocBlock(bytes) {
+  bytes = (bytes + 7) & ~7;
+  count(N_BALLOC);
+  const c = bytes >> 3;
+  let p = 0;
+  if (c <= SMALL) {
+    const cache = cacheFor(c);
+    if (cache.length === 0 && Atomics.load(I32, C_FREE + c) !== 0) {
+      mlock(C_FREE_LOCK);
+      for (let q = I32[C_FREE + c]; q !== 0 && cache.length < BATCH; q = I32[C_FREE + c]) {
+        I32[C_FREE + c] = I32[(q >> 2) + 1];
+        cache.push(q);
+      }
+      munlock(C_FREE_LOCK);
+    }
+    if (cache.length !== 0) p = cache.pop();
+  } else if (Atomics.load(I32, C_FREE) !== 0) {
+    mlock(C_FREE_LOCK);
+    let link = C_FREE; // the i32 index that points at p
+    for (p = I32[link]; p !== 0 && I32[(p >> 2) + 1] !== bytes; p = I32[link]) link = (p >> 2) + 2;
+    if (p !== 0) I32[link] = I32[(p >> 2) + 2];
+    munlock(C_FREE_LOCK);
+  }
+  if (p === 0) return $alloc(bytes); // fresh memory is zero
+  I32.fill(0, p >> 2, (p + bytes) >> 2);
+  return p;
+}
+export function $freeBlock(p, bytes) {
+  bytes = (bytes + 7) & ~7;
+  count(N_BFREE);
+  const c = bytes >> 3;
+  if (CHECK) F64.fill(POISON, p >> 3, (p + bytes) >> 3);
+  I32[p >> 2] = K_FREE;
+  if (c <= SMALL) {
+    const cache = cacheFor(c);
+    cache.push(p);
+    if (cache.length >= 2 * BATCH) {
+      mlock(C_FREE_LOCK);
+      while (cache.length > BATCH) {
+        const q = cache.pop();
+        I32[(q >> 2) + 1] = I32[C_FREE + c];
+        I32[C_FREE + c] = q;
+      }
+      munlock(C_FREE_LOCK);
+    }
+    return;
+  }
+  I32[(p >> 2) + 1] = bytes;
+  mlock(C_FREE_LOCK);
+  I32[(p >> 2) + 2] = I32[C_FREE];
+  I32[C_FREE] = p;
+  munlock(C_FREE_LOCK);
+}
+
+// ---- deferred decrements: quiescent-state-based reclamation (see REFCOUNT.md) ----
+// a decrement that may race with a reader (own.mjs: a field's old value, when the field is
+// overwritten) waits until every running thread has passed a quiescent point since: a point where
+// it holds no address it read from a field without counting it. each thread's T_QS word is the
+// epoch it saw at its last one, IDLE while it waits; a decrement queued in epoch g is safe once
+// every running thread's word is past g. a thread that ends hands what it still has to the
+// shared list (C_PEND), which any thread works off
+const IDLE = 0x7fffffff;
+let pend = []; // this thread's queued decrements: epoch, address, epoch, address, ...
+let deferHandler = null, qsTick = 0;
+export const setDeferHandler = f => { deferHandler = f; };
+export function $defer(p) {
+  pend.push(Atomics.load(I32, C_EPOCH), p);
+  count(N_DEFER);
+}
+export function $quiescent() {
+  Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
+  if ((++qsTick & 63) === 0 || pend.length >= 4096) reclaim();
+}
+// around a blocking wait: quiescent throughout
+export function $waitBegin() {
+  reclaim();
+  Atomics.store(I32, ME + T_QS, IDLE);
+}
+export const $waitEnd = () => { Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH)); };
+// the oldest epoch a running thread may still hold an uncounted address from
+function oldestEpoch() {
+  let min = IDLE;
+  const n = Atomics.load(I32, C_NEXT_TID);
+  for (let t = 1; t < n; t++) {
+    const e = C_THREADS + t * T_ENTRY;
+    if (Atomics.load(I32, e + T_ALIVE) === 1) {
+      const q = Atomics.load(I32, e + T_QS);
+      if (q < min) min = q;
+    }
+  }
+  return min;
+}
+// apply the queued decrements that are safe now (at a quiescent point)
+function reclaim() {
+  if (pend.length === 0 && Atomics.load(I32, C_PEND_LEN) === 0) return;
+  Atomics.add(I32, C_EPOCH, 1); // so what is queued now is older than every later quiescent point
+  Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
+  const min = oldestEpoch();
+  const list = pend;
+  pend = [];
+  if (Atomics.load(I32, C_PEND_LEN) !== 0) { // adopt the safe ones that ended threads left
+    mlock(C_PEND_LOCK);
+    const b = I32[C_PEND] >> 2, n = I32[C_PEND_LEN];
+    let kept = 0;
+    for (let k = 0; k < n; k++) {
+      const g = I32[b + 2 * k], p = I32[b + 2 * k + 1];
+      if (g < min) list.push(g, p);
+      else { I32[b + 2 * kept] = g; I32[b + 2 * kept + 1] = p; kept++; }
+    }
+    Atomics.store(I32, C_PEND_LEN, kept);
+    munlock(C_PEND_LOCK);
+  }
+  for (let k = 0; k < list.length; k += 2) {
+    if (list[k] < min) deferHandler(list[k + 1]); // may queue more, in pend
+    else pend.push(list[k], list[k + 1]);
+  }
+}
+// at a thread's end: hand the queued decrements to the shared list
+function handOffPending() {
+  if (pend.length === 0) return;
+  mlock(C_PEND_LOCK);
+  const n = I32[C_PEND_LEN], want = n + pend.length / 2;
+  if (want > I32[C_PEND_CAP]) {
+    const cap = Math.max(1024, want * 2), nb = $alloc(cap * 8), ob = I32[C_PEND];
+    for (let k = 0; k < 2 * n; k++) I32[(nb >> 2) + k] = I32[(ob >> 2) + k];
+    I32[C_PEND] = nb; I32[C_PEND_CAP] = cap;
+  }
+  const b = I32[C_PEND] >> 2;
+  for (let k = 0; k < pend.length; k++) I32[b + 2 * n + k] = pend[k];
+  Atomics.store(I32, C_PEND_LEN, want);
+  munlock(C_PEND_LOCK);
+  pend = [];
+}
+// work off every queued decrement this thread can: when no other thread is running, all of them
+export function $drain() {
+  for (let round = 0; round < 1000 && (pend.length !== 0 || Atomics.load(I32, C_PEND_LEN) !== 0); round++) reclaim();
+}
+export function $heapStats() {
+  return {
+    heapBytes: Atomics.load(I32, C_ALLOC) - CTRL_BYTES,
+    allocated: Atomics.load(I32, C_CNT + N_BALLOC) + LC[N_BALLOC],
+    freed: Atomics.load(I32, C_CNT + N_BFREE) + LC[N_BFREE],
+    pending: pend.length / 2 + Atomics.load(I32, C_PEND_LEN)
+  };
+}
 const stwBroadcast = () => { Atomics.add(I32, C_STW_SEQ, 1); Atomics.notify(I32, C_STW_SEQ); };
 // holding the stw lock: release it, sleep until a broadcast, take it again
 const stwWait = () => {
@@ -373,6 +532,7 @@ export function $clean() {
 }
 // around a blocking wait: meanwhile other threads take this thread's objects directly
 const cleanEnter = () => {
+  $waitBegin();
   mlock(C_STW_LOCK);
   releaseMine();
   Atomics.store(I32, ME + T_CLEAN, 1);
@@ -382,6 +542,7 @@ const cleanExit = () => {
   mlock(C_STW_LOCK);
   Atomics.store(I32, ME + T_CLEAN, 0);
   munlock(C_STW_LOCK);
+  $waitEnd();
 };
 const listPush = (owner, addr) => { // holding the stw lock
   const len = I32[owner + T_LEN];
@@ -761,6 +922,7 @@ export function initShared(sab) { // once, before any worker starts
   i32[C_ALLOC] = table + cap * 4;
   i32[C_HEAP_END] = sab.byteLength;
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
+  i32[C_EPOCH] = 1;
 }
 export function attach(sab, opts, postMessage, writeOut) {
   if (sab !== SAB) throw new Error('escape-proto: attach to the heap the worker was started with');
@@ -777,9 +939,12 @@ export function threadBegin(tid) {
   MY_TID = tid; MY_ID = tid << 12; MY_TAG = MY_ID | LOCAL; ME = C_THREADS + tid * T_ENTRY;
   I32[ME + T_LEN] = 0; I32[ME + T_CAP] = 0; I32[ME + T_LIST] = 0;
   Atomics.store(I32, ME + T_CLEAN, 0);
+  Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   Atomics.store(I32, ME + T_ALIVE, 1);
 }
 export function threadEnd() {
+  reclaim();
+  handOffPending();
   flushCounts();
   mlock(C_STW_LOCK);
   releaseMine();
@@ -791,6 +956,15 @@ export function threadEnd() {
 // replaces this)
 let threadEntry = t => $dec(t + 16)();
 export const setThreadEntry = f => { threadEntry = f; };
+// whether a worker should give its event loop a turn after a thread (own.mjs: when V8 may have
+// handles to finalize, which a FinalizationRegistry does only between tasks)
+let afterTask = () => false;
+export const setAfterTask = f => { afterTask = f; };
+const eventLoopTurn = () => new Promise(resolve => {
+  const ch = new MessageChannel();
+  ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
+  ch.port2.postMessage(0);
+});
 function runThread(t) {
   threadBegin(Atomics.add(I32, C_NEXT_TID, 1));
   count(N_THREADS);
@@ -809,14 +983,27 @@ function runThread(t) {
   if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
 }
 // a pool worker: take threads off the queue until shutdown
-export function poolLoop() {
+// while it has handles to finalize it waits asynchronously, so its event loop runs the registry
+export async function poolLoop() {
   for (;;) {
+    if (afterTask()) { await eventLoopTurn(); flushCounts(); }
     Atomics.add(I32, C_IDLE, 1);
     let p;
     for (;;) {
       if (Atomics.load(I32, C_SHUTDOWN)) return;
       p = Atomics.load(I32, C_PENDING);
-      if (p === 0) { Atomics.wait(I32, C_PENDING, 0); continue; }
+      if (p === 0) {
+        if (afterTask()) {
+          const w = Atomics.waitAsync(I32, C_PENDING, 0, 50);
+          if (w.async) {
+            const alive = setTimeout(() => {}, 60); // node lets a worker exit on a bare waitAsync
+            await w.value;
+            clearTimeout(alive);
+          }
+          flushCounts();
+        } else Atomics.wait(I32, C_PENDING, 0);
+        continue;
+      }
       if (Atomics.compareExchange(I32, C_PENDING, p, p - 1) === p) break;
     }
     Atomics.sub(I32, C_IDLE, 1);

@@ -7,7 +7,7 @@
 //   --stats             print the runtime's counters (to stderr) at exit
 //   --heap=MiB          shared heap size (default 512)
 //   --pool=N            workers started up front (default 8; more start on demand)
-//   --check             verify every boxed value word right after storing it
+//   --check             verify every boxed value word right after storing it, poison freed blocks
 //   --keep              keep the expanded program (its path goes to stderr)
 // node's main thread only coordinates, as the playground's page does: the program's main
 // runs in a worker, so it may block, and the pool can still grow while it does

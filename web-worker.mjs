@@ -17,7 +17,7 @@ onmessage = async ({ data }) => {
       postMessage({ type: 'done' });
     } else {
       postMessage({ type: 'ready' });
-      R.poolLoop();
+      await R.poolLoop();
     }
   } catch (e) {
     postMessage({ type: 'crash', message: String(e?.stack ?? e) });

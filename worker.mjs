@@ -17,7 +17,7 @@ try {
     R.waitAllThreads();
     R.threadEnd();
     parentPort.postMessage({ type: 'done' });
-  } else R.poolLoop();
+  } else await R.poolLoop();
 } catch (e) {
   parentPort.postMessage({ type: 'crash', message: String(e?.stack ?? e) });
 }

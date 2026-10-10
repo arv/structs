@@ -8,7 +8,7 @@
 //   --headed            show the browser window (default: Chrome's headless mode)
 //   --atomic-poll       clean points poll with Atomics.load instead of a plain load
 //   --stats             print the runtime's counters (to stderr)
-//   --check             verify every boxed value word right after storing it
+//   --check             verify every boxed value word right after storing it, poison freed blocks
 // --wasm=file.wasm instead runs a Porffor program built for wasm32-wasip1-threads (see bench.mjs)
 // on the playground's runner, in the same browser.
 // needs playwright-core (npm i playwright-core), found normally or through
