@@ -116,8 +116,9 @@ N-body, 800 bodies, 30 steps, median of 5 runs, warm pass (each worker's JIT war
 
 | Threads | 1 | 2 | 4 | 8 |
 |---|---|---|---|---|
-| TypeScript, `SharedArray` of `shared struct`s (typed layout), node | 33 | 17 | 9 | 7 |
-| Own and shared values, positions in a shared cell, node | 26 | 14 | 7 | 5 |
+| TypeScript, `SharedArray` of `shared struct`s (typed layout), node | 28 | 15 | 8 | 6 |
+| TypeScript, `SharedArray` of `shared struct`s (typed layout), Chrome | 31 | 17 | 8 | 6 |
+| Own and shared values, positions in a shared cell, node | 27 | 14 | 8 | 6 |
 | Own and shared values, positions in a shared cell, Chrome | 28 | 15 | 7 | 5 |
 | TypeScript extension, compiled by the fork, Chrome | 35 | 21 | 11 | 14 |
 | Own and shared values, Chrome | 35 | 21 | 12 | 13 |
@@ -141,11 +142,15 @@ Mandelbrot, which computes on thread-local numbers, ms:
 With snapshots, own and shared N-body stops scaling past 4 threads: every thread copies all 800
 positions each step, which does not shrink with more threads. Shared typed layouts copy nothing: the
 positions in a shared cell, or the bodies in a `SharedArray` of `shared struct`s that the compiler
-lays out, reach 4.6-5x on 8 threads. The ceiling on this machine is about 6.4x, with the work handed
+lays out, reach 4.5-5.6x on 8 threads. The ceiling on this machine is about 6.4x, with the work handed
 out in chunks: past 6 threads, a thread runs on a slower core and every step waits for it at the
-barrier. In Chrome, the typed-layout version is slower (51/29/16/13 ms) because its bounds check calls
-`__oob`, and V8 keeps that loop from being fully optimized; throwing through a Proxy index instead
-brings it to 29/15/8/7 ms.
+barrier.
+
+The compiler checks a `SharedArray` index against the length, and an index out of range reads
+`__OOB[i]`, a Proxy that throws, rather than calling a function: in Chrome, a call on the failure path,
+though never taken, made the typed-layout version 1.6x slower (51/29/16/13 ms). The compiler drops the
+check where the index is provably in range, `A[i]` in `for (let i = 0; i < A.length; i++)` with
+neither `A` nor `i` assigned anywhere else, as in N-body's inner loop.
 
 ## What the prototypes leave out
 

@@ -329,7 +329,7 @@ class SharedArrayHandle {
 }
 const isIndex = key => typeof key === 'string' && key !== '' && String(key >>> 0) === key;
 function sharedArrayAddress(a, i) {
-  if (!(i < I32[(a >> 2) + 1])) __oob(a, i);
+  if (!(i < I32[(a >> 2) + 1])) oob(a, i);
   return a + 16 + i * I32[(a >> 2) + 2];
 }
 // numbers are read in place; a struct element is boxed in turn
@@ -347,9 +347,15 @@ function sharedArrayHandle(a) {
     has: (t, key) => isIndex(key) ? Number(key) < I32[(a >> 2) + 1] : Reflect.has(t, key)
   });
 }
-export function __oob(a, i) {
+function oob(a, i) {
   throw new RangeError(`index ${i} is out of range for a SharedArray of length ${I32[(a >> 2) + 1]}`);
 }
+// what compiled code reads when an index is out of range, instead of calling a function: a read of
+// this Proxy throws. an optimized loop with a call in it (even one never taken) loses some of V8's loop
+// optimizations; a property read with no feedback costs nothing until it happens
+export const __OOB = new Proxy({}, {
+  get(t, i) { throw new RangeError(`index ${String(i)} is out of range for a SharedArray`); }
+});
 
 // ---- threads: spawn(fn, ...args) moves args to a new thread running fn; join moves its result back ----
 // a thread names its function by key: every worker loads the same modules, so a key finds the same

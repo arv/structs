@@ -72,7 +72,7 @@ export declare function log(...args: unknown[]): void;
 export declare const __F64: Float64Array, __I32: Int32Array;
 export declare function __newStruct(type: unknown): number;
 export declare function __newSharedArray(type: unknown, length: number): number;
-export declare function __oob(array: number, index: number): never;
+export declare const __OOB: { readonly [index: number]: never };
 export declare function __box(address: number): object;
 export declare function __unbox(value: unknown): number;
 /** Runtime support for `shared struct`, which the compiler emits; not called by hand. */
