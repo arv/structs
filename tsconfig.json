@@ -1,0 +1,16 @@
+{
+  // programs written in the own/shared TypeScript extension, for the tsgo fork:
+  //   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json
+  // emits build/ts/*.mjs for own.mjs (run them with run.mjs or chrome.mjs)
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "outDir": "build/ts",
+    "ownRuntime": "./own.mjs"
+  },
+  "files": ["nbody-ts.mts"]
+}
