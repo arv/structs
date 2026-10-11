@@ -32,11 +32,12 @@ npm install
 TSGO=/path/to/TypeScript/tsc/built/local/tsgo npm run dev
 ```
 
-Open the address Vite prints. Pick a program, edit it, and see:
+Open the address Vite prints. Pick a program and edit it in Monaco, with TypeScript's hover types,
+completions and errors from the threads API, and see:
 
-- the JavaScript the fork compiles it to, with what the compiler added highlighted;
+- the JavaScript the fork compiles it to, with what the compiler added marked;
 - the same program with its types only erased, which still runs;
-- the ownership checker's errors and tsc's;
+- the ownership checker's errors, as squiggles in the editor and in a list;
 - its output, run on a pool of Web Workers (Run).
 
 The dev server compiles, so a production build (`npm run build`) shows the page but cannot compile.
@@ -97,7 +98,7 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 | `runtime/own.mjs`, `chan.mjs`, `runtime.mjs` | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool |
 | `runtime/heap.mjs`, `browser.mjs`, `threads-worker.mjs` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers |
 | `runtime/vite-plugin-threads.mjs` | compiles with the fork, registers thread functions, serves the playground's compiles, sets cross-origin isolation |
-| `index.html`, `main.ts` | the playground, with [microlighter](https://github.com/davatron5000/microlighter) for the code |
+| `index.html`, `main.ts` | the playground, on [Monaco](https://github.com/microsoft/monaco-editor) |
 
 ## Limits
 

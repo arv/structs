@@ -1,10 +1,13 @@
-// The playground: edit a program, see the JavaScript it compiles to (with the tsgo fork, or with its
-// types only erased), and run it on the page's pool of workers. The Vite plugin's dev server compiles
-// (POST /__threads/compile); the page imports the result as a module, and so do the workers.
+// The playground: edit a program in Monaco, with TypeScript's types from the threads API; see the
+// JavaScript it compiles to (with the tsgo fork, or with its types only erased) and the ownership
+// checker's errors; run it on the page's pool of workers. The Vite plugin's dev server compiles (POST
+// /__threads/compile); the page imports the result as a module, and so do the workers.
 import "threads/heap"; // first: the shared memory, before anything that uses it loads
 import { run, start } from "threads/browser";
-import "microlighter/themes/github.css";
-import { highlightAll } from "microlighter";
+import * as monaco from "monaco-editor";
+import EditorWorker from "monaco-editor/editor/editor.worker?worker";
+import TsWorker from "monaco-editor/language/typescript/ts.worker?worker";
+import threadsTypes from "./runtime/threads.d.mts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
 import nbodyChan from "./programs/nbody-chan.ts?raw";
@@ -35,80 +38,86 @@ const PRESETS: [string, string][] = [
 ];
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const source = $("source"), js = $("js"), diagnostics = $("diagnostics"), output = $("output");
+const diagnostics = $("diagnostics"), output = $("output");
 const status = $("status"), runButton = $<HTMLButtonElement>("run"), preset = $<HTMLSelectElement>("preset");
 const threadsInput = $<HTMLInputElement>("threads");
 
-let result: Result | null = null, compiling = 0, running = false, timer = 0, workers = 0;
+let result: Result | null = null, compiling = 0, compilingNow = false, running = false, timer = 0, workers = 0;
 const ready = () => workers ? `Ready · ${workers} workers` : "Ready";
 const mode = () => (document.querySelector('input[name="mode"]:checked') as HTMLInputElement).value as "compiled" | "erased";
-
 const escapeHtml = (s: string) => s.replace(/[&<>]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;");
 
-// the program's text, and a range of it: the editor holds plain text, which editing may split
-// into several text nodes
-const text = (el: HTMLElement) => el.textContent ?? "";
-function textRange(el: HTMLElement, start: number, end: number): Range {
-  const range = document.createRange(), walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let at = 0, started = false;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const length = node.textContent!.length;
-    if (!started && start <= at + length) { range.setStart(node, start - at); started = true; }
-    if (started && end <= at + length) { range.setEnd(node, end - at); return range; }
-    at += length;
-  }
-  range.selectNodeContents(el);
-  range.collapse(false);
-  return range;
-}
+// ---- the editors ----
+self.MonacoEnvironment = {
+  getWorker: (_id, label) => label === "typescript" || label === "javascript" ? new TsWorker() : new EditorWorker(),
+};
+// the editor's TypeScript sees the threads API as the module "threads", as tsc does
+const ts = monaco.typescript;
+ts.typescriptDefaults.setCompilerOptions({
+  target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.NodeJs,
+  strict: true, lib: ["es2022", "dom"], allowNonTsExtensions: true, noEmit: true,
+});
+ts.typescriptDefaults.addExtraLib(threadsTypes, "file:///node_modules/threads/index.d.ts");
+// the compiled JavaScript is for reading: no diagnostics on it
+ts.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
 
-// syntax colors (microlighter, through the CSS Custom Highlight API: the code stays plain text). a
-// pass recolors every block on the page, so passes run one at a time, and a change during one asks
-// for another
-let highlighting: Promise<unknown> | null = null, highlightAgain = false;
-function highlight() {
-  if (highlighting) { highlightAgain = true; return; }
-  highlighting = highlightAll().finally(() => {
-    highlighting = null;
-    if (highlightAgain) { highlightAgain = false; highlight(); }
-  });
-}
+const dark = matchMedia("(prefers-color-scheme: dark)");
+const theme = () => dark.matches ? "vs-dark" : "vs";
+dark.addEventListener("change", () => monaco.editor.setTheme(theme()));
+const options: monaco.editor.IStandaloneEditorConstructionOptions = {
+  automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, theme: theme(),
+  fontSize: 12.5, lineNumbersMinChars: 3, tabSize: 2, renderLineHighlight: "none",
+};
+const sourceModel = monaco.editor.createModel(PRESETS[0][1], "typescript", monaco.Uri.parse("file:///program.ts"));
+const editor = monaco.editor.create($("source"), { ...options, model: sourceModel });
+const jsModel = monaco.editor.createModel("", "javascript", monaco.Uri.parse("file:///compiled.js"));
+const jsEditor = monaco.editor.create($("js"), { ...options, model: jsModel, readOnly: true, domReadOnly: true });
+const added = jsEditor.createDecorationsCollection();
 
-// what the compiler added (or, erased, the one line the runtime needs), as a highlight of its own
+// what the compiler added (or, erased, the one line the runtime needs), marked in the JavaScript
 function markAdded() {
-  const ranges: Range[] = [], code = text(js);
+  const marks: monaco.editor.IModelDeltaDecoration[] = [];
+  const lines = jsModel.getLinesContent();
   if (result && mode() === "compiled") {
-    for (const m of code.matchAll(/\b__[A-Za-z0-9]+\b/g)) ranges.push(textRange(js, m.index, m.index + m[0].length));
-  } else if (result?.erased.js) {
-    const lines = code.split("\n"), from = lines.length - 1 - result.erased.added;
-    let at = 0;
     lines.forEach((line, i) => {
-      if (i >= from && line) ranges.push(textRange(js, at, at + line.length));
-      at += line.length + 1;
+      for (const m of line.matchAll(/\b__[A-Za-z0-9]+\b/g))
+        marks.push({ range: new monaco.Range(i + 1, m.index + 1, i + 1, m.index + 1 + m[0].length), options: { inlineClassName: "threads-added" } });
     });
+  } else if (result?.erased.js) {
+    const last = lines.length - (lines.at(-1) === "" ? 1 : 0);
+    for (let n = last - result.erased.added + 1; n <= last; n++)
+      marks.push({ range: new monaco.Range(n, 1, n, 1), options: { isWholeLine: true, className: "threads-added-line" } });
   }
-  CSS.highlights.set("threads-added", new Highlight(...ranges));
+  added.set(marks);
 }
 
 function showJs() {
   if (!result) return;
   if (mode() === "compiled") {
     $("js-title").textContent = "Compiled JavaScript";
-    $("js-hint").textContent = `by the tsgo fork in ${result.compiled.ms} ms · highlighted: what the compiler added`;
-    js.textContent = result.compiled.js ?? "(nothing emitted)";
+    $("js-hint").textContent = `by the tsgo fork in ${result.compiled.ms} ms · marked: what the compiler added`;
+    jsModel.setValue(result.compiled.js ?? "// nothing emitted");
   } else {
     $("js-title").textContent = "JavaScript, types erased";
-    $("js-hint").textContent = "node's type stripping · highlighted: the one line the runtime needs";
-    js.textContent = result.erased.js ?? result.erased.error ?? "";
+    $("js-hint").textContent = "node's type stripping · marked: the one line the runtime needs";
+    jsModel.setValue(result.erased.js ?? `// ${result.erased.error ?? ""}`);
   }
   markAdded();
-  highlight();
   showDiagnostics();
 }
 
+// ---- diagnostics: the ownership checker's are squiggles in the editor too (tsc's, the editor's own
+// TypeScript shows) ----
 function showDiagnostics() {
   if (!result) return;
   const { ownership, types } = result.compiled;
+  monaco.editor.setModelMarkers(sourceModel, "own-check", ownership.map(d => {
+    const word = sourceModel.getWordAtPosition({ lineNumber: d.line, column: d.col });
+    return {
+      severity: monaco.MarkerSeverity.Error, source: "tsgo own check", code: d.code, message: d.message,
+      startLineNumber: d.line, startColumn: d.col, endLineNumber: d.line, endColumn: word?.endColumn ?? d.col + 1,
+    };
+  }));
   const count = (n: number) => n === 0 ? "no errors" : `${n} error${n === 1 ? "" : "s"}`;
   const list = (ds: Diagnostic[]) => ds.length === 0 ? "" : `<ul>${ds.map(d =>
     `<li data-line="${d.line}"><span class="where">${d.line}:${d.col}</span> <span class="code">${d.code}</span> ${escapeHtml(d.message)}</li>`).join("")}</ul>`;
@@ -122,18 +131,13 @@ function showDiagnostics() {
 diagnostics.addEventListener("click", e => {
   const item = (e.target as HTMLElement).closest("li");
   if (!item) return;
-  const n = Number(item.dataset.line), lines = text(source).split("\n");
-  let at = 0;
-  for (let i = 0; i < n - 1; i++) at += lines[i].length + 1;
-  source.focus();
-  const selection = getSelection()!;
-  selection.removeAllRanges();
-  selection.addRange(textRange(source, at, at + (lines[n - 1]?.length ?? 0)));
-  const pane = source.parentElement!;
-  pane.scrollTop = Math.max(0, (n - 6) * parseFloat(getComputedStyle(source).lineHeight));
+  const n = Number(item.dataset.line);
+  editor.setSelection(new monaco.Range(n, 1, n, sourceModel.getLineMaxColumn(n)));
+  editor.revealLineInCenter(n);
+  editor.focus();
 });
 
-let compilingNow = false;
+// ---- compiling ----
 async function compile() {
   const id = ++compiling;
   compilingNow = true;
@@ -141,7 +145,7 @@ async function compile() {
   updateRun();
   try {
     const response = await fetch("/__threads/compile", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: text(source) }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: sourceModel.getValue() }),
     });
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
     const compiled = await response.json() as Result;
@@ -152,7 +156,7 @@ async function compile() {
   } catch (e) {
     if (id !== compiling) return;
     status.textContent = "The playground compiles on Vite's dev server, which this page could not reach.";
-    js.textContent = String(e);
+    jsModel.setValue(`// ${String(e)}`);
   } finally {
     if (id === compiling) { compilingNow = false; updateRun(); }
   }
@@ -163,7 +167,7 @@ function updateRun() {
   runButton.disabled = running || !code || compilingNow;
 }
 
-// output: the program's lines, with the 256-color backgrounds Mandelbrot draws with
+// ---- running: the program's lines, with the 256-color backgrounds Mandelbrot draws with ----
 const BASIC = ["#000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0",
   "#808080", "#f00", "#0f0", "#ff0", "#00f", "#f0f", "#0ff", "#fff"];
 function xterm(n: number): string {
@@ -212,31 +216,22 @@ runButton.addEventListener("click", async () => {
   }
 });
 
+// ---- the rest of the page ----
 for (const [name] of PRESETS) preset.add(new Option(name));
 preset.addEventListener("change", () => {
-  source.textContent = PRESETS[preset.selectedIndex][1];
-  source.parentElement!.scrollTop = 0;
-  highlight();
-  compile();
+  sourceModel.setValue(PRESETS[preset.selectedIndex][1]);
+  editor.setScrollTop(0);
 });
-source.addEventListener("input", () => {
-  highlight();
+sourceModel.onDidChangeContent(() => {
   clearTimeout(timer);
   timer = window.setTimeout(compile, 400);
-});
-source.addEventListener("keydown", e => { // Tab indents, as an edit the editor can undo
-  if (e.key !== "Tab") return;
-  e.preventDefault();
-  document.execCommand("insertText", false, "  ");
 });
 for (const radio of document.querySelectorAll('input[name="mode"]')) radio.addEventListener("change", () => { showJs(); updateRun(); });
 $("clear").addEventListener("click", () => { output.textContent = ""; });
 
-source.textContent = PRESETS[0][1];
-highlight();
 compile();
 start({ onLog: text => print(ansiToHtml(text)) }).then(() => {
   workers = navigator.hardwareConcurrency;
   if (!compilingNow) status.textContent = ready();
 });
-(window as unknown as { __playground: unknown }).__playground = { get result() { return result; } };
+(window as unknown as { __playground: unknown }).__playground = { get result() { return result; }, monaco, editor, jsEditor };

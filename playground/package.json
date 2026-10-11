@@ -10,14 +10,14 @@
     "typecheck": "tsc --noEmit",
     "own-check": "\"$TSGO\" own check -p tsconfig.json --ownRuntime threads"
   },
-  "dependencies": {
-    "microlighter": "^2.2.0"
-  },
   "devDependencies": {
     "typescript": "6.0.3",
     "vite": "^7.1.12"
   },
   "engines": {
     "node": ">=22.13"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.57.0"
   }
 }

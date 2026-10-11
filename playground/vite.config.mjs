@@ -14,6 +14,4 @@ export default {
     ],
   },
   build: { target: 'es2022' },
-  // microlighter loads its grammars with a relative dynamic import, which pre-bundling would break
-  optimizeDeps: { exclude: [ 'microlighter' ] },
 };
