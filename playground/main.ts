@@ -16,6 +16,7 @@ import share from "./programs/share.ts?raw";
 import structTally from "./programs/struct-tally.ts?raw";
 import sieve from "./programs/sieve.ts?raw";
 import strings from "./programs/strings.ts?raw";
+import json from "./programs/json.ts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
 import nbodyChan from "./programs/nbody-chan.ts?raw";
@@ -49,6 +50,7 @@ const PRESETS: [string, string, string][] = [
   ["Examples", "N-body: moving and sharing objects", nbodyTs],
   ["Examples", "N-body: channels, copying objects", nbodyChan],
   ["Examples", "Mandelbrot: goroutines and channels", mandelbrotChan],
+  ["Examples", "JSON: parsing a log on threads", json],
   ["Examples", "Nearest centers (the tutorial)", tutorial],
   ["Examples", "What channels cost", pipeline],
   ["Examples", "Reference counting under a race", refcount],

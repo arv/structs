@@ -92,11 +92,16 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 
 [programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
 thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); strings in shared
-memory; a channel pipeline; a pool of workers on channels. Then the
-bigger examples: N-body four ways (shared structs with a barrier, shared structs with channels,
-moving and sharing objects, channels copying objects), Mandelbrot on channels, the nearest-centers
-example, what channels cost, reference counting under a race, a growable `SharedVector` written in
-user space on the API above, and the mistakes the checker catches. Each exports `main(threadCounts)`.
+memory; a channel pipeline; a pool of workers on channels. Then the bigger examples: N-body four ways
+(shared structs with a barrier, shared structs with channels, moving and sharing objects, channels
+copying objects), Mandelbrot on channels, JSON parsed on threads, the nearest-centers example, what
+channels cost, reference counting under a race, a growable `SharedVector` written in user space on
+the API above, and the mistakes the checker catches. Each exports `main(threadCounts)`.
+
+Parsed JSON moves between threads faster than its text: an object's keys cross as the addresses of
+their interned copies, the receiver makes every object with the same keys with one constructor, and
+a string repeated in a value is copied once. 200,000 log requests (23 MB of JSON) arrive in about
+25 ms as objects, against about 55 ms to receive the text and 33 ms more to parse it again.
 
 Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
