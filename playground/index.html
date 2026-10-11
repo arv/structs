@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Threads playground</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1d1d1f; --muted: #6e6e73; --bg: #ffffff; --panel: #f6f6f8; --line: #d9d9de;
+      --accent: #0a66d8; --added: rgba(10, 102, 216, 0.14); --bad: #c4271b; --good: #1a7f37;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #f2f2f4; --muted: #a1a1a8; --bg: #1c1c1e; --panel: #242427; --line: #38383c;
+        --accent: #6aa8ff; --added: rgba(106, 168, 255, 0.22); --bad: #ff7a6e; --good: #57c97a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr) 32vh;
+      font: 14px/1.45 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg);
+    }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+    header h1 { font-size: 15px; margin: 0; }
+    header label { color: var(--muted); }
+    select, input, button { font: inherit; color: var(--fg); }
+    select, input[type=text] { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+    button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 4px 16px; cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    button.quiet { background: none; color: var(--muted); padding: 0 4px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+    #status { color: var(--muted); font-size: 13px; }
+    main { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+    .pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane + .pane { border-left: 1px solid var(--line); }
+    h2 {
+      display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 7px 16px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted);
+    }
+    h2 .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+    pre {
+      flex: 1; min-height: 0; margin: 0; padding: 10px 16px; overflow: auto;
+      font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; white-space: pre;
+      background: var(--panel); color: var(--fg);
+    }
+    /* microlighter's theme colors the code; the panes keep the page's own background */
+    [data-syntax-theme] { --syntax-background: var(--panel); --syntax-foreground: var(--fg); }
+    pre > code { display: block; min-height: 100%; outline: none; caret-color: var(--accent); }
+    ::highlight(threads-added) { background-color: var(--added); }
+    #diagnostics { max-height: 34%; overflow: auto; padding: 8px 16px; border-top: 1px solid var(--line); font-size: 13px; }
+    #diagnostics p { margin: 2px 0; font-weight: 600; }
+    #diagnostics .good { color: var(--good); }
+    #diagnostics .bad { color: var(--bad); }
+    #diagnostics .note { color: var(--muted); font-weight: 400; }
+    #diagnostics ul { margin: 2px 0 8px; padding: 0; list-style: none; }
+    #diagnostics li { padding: 2px 0; cursor: pointer; }
+    #diagnostics li:hover { text-decoration: underline; }
+    #diagnostics .where, #diagnostics .code { font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
+    #output-pane { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
+    #output { font-size: 11.5px; line-height: 1.3; white-space: pre-wrap; }
+    #output span { padding: 0.16em 0; } /* colored backgrounds meet between lines */
+    #output .run { color: var(--accent); margin-top: 6px; }
+    #output .done { color: var(--muted); }
+    #output .error { color: var(--bad); }
+    @media (max-width: 860px) {
+      body { height: auto; grid-template-rows: auto auto auto; }
+      main { grid-template-columns: 1fr; }
+      .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+      pre { min-height: 45vh; }
+      #output { min-height: 30vh; }
+    }
+  </style>
+</head>
+<body data-syntax-theme="github">
+  <header>
+    <h1>Threads playground</h1>
+    <label>Program <select id="preset"></select></label>
+    <span role="radiogroup" aria-label="What runs">
+      <label><input type="radio" name="mode" value="compiled" checked> Compiled</label>
+      <label><input type="radio" name="mode" value="erased"> Types erased</label>
+    </span>
+    <label>Threads <input id="threads" type="text" value="1,2,4,8" size="9"></label>
+    <button id="run" disabled>Run</button>
+    <span id="status">Starting the workers…</span>
+  </header>
+  <main>
+    <section class="pane">
+      <h2>TypeScript <span class="hint">edit it: it compiles as you type</span></h2>
+      <pre><code id="source" class="language-typescript" contenteditable="plaintext-only" spellcheck="false" aria-label="TypeScript program"></code></pre>
+    </section>
+    <section class="pane">
+      <h2><span id="js-title">Compiled JavaScript</span> <span class="hint" id="js-hint"></span></h2>
+      <pre><code id="js" class="language-javascript" aria-label="JavaScript"></code></pre>
+      <div id="diagnostics" aria-live="polite"></div>
+    </section>
+  </main>
+  <section id="output-pane">
+    <h2>Output <button id="clear" class="quiet">Clear</button></h2>
+    <pre id="output" aria-live="polite"></pre>
+  </section>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

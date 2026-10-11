@@ -1,0 +1,23 @@
+{
+  "name": "threads-playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Threads for JavaScript in plain TypeScript: own and shared values, shared structs and channels on Web Workers, with a playground that shows the compiled JavaScript.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "own-check": "\"$TSGO\" own check -p tsconfig.json --ownRuntime threads"
+  },
+  "dependencies": {
+    "microlighter": "^2.2.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "^7.1.12"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

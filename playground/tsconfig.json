@@ -1,0 +1,20 @@
+{
+  // plain TypeScript: tsc checks the types (npm run typecheck), the tsgo fork the ownership
+  // (npm run own-check), and the Vite plugin compiles with the fork. programs/mistakes.ts is left
+  // out on purpose: it is the playground's example of what the ownership checker catches
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "paths": {
+      "threads": ["./runtime/threads.d.mts"],
+      "threads/heap": ["./runtime/heap.d.mts"],
+      "threads/browser": ["./runtime/browser.d.mts"]
+    }
+  },
+  "include": ["*.ts", "programs/*.ts"],
+  "exclude": ["programs/mistakes.ts"]
+}
