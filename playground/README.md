@@ -56,8 +56,11 @@ value is one of three kinds:
 | Shared | `Shared<T>`, deeply readonly | copied once per reader; never changes | tables, settings |
 | Cell | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory | data many threads read and write, and what orders them |
 
-A struct's fields are numbers (`f64`), booleans (`bool`, a byte each) and references to other structs
-and SharedArrays (`ref<T>()`); a SharedArray holds numbers, booleans or structs, inline.
+A struct's fields are numbers (`f64`), booleans (`bool`, a byte each), strings (`str`) and references
+to other structs and SharedArrays (`ref<T>()`); a SharedArray holds numbers, booleans, strings or
+structs, inline. Strings in shared memory are interned: each distinct string is stored once, a field
+holds its address, and each thread decodes it once. A string that occurs more than once in a moved or
+shared value is copied once, and one a thread has read from a `str` field crosses as its address.
 
 Code inside a thread is plain JavaScript on plain objects. The cost is at the crossings. Threads can
 also talk Go's way: `go(f, ...args)`, `new Channel<T>(n)`, `send`, `recv`, `for (const v of ch)`,
@@ -88,8 +91,8 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 ## Programs
 
 [programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
-thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); a channel pipeline; a
-pool of workers on channels. Then the
+thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); strings in shared
+memory; a channel pipeline; a pool of workers on channels. Then the
 bigger examples: N-body four ways (shared structs with a barrier, shared structs with channels,
 moving and sharing objects, channels copying objects), Mandelbrot on channels, the nearest-centers
 example, what channels cost, reference counting under a race, a growable `SharedVector` written in
@@ -118,7 +121,8 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 - A page needs cross-origin isolation (the COOP and COEP headers) for SharedArrayBuffer. The dev server
   sends them; a production server must too.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference counted, but cycles of them
-  leak, and moved and shared values are never freed.
+  leak, and moved and shared values are never freed (channel messages are). Neither are interned
+  strings, so a `str` field suits labels and names better than an endless stream of distinct text.
 - A thread runs a top-level function; closures do not cross threads.
 - A goroutine is a whole worker: one per core is fine, thousands are not.
 

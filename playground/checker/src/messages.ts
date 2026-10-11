@@ -15,8 +15,8 @@ export const Messages = {
   ReturnSendingCallerReferenced: { code: 96009, text: "'{0}' cannot be returned as 'Sending<T>': it may be referenced by the caller." },
   ChangeShared: { code: 96010, text: "Cannot change '{0}': it is a shared value, which is immutable." },
   RuntimeNeedsESModules: { code: 96014, text: "Option '{0}' can only be used when 'module' is set to 'es2015' or later." },
-  StructField: { code: 96015, text: "A shared struct field must be a number, a boolean, a shared struct or a SharedArray." },
-  SharedArrayElement: { code: 96016, text: "The elements of a SharedArray must be numbers, booleans or a shared struct." },
+  StructField: { code: 96015, text: "A shared struct field must be a number, a boolean, a string, a shared struct or a SharedArray." },
+  SharedArrayElement: { code: 96016, text: "The elements of a SharedArray must be numbers, booleans, strings or a shared struct." },
   InlineStructElement: { code: 96017, text: "The elements of a SharedArray of shared structs are stored inline: assign their fields instead." },
   OptionalChaining: { code: 96018, text: "Optional chaining is not supported on '{0}': its value is an address in the shared heap." },
   Destructured: { code: 96019, text: "'{0}' cannot be destructured here: its value is an address in the shared heap." },
@@ -27,6 +27,7 @@ export const Messages = {
   BoundByDestructuring: { code: 96024, text: "'{0}' cannot be bound by destructuring: its value is an address in the shared heap." },
   GeneratorParameter: { code: 96025, text: "A generator's parameter cannot have type '{0}': the generator runs after its caller's borrow ends." },
   UnionField: { code: 96026, text: "Field '{0}' is at different places in the shared structs of this union." },
+  StringTarget: { code: 96027, text: "A string in a shared struct or SharedArray cannot be assigned by destructuring or as a loop variable." },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

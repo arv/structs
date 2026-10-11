@@ -22,7 +22,7 @@ const C_SHAPE_LOCK = 6;
 const C_ROOT_SHAPE = 7;
 const C_RING_HEAD = 8, C_RING_TAIL = 9, C_PENDING = 10, C_IDLE = 11, C_SHUTDOWN = 12;
 const C_LIVE = 13;       // threads spawned and not finished
-const C_STR_TABLE = 14, C_STR_CAP = 15;
+const C_STR_TABLE = 14; // the interned strings' table (see $intern)
 const C_HEAP_END = 16;
 const C_EPOCH = 17;      // reclamation's global epoch (see $defer)
 const C_FREE_LOCK = 18;  // guards the free lists
@@ -438,28 +438,56 @@ const strIs = (a, s) => {
   for (let i = 0; i < s.length; i++) if (U16[u + i] !== s.charCodeAt(i)) return false;
   return true;
 };
+// the table is a block [capacity][count] and then its slots, each 0 or a string's address. a filled
+// slot never changes, so a lookup takes no lock; an insert takes C_STR_LOCK, and when the table is
+// half full it doubles: the bigger table replaces it with one store. a lookup still probing the old
+// table misses, and looks again under the lock. old tables are not freed (all of them together are
+// no bigger than the newest), and neither are interned strings
+function strFind(t, s, h) { // the string's address in table t, or -1 - the empty slot where it goes
+  const slots = (t >> 2) + 2, mask = I32[t >> 2] - 1;
+  for (let i = h & mask; ; i = (i + 1) & mask) {
+    const a = Atomics.load(I32, slots + i);
+    if (a === 0) return -1 - i;
+    if (I32[(a + 8) >> 2] === h && strIs(a, s)) return a;
+  }
+}
+function strGrow(t) { // under C_STR_LOCK
+  const cap = I32[t >> 2] * 2, n = $alloc(8 + cap * 4), slots = (n >> 2) + 2, mask = cap - 1;
+  I32[n >> 2] = cap; I32[(n >> 2) + 1] = I32[(t >> 2) + 1];
+  for (let k = (t >> 2) + 2, end = k + (cap >> 1); k < end; k++) {
+    const a = I32[k];
+    if (a === 0) continue;
+    let i = I32[(a + 8) >> 2] & mask;
+    while (I32[slots + i] !== 0) i = (i + 1) & mask;
+    I32[slots + i] = a;
+  }
+  Atomics.store(I32, C_STR_TABLE, n);
+}
 export function $intern(s) {
   let a = strAddr.get(s);
   if (a !== undefined) return a;
-  const h = strHash(s), table = I32[C_STR_TABLE] >> 2, mask = I32[C_STR_CAP] - 1;
-  let i = h & mask;
-  // a filled slot never changes: look without the lock first
-  for (; (a = Atomics.load(I32, table + i)) !== 0; i = (i + 1) & mask) if (I32[(a + 8) >> 2] === h && strIs(a, s)) break;
-  if (a === 0) {
+  const h = strHash(s);
+  a = strFind(Atomics.load(I32, C_STR_TABLE), s, h);
+  if (a < 0) {
     mlock(C_STR_LOCK);
-    for (i = h & mask; (a = I32[table + i]) !== 0; i = (i + 1) & mask) if (I32[(a + 8) >> 2] === h && strIs(a, s)) break;
-    if (a === 0) {
+    const t = Atomics.load(I32, C_STR_TABLE);
+    a = strFind(t, s, h);
+    if (a < 0) {
+      const slot = (t >> 2) + 2 - 1 - a;
       a = $alloc(16 + s.length * 2);
       I32[a >> 2] = K_STR; I32[(a + 4) >> 2] = s.length; I32[(a + 8) >> 2] = h;
       const u = (a + 16) >> 1;
       for (let k = 0; k < s.length; k++) U16[u + k] = s.charCodeAt(k);
-      Atomics.store(I32, table + i, a);
+      Atomics.store(I32, slot, a);
+      if (++I32[(t >> 2) + 1] * 2 > I32[t >> 2]) strGrow(t);
     }
     munlock(C_STR_LOCK);
   }
   strAddr.set(s, a); addrStr.set(a, s);
   return a;
 }
+// the address of s if this thread has interned or read it already, else 0: a lookup, no hashing
+export const $internedHere = s => strAddr.get(s) ?? 0;
 export function $str(a) {
   let s = addrStr.get(a);
   if (s !== undefined) return s;
@@ -930,11 +958,11 @@ export function $log(...args) {
 
 // ---- setup and the worker side ----
 export function initShared(sab) { // once, before any worker starts
-  const i32 = new Int32Array(sab), cap = 1 << 16;
+  const i32 = new Int32Array(sab), cap = 1 << 12;
   const root = CTRL_BYTES, table = root + 24; // the root shape (all zero) and the string table
   i32[C_ROOT_SHAPE] = root;
-  i32[C_STR_TABLE] = table; i32[C_STR_CAP] = cap;
-  i32[C_ALLOC] = table + cap * 4;
+  i32[C_STR_TABLE] = table; i32[table >> 2] = cap; // [capacity][count], then the slots
+  i32[C_ALLOC] = table + 8 + cap * 4;
   i32[C_HEAP_END] = sab.byteLength;
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
   i32[C_EPOCH] = 1;

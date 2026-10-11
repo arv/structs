@@ -37,7 +37,6 @@ interface Case {
   tsconfig: string;
   runtime: string;
   cwd: string; // diagnostics are printed relative to it
-  forkCrashes?: boolean; // the fork's own check panics on it: compare with test/expected only
 }
 
 // The fork's messages name the `sending` keyword it parses; threads-check's name the plain TypeScript
@@ -68,7 +67,7 @@ const cases: Case[] = [];
 // test/cases: marker-mode programs against the playground's runtime/threads.d.mts.
 for (const name of readdirSync(join(checkerDir, "test/cases")).sort()) {
   const dir = join(checkerDir, "test/cases", name);
-  cases.push({ name: `cases/${name}`, tsconfig: join(dir, "tsconfig.json"), runtime: "threads", cwd: dir, forkCrashes: name === "patterns" });
+  cases.push({ name: `cases/${name}`, tsconfig: join(dir, "tsconfig.json"), runtime: "threads", cwd: dir });
 }
 
 // The playground, as its tsconfig has it and with programs/mistakes.ts.
@@ -85,6 +84,7 @@ cases.push({ name: "playground-mistakes", tsconfig: join(withMistakes, "tsconfig
 // The fork's marker-mode compiler tests, split into their files.
 for (const test of [
   "ownMarkers", "ownMarkersAwait", "ownMarkersErrors", "ownLayoutStructUnions", "ownLayoutStructUnionsErrors", "ownLayoutBooleans", "ownLayoutBooleansErrors",
+  "ownLayoutStrings", "ownLayoutStringsErrors",
 ]) {
   const file = join(forkTests, `${test}.ts`);
   if (!existsSync(file)) continue;
@@ -139,7 +139,7 @@ function writeCompilerTest(text: string, dir: string): { runtime: string } {
 }
 
 function runFork(c: Case): { lines: string[]; ms: number } | undefined {
-  if (!haveFork || c.forkCrashes) return undefined;
+  if (!haveFork) return undefined;
   const start = performance.now();
   const result = spawnSync(tsgo, ["own", "check", "-p", c.tsconfig, "--ownRuntime", c.runtime, "--pretty", "false"], { cwd: c.cwd, encoding: "utf8" });
   const ms = performance.now() - start;

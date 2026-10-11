@@ -8,7 +8,7 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
+import { $alloc, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
   $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -19,13 +19,19 @@ export { $log as log };
 // ---- the wire format: a blob of 8-byte words in the shared heap. word 0 is the root value ----
 // a value word is a number (f64), or a box: hi = 0xFFF80000 | tag << 11, lo = payload. payloads
 // of strings, arrays and objects are the word offset of their body in the same blob
-//   string body: [length] then utf-16 units     array body: [length] then value words
+//   string body: [length][repeated] then utf-16 units     array body: [length] then value words
 //   object body: [count] then count key words (interned key address) then count value words
+// a string that occurs more than once in a value is written once: its other occurrences point at the
+// same body, which is marked repeated, so that a reader decodes it once. a string this thread has
+// interned (a `str` field's) or read from the string table already is not copied at all: it is the
+// address of its one copy there (T_ISTR). nothing else is added to the string table, whose strings
+// are never freed: a channel message is freed whole once it is read
 const BOX = 0xFFF80000 | 0;
-const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9, T_COUNTED = 10;
+const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9, T_COUNTED = 10, T_ISTR = 11;
 
 // writing: into a growing private buffer, then copied into the heap in one piece
 let wf = new Float64Array(1024), wi = new Int32Array(wf.buffer), wn = 0;
+const written = new Map(); // the strings in the blob being written -> their body
 const reserve = words => {
   if (wn + words <= wf.length) return;
   const nf = new Float64Array(Math.max(wf.length * 2, wn + words));
@@ -51,9 +57,18 @@ function put(at, v, moved, seen) {
   if (v === true) return box(at, T_TRUE, 0);
   if (v === false) return box(at, T_FALSE, 0);
   if (typeof v === 'string') {
-    const body = wn, words = 1 + ((v.length + 3) >> 2);
-    reserve(words); wn += words;
-    wi[body * 2] = v.length;
+    const interned = $internedHere(v);
+    if (interned !== 0) return box(at, T_ISTR, interned);
+    let body = written.get(v);
+    if (body !== undefined) {
+      wi[body * 2 + 1] = 1; // repeated
+      return box(at, T_STR, body);
+    }
+    const words = 1 + ((v.length + 3) >> 2);
+    reserve(words);
+    body = wn; wn += words;
+    wi[body * 2] = v.length; wi[body * 2 + 1] = 0;
+    written.set(v, body);
     const u = new Uint16Array(wf.buffer, (body + 1) * 8, v.length);
     for (let i = 0; i < v.length; i++) u[i] = v.charCodeAt(i);
     return box(at, T_STR, body);
@@ -88,7 +103,9 @@ function put(at, v, moved, seen) {
 // a blob of v in the shared heap; its address
 function write(v, moved, alloc = $alloc) {
   wn = 1;
+  written.clear();
   put(0, v, moved, new Set());
+  written.clear();
   const a = alloc(wn * 8);
   U8.set(new Uint8Array(wf.buffer, 0, wn * 8), a);
   return a;
@@ -106,11 +123,18 @@ function get(base, at, frozen) {
     case T_FALSE: return false;
     case T_TRUE: return true;
     case T_STR: {
+      const repeated = I32[(base >> 2) + p * 2 + 1] !== 0;
+      if (repeated && decoded !== null) {
+        const s = decoded.get(p);
+        if (s !== undefined) return s;
+      }
       const n = I32[(base >> 2) + p * 2], u = (base + (p + 1) * 8) >> 1;
       let s = '';
       for (let k = 0; k < n; k += 4096) s += String.fromCharCode.apply(null, U16.subarray(u + k, u + Math.min(n, k + 4096)));
+      if (repeated) (decoded ??= new Map()).set(p, s);
       return s;
     }
+    case T_ISTR: return $str(p);
     case T_ARR: {
       const n = I32[(base >> 2) + p * 2], a = [];
       for (let k = 0; k < n; k++) a.push(get(base, p + 1 + k, frozen));
@@ -126,7 +150,17 @@ function get(base, at, frozen) {
   }
   throw new Error('own: bad value word');
 }
-const read = (a, frozen) => get(a, 0, frozen);
+// the repeated strings of the blob being read, by body: decoded once per read
+let decoded = null;
+function read(a, frozen) {
+  const outer = decoded;
+  decoded = null;
+  try {
+    return get(a, 0, frozen);
+  } finally {
+    decoded = outer;
+  }
+}
 
 // objects with the same keys (in the same order) are made by one generated function, an object
 // literal: the engine gives them one hidden class, and making one is a single allocation
@@ -299,11 +333,13 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `const Name = struct({ a: f64, b: ref<Name>(), c: bool })` (threads.mjs), or `shared struct Name {
-// a: number; b: Name | null; c: boolean }` in the syntax, compiles to __sharedStruct('Name', ['a',
-// 'b', 'c'], [1], [2]). a struct's block is [kind][count] and then its fields, 8 bytes each, in order:
-// a number field is an f64, a reference field (refs: a struct or a SharedArray) the address in its
-// low half, 0 for null, and a boolean field (bools) a byte, 0 or 1, at the start of its slot.
+// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str })` (threads.mjs), or `shared struct
+// Name { a: number; b: Name | null; c: boolean; d: string }` in the syntax, compiles to
+// __sharedStruct('Name', ['a', 'b', 'c', 'd'], [1], [2], [3]). a struct's block is [kind][count] and
+// then its fields, 8 bytes each, in order: a number field is an f64, a reference field (refs: a struct
+// or a SharedArray) the address in its low half, 0 for null, a boolean field (bools) a byte, 0 or 1,
+// at the start of its slot, and a string field (strs) an interned string's address in its low half,
+// 0 for "" (see __intern).
 // compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
 // `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
 // boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
@@ -311,8 +347,9 @@ cellKinds.set(K_SLOTS, Slots);
 // a struct's kind is the address of its name and layout in the shared string table, so every thread
 // agrees on it whatever order it loads modules in (a page's workers load them on demand), and two
 // structs with one layout may share it. it is at least CTRL_BYTES, so never a small cell kind
-export function __sharedStruct(name, fields, refs = [], bools = []) {
-  const layout = `struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]${bools.length ? ` bools [${bools.join(', ')}]` : ''}`;
+export function __sharedStruct(name, fields, refs = [], bools = [], strs = []) {
+  const layout = `struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]` +
+    `${bools.length ? ` bools [${bools.join(', ')}]` : ''}${strs.length ? ` strs [${strs.join(', ')}]` : ''}`;
   const kind = $intern(layout), n = fields.length, size = 8 + n * 8;
   const Struct = { [name]: class {
     constructor() {
@@ -328,6 +365,7 @@ export function __sharedStruct(name, fields, refs = [], bools = []) {
   Struct.fields = fields;
   Struct.refs = refs;
   Struct.bools = bools;
+  Struct.strs = strs;
   fields.forEach((field, k) => Object.defineProperty(Struct.prototype, field, refs.includes(k) ? {
     get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
     set(v) { __store((this.$cell >> 2) + 2 + 2 * k, v == null ? 0 : __retain(__unbox(v))); },
@@ -335,6 +373,10 @@ export function __sharedStruct(name, fields, refs = [], bools = []) {
   } : bools.includes(k) ? {
     get() { return U8[this.$cell + 8 + 8 * k] !== 0; },
     set(v) { U8[this.$cell + 8 + 8 * k] = v ? 1 : 0; },
+    enumerable: true
+  } : strs.includes(k) ? {
+    get() { return __str(I32[(this.$cell >> 2) + 2 + 2 * k]); },
+    set(v) { I32[(this.$cell >> 2) + 2 + 2 * k] = __intern(v); },
     enumerable: true
   } : {
     get() { return F64[(this.$cell >> 3) + 1 + k]; },
@@ -350,6 +392,11 @@ export function __sharedStruct(name, fields, refs = [], bools = []) {
 // it along as a number and all use the same memory: nothing is copied. the compiler reads and writes
 // fields and elements through these views
 export { I32 as __I32, F64 as __F64, U8 as __U8 };
+// strings in shared memory are interned (runtime.mjs $intern): one copy of each, which every thread
+// decodes once and keeps. a string field or element holds its address, 0 for "": compiled, a read is
+// __str(__I32[i]) and a write __I32[i] = __intern(v). interned strings are never freed
+export const __intern = s => s === '' ? 0 : $intern(String(s));
+export const __str = a => a === 0 ? '' : $str(a);
 // a zeroed struct: [kind][count 1], then its fields from byte 8. the caller owns the count
 export function __newStruct(type) {
   const a = $allocBlock(type.size);
@@ -358,7 +405,8 @@ export function __newStruct(type) {
   return a;
 }
 // [kind][length][element size][count] then the elements from byte 16: numbers (type 8, their size),
-// booleans (type 1, a byte each, 0 or 1) or whole struct blocks, each with its own header so an element's address can be boxed like any struct.
+// booleans (type 1, a byte each, 0 or 1), strings (type 4, an interned string's address each) or whole
+// struct blocks, each with its own header so an element's address can be boxed like any struct.
 // an element's header is [kind][back], back the array's address minus its own: an element lives as
 // long as its array, and counting it counts the array
 export function __newSharedArray(type, length) {
@@ -396,7 +444,7 @@ function destroy(o) {
     const b = work.pop(), kind = I32[b >> 2];
     if (kind === K_SHARED_ARRAY) {
       const n = I32[(b >> 2) + 1], size = I32[(b >> 2) + 2];
-      if (size !== 8 && size !== 1 && n !== 0) { // structs
+      if (size > 8 && n !== 0) { // structs
         const refs = cellKinds.get(I32[(b + 16) >> 2]).refs;
         if (refs.length !== 0) for (let e = b + 16, end = e + n * size; e < end; e += size) for (const k of refs) drop(I32[(e >> 2) + 2 + 2 * k]);
       }
@@ -444,7 +492,7 @@ export const __box = a => a ? cell(a) : null;
 // for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
 export class SharedArray {
   constructor(type, length) {
-    const a = __newSharedArray(type === Number ? 8 : type === Boolean ? 1 : type, length), h = cell(a);
+    const a = __newSharedArray(type === Number ? 8 : type === Boolean ? 1 : type === String ? 4 : type, length), h = cell(a);
     __release(a); // the handle holds its own count
     return h;
   }
@@ -464,10 +512,10 @@ function sharedArrayAddress(a, i) {
   if (!(i < I32[(a >> 2) + 1])) oob(a, i);
   return a + 16 + i * I32[(a >> 2) + 2];
 }
-// numbers and booleans are read in place; a struct element is boxed in turn
+// numbers, booleans and strings are read in place; a struct element is boxed in turn
 function sharedArrayGet(a, i) {
-  const size = I32[(a >> 2) + 2];
-  return size === 8 ? F64[sharedArrayAddress(a, i) >> 3] : size === 1 ? U8[sharedArrayAddress(a, i)] !== 0 : cell(sharedArrayAddress(a, i));
+  const size = I32[(a >> 2) + 2], e = sharedArrayAddress(a, i);
+  return size === 8 ? F64[e >> 3] : size === 1 ? U8[e] !== 0 : size === 4 ? __str(I32[e >> 2]) : cell(e);
 }
 function sharedArrayHandle(a) {
   const target = Object.assign(Object.create(SharedArrayHandle.prototype), { $cell: a });
@@ -475,9 +523,10 @@ function sharedArrayHandle(a) {
     get: (t, key, receiver) => isIndex(key) ? sharedArrayGet(a, Number(key)) : Reflect.get(t, key, receiver),
     set: (t, key, v, receiver) => {
       if (!isIndex(key)) return Reflect.set(t, key, v, receiver);
-      const size = I32[(a >> 2) + 2];
-      if (size === 1) U8[sharedArrayAddress(a, Number(key))] = v ? 1 : 0;
-      else if (size === 8) F64[sharedArrayAddress(a, Number(key)) >> 3] = +v;
+      const size = I32[(a >> 2) + 2], e = sharedArrayAddress(a, Number(key));
+      if (size === 8) F64[e >> 3] = +v;
+      else if (size === 1) U8[e] = v ? 1 : 0;
+      else if (size === 4) I32[e >> 2] = __intern(v);
       else throw new TypeError('own: a SharedArray of structs holds its structs in place');
       return true;
     },

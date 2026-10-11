@@ -11,8 +11,8 @@ export function elements(a: SharedArray<Good>, g: Good, i: number, maybe: Good |
   points[0] = points[1]!;                    // error
   const n = maybe?.a;                        // error: optional chaining
   const m = points?.[0];                     // error
-  const bad: SharedArray<string> | undefined = undefined;   // error: the elements of a SharedArray
-  const worse = new SharedArray(Good as any, 3) as SharedArray<string>;    // error
+  const bad: SharedArray<bigint> | undefined = undefined;   // error: the elements of a SharedArray
+  const worse = new SharedArray(Good as any, 3) as SharedArray<bigint>;    // error
   return [n, m, bad, worse];
 }
 

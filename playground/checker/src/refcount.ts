@@ -7,7 +7,7 @@
 //   - a captured counted variable that is reassigned (96020), and a counted local captured by a
 //     method or a class (96023);
 //   - a generator's counted parameter (96025), and a `struct(...)` field that is not a number, a
-//     boolean or a reference (96015).
+//     boolean, a string or a reference (96015).
 //
 // Only the part of the counting rules that these errors depend on is here: whether the value of an
 // expression is counted at all (getCount), not how (owned, borrowed, ...), which only the emit needs.
