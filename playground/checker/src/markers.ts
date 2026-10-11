@@ -15,7 +15,7 @@
 import type { Own, StructInfo } from "./context.ts";
 import { ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
 import type { TsSymbol, Type } from "./host.ts";
-import { isCellType, nonNullishMembers } from "./layout.ts";
+import { isBooleanType, isCellType, isFieldType } from "./layout.ts";
 import { Messages } from "./messages.ts";
 import { forEachChild, isPropertyNameLiteral, K, skipParentheses, walkUpParenthesizedExpressions } from "./syntax.ts";
 import type { Node } from "./syntax.ts";
@@ -125,13 +125,13 @@ export function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
 }
 
 // The layout of the struct a `struct(...)` call declares: its fields in the order of the object
-// literal, numbers (`f64`) and references (`ref<T>()`) by their type.
+// literal, numbers (`f64`), booleans (`bool`) and references (`ref<T>()`) by their type.
 export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
   if (c.structCalls.has(call)) return c.structCalls.get(call);
   let info: StructInfo | undefined;
   const t = getStructTypeOfCall(c, call);
   if (t && call.arguments.length >= 1 && skipParentheses(call.arguments[0]).kind === K.ObjectLiteralExpression) {
-    info = { decl: call, name: "Struct", fields: [], refs: [] };
+    info = { decl: call, name: "Struct", fields: [], refs: [], bools: [] };
     c.structCalls.set(call, info); // before its fields: a field may refer to the struct itself
     const parent = walkUpParenthesizedExpressions(call.parent as Node);
     if (parent && parent.kind === K.VariableDeclaration && parent.name.kind === K.Identifier) info.name = parent.name.text;
@@ -141,11 +141,16 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
         continue; // reported by checkStructCall
       }
       const field = name.text as string;
-      let isRef = false;
+      let isRef = false, isBool = false;
       const symbol = c.host.checker.getPropertyOfType(t, field);
-      if (symbol) isRef = isCellType(c, c.host.typeOfSymbol(symbol));
+      if (symbol) {
+        const ft = c.host.typeOfSymbol(symbol);
+        isRef = isCellType(c, ft);
+        isBool = isBooleanType(ft);
+      }
       info.fields.push(field);
       info.refs.push(isRef);
+      info.bools.push(isBool);
     }
   }
   c.structCalls.set(call, info);
@@ -153,7 +158,7 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
 }
 
 // Checks a `struct(...)` call: its fields are given in an object literal, by name, and each is a
-// number or a reference (a shared struct or a SharedArray, possibly null).
+// number, a boolean or a reference (a shared struct or a SharedArray, possibly null).
 export function checkStructCall(c: Own, call: Node): void {
   const t = getStructTypeOfCall(c, call);
   if (!t || call.arguments.length < 1) return;
@@ -170,8 +175,7 @@ export function checkStructCall(c: Own, call: Node): void {
     }
     const symbol = c.host.checker.getPropertyOfType(t, name.text);
     if (!symbol) continue;
-    const ft = c.host.typeOfSymbol(symbol);
-    if (ft.flags & TypeFlags.Number && !(ft.flags & TypeFlags.Union) || nonNullishMembers(c, ft).length === 1 && isCellType(c, ft)) continue;
+    if (isFieldType(c, c.host.typeOfSymbol(symbol))) continue;
     c.error(property, Messages.StructField);
   }
 }

@@ -7,7 +7,7 @@
 //
 // Reads and writes are plain and unordered between threads, as with any struct. One thread pushes at
 // a time: several writers share a lock, here a channel holding one token, Go's way.
-import { Channel, f64, heapStats, log, ref, scope, SharedArray, struct, type Struct, type Thread } from "threads";
+import { bool, Channel, f64, heapStats, log, ref, scope, SharedArray, struct, type Struct, type Thread } from "threads";
 
 interface SharedVector { length: number; grows: number; data: SharedArray<number> | null }
 const SharedVector = struct<SharedVector>({ length: f64, grows: f64, data: ref<SharedArray<number>>() });
@@ -49,7 +49,7 @@ function toArray(v: SharedVector): number[] {
 
 // ---- a demo: writers pushing into one vector while a reader reads it ----
 
-const Flag = struct({ stop: f64 });
+const Flag = struct({ stop: bool });
 type Flag = Struct<typeof Flag>;
 const PER_WRITER = 20000;
 
@@ -66,7 +66,7 @@ function writer(v: SharedVector, lock: Channel<number>, first: number, count: nu
 // how many values that no writer pushed
 function reader(v: SharedVector, flag: Flag, max: number): number {
   let reads = 0, bad = 0;
-  while (flag.stop === 0) {
+  while (!flag.stop) {
     const data = v.data!, n = Math.min(v.length, data.length);
     if (n === 0) continue;
     const x = data[n - 1];
@@ -93,7 +93,7 @@ export function main(threadCounts: readonly number[]) {
       const ws: Thread<void>[] = [];
       for (let t = 0; t < threads; t++) ws.push(s.spawn(writer, v, lock, t * PER_WRITER, PER_WRITER));
       for (const w of ws) w.join();
-      flag.stop = 1;
+      flag.stop = true;
       result = r.join();
     });
     const ms = performance.now() - t1;

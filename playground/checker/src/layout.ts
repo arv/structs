@@ -3,13 +3,13 @@
 // emit boxes and unboxes such values (the conversions, which the counting rules read), and reports
 // what the layouts cannot express:
 //
-//   - the elements of a SharedArray must be numbers or a shared struct (96016);
+//   - the elements of a SharedArray must be numbers, booleans or a shared struct (96016);
 //   - the elements of a SharedArray of structs are stored inline, so they cannot be assigned (96017);
 //   - no optional chaining on an address (96018), no destructuring of a parameter or a for-of variable
 //     that holds one (96019);
 //   - a field of a union of structs must be at the same place in all of them (96026).
 
-import { CellKind, Conversion } from "./context.ts";
+import { CellKind, Conversion, isArrayKind } from "./context.ts";
 import type { CellType, Own, StructInfo } from "./context.ts";
 import { IndexKind, ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
 import type { Type } from "./host.ts";
@@ -22,7 +22,7 @@ import {
 import type { Node } from "./syntax.ts";
 import type { SourceFile } from "typescript/ast";
 
-const noCell: CellType = { kind: CellKind.None, fields: [], refs: [] };
+const noCell: CellType = { kind: CellKind.None, fields: [], refs: [], bools: [] };
 
 // The shared struct whose instances have type t, if any: a `struct(...)` call (whose values' type
 // may be intersected with Cell).
@@ -68,24 +68,38 @@ function isNullishOnly(c: Own, t: Type): boolean {
   return !!(t.flags & TypeFlags.Nullable) && nonNullishMembers(c, t).length === 0;
 }
 
+// Reports whether a field or element of type t is a boolean: `boolean`, `true` or `false` (not a
+// union with anything else).
+export function isBooleanType(t: Type): boolean {
+  return !!(t.flags & (TypeFlags.Boolean | TypeFlags.BooleanLiteral));
+}
+
+// Reports whether a shared struct may have a field of type t: a number, a boolean, or a reference (a
+// shared struct or a SharedArray, possibly with null or undefined).
+export function isFieldType(c: Own, t: Type): boolean {
+  return !!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union) || isBooleanType(t) ||
+    nonNullishMembers(c, t).length === 1 && isCellType(c, t);
+}
+
 // Classifies a type for the layout emit: a shared struct (or a union of them), a SharedArray of
-// numbers or a SharedArray of a shared struct (looking through null and undefined).
+// numbers or booleans, or a SharedArray of a shared struct (looking through null and undefined).
 export function getCellType(c: Own, t: Type | undefined): CellType {
   if (!t) return noCell;
   const members = nonNullishMembers(c, t);
   if (members.length > 1) {
     const s = getStructOfUnion(c, t, members);
-    return s ? { kind: CellKind.Struct, fields: s.fields, refs: s.refs } : noCell;
+    return s ? { kind: CellKind.Struct, fields: s.fields, refs: s.refs, bools: s.bools } : noCell;
   }
   if (members.length === 0) return noCell;
   const m = members[0]!;
   const s = getStructOfType(c, m);
-  if (s) return { kind: CellKind.Struct, fields: s.fields, refs: s.refs };
+  if (s) return { kind: CellKind.Struct, fields: s.fields, refs: s.refs, bools: s.bools };
   const element = getSharedArrayElementType(c, m);
   if (element) {
-    if (element.flags & TypeFlags.Number) return { kind: CellKind.ArrayOfNumber, fields: [], refs: [] };
+    if (element.flags & TypeFlags.Number) return { kind: CellKind.ArrayOfNumber, fields: [], refs: [], bools: [] };
+    if (isBooleanType(element)) return { kind: CellKind.ArrayOfBoolean, fields: [], refs: [], bools: [] };
     const es = getStructOfType(c, element);
-    if (es) return { kind: CellKind.ArrayOfStruct, fields: es.fields, refs: es.refs };
+    if (es) return { kind: CellKind.ArrayOfStruct, fields: es.fields, refs: es.refs, bools: es.bools };
   }
   return noCell;
 }
@@ -106,12 +120,12 @@ export function isCellExpression(c: Own, expr: Node | undefined): boolean {
   return !!expr && isExpression(expr) && isCellType(c, c.host.typeOf(expr));
 }
 
-// Checks the element type of a SharedArray type reference (or of a `new` of one): numbers or a shared
-// struct.
+// Checks the element type of a SharedArray type reference (or of a `new` of one): numbers, booleans or
+// a shared struct.
 export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   if (node.flags & NodeFlags.Ambient) return;
   const element = getSharedArrayElementType(c, t);
-  if (!element || element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union) || getStructOfType(c, element)) return;
+  if (!element || element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union) || isBooleanType(element) || getStructOfType(c, element)) return;
   c.error(node, Messages.SharedArrayElement);
 }
 
@@ -131,12 +145,15 @@ function getStructOfUnion(c: Own, t: Type, members: Type[]): StructInfo | undefi
   }
   let n = structs[0]!.fields.length;
   for (const s of structs.slice(1)) n = Math.min(n, s.fields.length);
-  const info: StructInfo = { decl: undefined, name: "", fields: structs[0]!.fields.slice(0, n), refs: structs[0]!.refs.slice(0, n) };
+  const info: StructInfo = {
+    decl: undefined, name: "", fields: structs[0]!.fields.slice(0, n), refs: structs[0]!.refs.slice(0, n), bools: structs[0]!.bools.slice(0, n),
+  };
   for (const s of structs.slice(1)) {
     for (let k = 0; k < n; k++) {
-      if (s.fields[k] !== info.fields[k] || s.refs[k] !== info.refs[k]) {
+      if (s.fields[k] !== info.fields[k] || s.refs[k] !== info.refs[k] || s.bools[k] !== info.bools[k]) {
         info.fields[k] = "";
         info.refs[k] = false;
+        info.bools[k] = false;
       }
     }
   }
@@ -350,7 +367,7 @@ function computeConversion(c: Own, node: Node): void {
           setTarget(c, object, inLayout);
           break;
         }
-        case CellKind.ArrayOfNumber: case CellKind.ArrayOfStruct:
+        case CellKind.ArrayOfNumber: case CellKind.ArrayOfStruct: case CellKind.ArrayOfBoolean:
           setTarget(c, object, name === "length");
           break;
         default:
@@ -367,7 +384,7 @@ function computeConversion(c: Own, node: Node): void {
         return;
       }
       const kind = getCellType(c, t).kind;
-      setTarget(c, object, kind === CellKind.ArrayOfNumber || kind === CellKind.ArrayOfStruct);
+      setTarget(c, object, isArrayKind(kind));
       return;
     }
   }

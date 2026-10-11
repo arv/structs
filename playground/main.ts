@@ -14,6 +14,7 @@ import hello from "./programs/hello.ts?raw";
 import move from "./programs/move.ts?raw";
 import share from "./programs/share.ts?raw";
 import structTally from "./programs/struct-tally.ts?raw";
+import sieve from "./programs/sieve.ts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
 import nbodyChan from "./programs/nbody-chan.ts?raw";
@@ -38,6 +39,7 @@ const PRESETS: [string, string, string][] = [
   ["Basics", "Moving a value to a thread", move],
   ["Basics", "Sharing a value with threads", share],
   ["Basics", "A shared struct", structTally],
+  ["Basics", "A SharedArray of booleans: a sieve", sieve],
   ["Basics", "Channels: a pipeline", channelPipeline],
   ["Basics", "Channels: a pool of workers", channelWorkers],
   ["Examples", "N-body: shared structs and a barrier", nbodyStruct],

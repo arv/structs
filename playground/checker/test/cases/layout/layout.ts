@@ -12,7 +12,7 @@ export function elements(a: SharedArray<Good>, g: Good, i: number, maybe: Good |
   const n = maybe?.a;                        // error: optional chaining
   const m = points?.[0];                     // error
   const bad: SharedArray<string> | undefined = undefined;   // error: the elements of a SharedArray
-  const worse = new SharedArray(Good as any, 3) as SharedArray<boolean>;   // error
+  const worse = new SharedArray(Good as any, 3) as SharedArray<string>;    // error
   return [n, m, bad, worse];
 }
 

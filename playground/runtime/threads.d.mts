@@ -42,12 +42,14 @@ export declare function share<T>(value: Sending<T>): Shared<T>;
 
 // ---- shared structs ----
 
-/** A field of a shared struct, declared with `f64` or `ref<T>()`. */
+/** A field of a shared struct, declared with `f64`, `bool` or `ref<T>()`. */
 export interface Field<T> {
   readonly [fieldBrand]: T;
 }
 /** A number field: an f64 in shared memory. */
 export declare const f64: Field<number>;
+/** A boolean field: a byte in shared memory, 0 or 1. */
+export declare const bool: Field<boolean>;
 /** A reference field: a shared struct or a SharedArray, or null. */
 export declare function ref<T>(): Field<T | null>;
 
@@ -78,8 +80,9 @@ export declare function struct<F extends Record<string, Field<any>>>(
 export declare function struct<T>(fields: { [K in keyof T]-?: Field<T[K]> }): StructType<T>;
 
 /**
- * A fixed-length array in shared memory, of numbers or of shared structs stored inline. Every thread
- * reads and writes the same elements, with no copying; a Barrier or a Channel orders them.
+ * A fixed-length array in shared memory, of numbers, of booleans (a byte each) or of shared structs
+ * stored inline. Every thread reads and writes the same elements, with no copying; a Barrier or a
+ * Channel orders them.
  */
 export interface SharedArray<T> extends Cell {
   readonly length: number;
@@ -87,6 +90,7 @@ export interface SharedArray<T> extends Cell {
 }
 export declare const SharedArray: {
   new (type: NumberConstructor, length: number): SharedArray<number>;
+  new (type: BooleanConstructor, length: number): SharedArray<boolean>;
   new <T>(type: StructType<T>, length: number): SharedArray<T & Cell>;
 };
 

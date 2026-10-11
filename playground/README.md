@@ -56,6 +56,9 @@ value is one of three kinds:
 | Shared | `Shared<T>`, deeply readonly | copied once per reader; never changes | tables, settings |
 | Cell | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory | data many threads read and write, and what orders them |
 
+A struct's fields are numbers (`f64`), booleans (`bool`, a byte each) and references to other structs
+and SharedArrays (`ref<T>()`); a SharedArray holds numbers, booleans or structs, inline.
+
 Code inside a thread is plain JavaScript on plain objects. The cost is at the crossings. Threads can
 also talk Go's way: `go(f, ...args)`, `new Channel<T>(n)`, `send`, `recv`, `for (const v of ch)`,
 `select`. A value sent on a channel moves; a struct or SharedArray goes as its address.
@@ -85,7 +88,8 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 ## Programs
 
 [programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
-thread; sharing a value; a shared struct; a channel pipeline; a pool of workers on channels. Then the
+thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); a channel pipeline; a
+pool of workers on channels. Then the
 bigger examples: N-body four ways (shared structs with a barrier, shared structs with channels,
 moving and sharing objects, channels copying objects), Mandelbrot on channels, the nearest-centers
 example, what channels cost, reference counting under a race, a growable `SharedVector` written in

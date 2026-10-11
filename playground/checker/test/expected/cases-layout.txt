@@ -2,8 +2,8 @@ layout.ts(10,3): error TS96017: The elements of a SharedArray of shared structs 
 layout.ts(11,3): error TS96017: The elements of a SharedArray of shared structs are stored inline: assign their fields instead.
 layout.ts(12,13): error TS96018: Optional chaining is not supported on 'Good | undefined': its value is an address in the shared heap.
 layout.ts(13,13): error TS96018: Optional chaining is not supported on 'SharedArray<{ x: number; y: number; } & Cell>': its value is an address in the shared heap.
-layout.ts(14,14): error TS96016: The elements of a SharedArray must be numbers or a shared struct.
-layout.ts(15,52): error TS96016: The elements of a SharedArray must be numbers or a shared struct.
+layout.ts(14,14): error TS96016: The elements of a SharedArray must be numbers, booleans or a shared struct.
+layout.ts(15,52): error TS96016: The elements of a SharedArray must be numbers, booleans or a shared struct.
 layout.ts(19,29): error TS96019: 'Good' cannot be destructured here: its value is an address in the shared heap.
 layout.ts(20,14): error TS96019: 'Good' cannot be destructured here: its value is an address in the shared heap.
 layout.ts(20,16): error TS96024: 'b' cannot be bound by destructuring: its value is an address in the shared heap.

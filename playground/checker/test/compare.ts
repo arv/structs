@@ -83,7 +83,9 @@ writeFileSync(join(withMistakes, "tsconfig.json"), JSON.stringify({
 cases.push({ name: "playground-mistakes", tsconfig: join(withMistakes, "tsconfig.json"), runtime: "threads", cwd: playground });
 
 // The fork's marker-mode compiler tests, split into their files.
-for (const test of ["ownMarkers", "ownMarkersAwait", "ownMarkersErrors", "ownLayoutStructUnions", "ownLayoutStructUnionsErrors"]) {
+for (const test of [
+  "ownMarkers", "ownMarkersAwait", "ownMarkersErrors", "ownLayoutStructUnions", "ownLayoutStructUnionsErrors", "ownLayoutBooleans", "ownLayoutBooleansErrors",
+]) {
   const file = join(forkTests, `${test}.ts`);
   if (!existsSync(file)) continue;
   const dir = join(scratch, test);
