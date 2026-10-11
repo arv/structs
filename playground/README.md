@@ -22,10 +22,11 @@ scope(s => { for (let t = 0; t < 8; t++) s.spawn(worker, t * 100, t * 100 + 100,
 
 ## Try it
 
-You need Node 22.13 or later, a recent Chrome (or another browser with SharedArrayBuffer), and the
-compiler: a fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`, branch
-`own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in its `tsc/` directory. The fork is
-not published yet.
+You need Node 22.13 or later, a recent Chrome (or another browser with SharedArrayBuffer), and, for
+the compiled JavaScript, a fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`,
+branch `own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in its `tsc/` directory. The
+fork is not published yet. The ownership checker needs no fork: it is [checker/](checker), on stock
+TypeScript 7.1, which `npm install` sets up as a workspace.
 
 ```sh
 npm install
@@ -37,7 +38,7 @@ completions and errors from the threads API, and see:
 
 - the JavaScript the fork compiles it to, with what the compiler added marked;
 - the same program with its types only erased, which still runs;
-- the ownership checker's errors, as squiggles in the editor and in a list;
+- the ownership checker's errors (threads-check's), as squiggles in the editor and in a list;
 - its output, run on a pool of Web Workers (Run). `main` runs on a worker too, started like any other
   thread, so it may block (`join`, `recv`, a barrier); the page itself never blocks, it only awaits
   `main`'s result.
@@ -65,9 +66,12 @@ The whole API, with doc comments, is [runtime/threads.d.mts](runtime/threads.d.m
 
 - **tsc** (`npm run typecheck`) checks the types. `Shared<T>` is deeply readonly, so it already rejects
   most writes to shared values.
-- **The ownership checker** (`npm run own-check`, `tsgo own check`) runs in CI like a linter. It reports
-  what tsc cannot see: a use after a value was sent, an alias of something sent, sending what the
-  caller still holds, writing to a shared value through a cast.
+- **The ownership checker**, `threads-check` ([checker/](checker), `npm run own-check`), runs in CI like
+  a linter. It reports what tsc cannot see: a use after a value was sent, an alias of something sent,
+  sending what the caller still holds, writing to a shared value through a cast. It is built on stock
+  TypeScript 7.1's public API, so it needs no fork; its tests compare it with the fork's `tsgo own
+  check`, which it replaces. The playground's dev server runs it too, with one TypeScript session kept
+  open.
 - **The compile** (the fork, through the Vite plugin, [runtime/vite-plugin-threads.mjs](runtime/vite-plugin-threads.mjs))
   erases the types and leaves the code alone, except that struct fields become typed-array reads
   (`b.x` is `__F64[(b >> 3) + 1]`), references to structs are counted so shared memory is freed
@@ -101,7 +105,8 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 | `runtime/threads.mjs`, `threads.d.mts` | the API |
 | `runtime/own.mjs`, `chan.mjs`, `runtime.mjs` | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool |
 | `runtime/heap.mjs`, `browser.mjs`, `threads-worker.mjs` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers |
-| `runtime/vite-plugin-threads.mjs` | compiles with the fork, registers thread functions, serves the playground's compiles, sets cross-origin isolation |
+| `runtime/vite-plugin-threads.mjs` | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
+| `checker/` | threads-check, the ownership checker, on TypeScript 7.1's API |
 | `index.html`, `main.ts` | the playground, on [Monaco](https://github.com/microsoft/monaco-editor) |
 
 ## Limits

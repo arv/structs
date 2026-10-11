@@ -14,13 +14,15 @@
 // - with `playground: true`, compiles programs the page sends it (POST /__threads/compile) two ways:
 //   with the fork, and with the types only erased (node's type stripping, plus the one line the
 //   runtime needs, registering the module's top-level functions). The page imports either as
-//   virtual:threads/playground/<key>.js or <key>.erased.js. Dev server only.
+//   virtual:threads/playground/<key>.js or <key>.erased.js. Dev server only. With `checker` (the path
+//   of threads-check's entry module) the ownership errors come from threads-check, on stock
+//   TypeScript 7.1, instead of the fork's `own check`.
 import { execFile, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
@@ -41,13 +43,29 @@ function diagnostics(text) {
 }
 
 export default function threads(options = {}) {
-  const { tsgo, tsconfig = 'tsconfig.json', runtime = 'threads', args = [], playground = false } = options;
+  const { tsgo, tsconfig = 'tsconfig.json', runtime = 'threads', args = [], playground = false, checker = null } = options;
   if (!tsgo) throw new Error('threads: the tsgo option names the tsgo fork\'s binary');
   let project, rootDir, outDir, playgroundDir, registering = [];
 
+  // threads-check, loaded once, with one TypeScript API session for every check: node imports its
+  // TypeScript sources directly (type stripping)
+  let threadsCheck = null;
+  async function ownershipWithThreadsCheck(config) {
+    threadsCheck ??= await import(pathToFileURL(checker).href).then(mod => ({ mod, api: new mod.API({ cwd: playgroundDir }) }));
+    const t0 = performance.now();
+    try {
+      const found = threadsCheck.mod.check(config, { runtime, api: threadsCheck.api });
+      return { checker: 'threads-check', ms: Math.round(performance.now() - t0),
+        diagnostics: found.filter(d => d.file?.endsWith('program.ts')).map(d => ({ line: d.line, col: d.col, code: `TS${d.code}`, message: d.message })) };
+    } catch (e) {
+      return { checker: 'threads-check', ms: 0, diagnostics: [ { line: 1, col: 1, code: 'TS0', message: `threads-check failed: ${e.message ?? e}` } ] };
+    }
+  }
+
   // a playground program, compiled with the fork and with its types only erased; cached by content
+  // (and by which checker reports its ownership errors)
   async function compile(source) {
-    const key = `p${crypto.createHash('sha1').update(source).digest('hex').slice(0, 12)}`;
+    const key = `p${crypto.createHash('sha1').update(`${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
     const dir = path.join(playgroundDir, key), cached = path.join(dir, 'result.json');
     if (fs.existsSync(cached)) return JSON.parse(fs.readFileSync(cached, 'utf8'));
     fs.mkdirSync(dir, { recursive: true });
@@ -60,15 +78,19 @@ export default function threads(options = {}) {
     }));
     const t0 = performance.now();
     const fork = [ '-p', config, '--ownRuntime', runtime, '--pretty', 'false' ];
-    const [ emitted, checked ] = await Promise.all([
-      exec(tsgo, fork, { cwd: dir }).catch(e => e),
-      exec(tsgo, [ 'own', 'check', ...fork ], { cwd: dir }).catch(e => e),
-    ]);
+    const emitting = exec(tsgo, fork, { cwd: dir }).catch(e => e);
+    const ownership = checker
+      ? await ownershipWithThreadsCheck(config) // synchronous: it runs while the fork emits
+      : await exec(tsgo, [ 'own', 'check', ...fork ], { cwd: dir }).catch(e => e)
+        .then(r => ({ checker: 'tsgo own check', ms: Math.round(performance.now() - t0), diagnostics: diagnostics(r.stdout) }));
+    const emitted = await emitting;
     const out = path.join(dir, 'out', 'program.js');
     const compiled = {
       js: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : null,
       ms: Math.round(performance.now() - t0),
-      ownership: diagnostics(checked.stdout),
+      ownership: ownership.diagnostics,
+      checker: ownership.checker,
+      checkMs: ownership.ms,
       types: diagnostics(emitted.stdout).filter(d => !d.code.startsWith('TS960')),
     };
     let erased = { js: null, error: null, added: 0 };

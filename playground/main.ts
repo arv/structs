@@ -28,7 +28,7 @@ import tutorial from "./programs/tutorial.ts?raw";
 type Diagnostic = { line: number; col: number; code: string; message: string };
 type Result = {
   key: string;
-  compiled: { js: string | null; ms: number; ownership: Diagnostic[]; types: Diagnostic[] };
+  compiled: { js: string | null; ms: number; ownership: Diagnostic[]; checker: string; checkMs: number; types: Diagnostic[] };
   erased: { js: string | null; error: string | null; added: number };
 };
 
@@ -137,11 +137,11 @@ function showJs() {
 // TypeScript shows) ----
 function showDiagnostics() {
   if (!result) return;
-  const { ownership, types } = result.compiled;
-  monaco.editor.setModelMarkers(sourceModel, "own-check", ownership.map(d => {
+  const { ownership, types, checker, checkMs } = result.compiled;
+  monaco.editor.setModelMarkers(sourceModel, "ownership", ownership.map(d => {
     const word = sourceModel.getWordAtPosition({ lineNumber: d.line, column: d.col });
     return {
-      severity: monaco.MarkerSeverity.Error, source: "tsgo own check", code: d.code, message: d.message,
+      severity: monaco.MarkerSeverity.Error, source: checker, code: d.code, message: d.message,
       startLineNumber: d.line, startColumn: d.col, endLineNumber: d.line, endColumn: word?.endColumn ?? d.col + 1,
     };
   }));
@@ -149,7 +149,7 @@ function showDiagnostics() {
   const list = (ds: Diagnostic[]) => ds.length === 0 ? "" : `<ul>${ds.map(d =>
     `<li data-line="${d.line}"><span class="where">${d.line}:${d.col}</span> <span class="code">${d.code}</span> ${escapeHtml(d.message)}</li>`).join("")}</ul>`;
   diagnostics.innerHTML =
-    `<p class="${ownership.length ? "bad" : "good"}">Ownership (tsgo own check): ${count(ownership.length)}</p>${list(ownership)}` +
+    `<p class="${ownership.length ? "bad" : "good"}">Ownership (${checker}, ${checkMs} ms): ${count(ownership.length)}</p>${list(ownership)}` +
     `<p class="${types.length ? "bad" : "good"}">Types (tsc's job): ${count(types.length)}</p>${list(types)}` +
     (mode() === "erased" ? `<p class="note">With the types erased nothing checks ownership before it runs; the runtime still throws on a use after move.</p>` : "");
 }

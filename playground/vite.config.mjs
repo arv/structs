@@ -6,7 +6,8 @@ import threads from './runtime/vite-plugin-threads.mjs';
 const here = file => fileURLToPath(new URL(file, import.meta.url));
 
 export default {
-  plugins: [ threads({ tsgo: process.env.TSGO, runtime: 'threads', playground: true }) ],
+  // the fork compiles; threads-check (./checker, on stock TypeScript 7.1) reports the ownership errors
+  plugins: [ threads({ tsgo: process.env.TSGO, runtime: 'threads', playground: true, checker: here('./checker/src/index.ts') }) ],
   resolve: {
     alias: [
       { find: /^threads$/, replacement: here('./runtime/threads.mjs') },
