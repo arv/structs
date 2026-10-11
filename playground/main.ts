@@ -28,7 +28,7 @@ import tutorial from "./programs/tutorial.ts?raw";
 type Diagnostic = { line: number; col: number; code: string; message: string };
 type Result = {
   key: string;
-  compiled: { js: string | null; ms: number; ownership: Diagnostic[]; checker: string; checkMs: number; types: Diagnostic[] };
+  compiled: { js: string | null; ms: number; ownership: Diagnostic[]; checker: string; checkMs: number; types: Diagnostic[]; helpers: string[] };
   erased: { js: string | null; error: string | null; added: number };
 };
 
@@ -106,8 +106,12 @@ function markAdded() {
   const marks: monaco.editor.IModelDeltaDecoration[] = [];
   const lines = jsModel.getLinesContent();
   if (result && mode() === "compiled") {
-    lines.forEach((line, i) => {
-      for (const m of line.matchAll(/\b__[A-Za-z0-9]+\b/g))
+    // the runtime's helpers, by the names the compile imported them as (`__F64_1` where the program
+    // has its own `__F64`)
+    const helpers = result.compiled.helpers;
+    const helper = helpers.length ? new RegExp(`(?<![\\w$])(?:${helpers.join("|")})(?![\\w$])`, "g") : null;
+    if (helper) lines.forEach((line, i) => {
+      for (const m of line.matchAll(helper))
         marks.push({ range: new monaco.Range(i + 1, m.index + 1, i + 1, m.index + 1 + m[0].length), options: { inlineClassName: "threads-added" } });
     });
   } else if (result?.erased.js) {

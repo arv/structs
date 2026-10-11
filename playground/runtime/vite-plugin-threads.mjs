@@ -31,6 +31,40 @@ const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url)); // the runtime
 const PLAYGROUND = 'virtual:threads/playground/';
 const exec = promisify(execFile);
 
+// The runtime helpers the fork's emit imports. It imports them under other names (`__register as
+// __register_1`) where a module declares or uses the name itself, and so does the erased variant here.
+const HELPERS = new Set([ '__F64', '__I32', '__OOB', '__box', '__hold', '__newSharedArray', '__newStruct', '__quiescent',
+  '__ref', '__register', '__release', '__retain', '__sharedStruct', '__store', '__unbox' ]);
+
+// The local names of the helpers that compiled code imports from `runtime`: the specifiers of its
+// first import of nothing but helpers.
+function helpersOf(code, runtime) {
+  for (const m of code.matchAll(/^import \{ ([^}]*) \} from "([^"]*)";$/gm)) {
+    if (m[2] !== runtime) continue;
+    const pairs = m[1].split(',').map(s => s.trim().split(/\s+as\s+/));
+    if (pairs.every(([ name ]) => HELPERS.has(name))) return Object.fromEntries(pairs.map(([ name, local ]) => [ name, local ?? name ]));
+  }
+  return {};
+}
+
+// A name like `name` that no identifier in `source` has, as TypeScript makes one: name, name_1, ...
+function uniqueName(source, name) {
+  const used = new Set(source.match(/[A-Za-z_$][\w$]*/g));
+  let unique = name;
+  for (let n = 1; used.has(unique); n++) unique = `${name}_${n}`;
+  return unique;
+}
+
+// Code that registers its functions (`__register(import.meta.url, { ... })`, its last statement, under
+// whatever name it imported __register as) with `key` in place of import.meta.url.
+function keyRegistration(code, runtime, key) {
+  const register = helpersOf(code, runtime).__register;
+  if (!register) return code;
+  const call = `${register}(import.meta.url, {`, at = code.lastIndexOf(call);
+  if (at < 0) return code;
+  return `${code.slice(0, at)}${register}(${JSON.stringify(key)}, {${code.slice(at + call.length)}`;
+}
+
 // `file(line,col): error TS1234: message` lines, with their indented continuations
 function diagnostics(text) {
   const out = [];
@@ -63,9 +97,9 @@ export default function threads(options = {}) {
   }
 
   // a playground program, compiled with the fork and with its types only erased; cached by content
-  // (and by which checker reports its ownership errors)
+  // (and by which checker reports its ownership errors, and the version of what a result holds)
   async function compile(source) {
-    const key = `p${crypto.createHash('sha1').update(`${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
+    const key = `p${crypto.createHash('sha1').update(`2\0${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
     const dir = path.join(playgroundDir, key), cached = path.join(dir, 'result.json');
     if (fs.existsSync(cached)) return JSON.parse(fs.readFileSync(cached, 'utf8'));
     fs.mkdirSync(dir, { recursive: true });
@@ -93,10 +127,12 @@ export default function threads(options = {}) {
       checkMs: ownership.ms,
       types: diagnostics(emitted.stdout).filter(d => !d.code.startsWith('TS960')),
     };
+    compiled.helpers = compiled.js ? Object.values(helpersOf(compiled.js, runtime)) : [];
     let erased = { js: null, error: null, added: 0 };
     try {
       const names = [ ...source.matchAll(/^(?:export\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)/gm) ].map(m => m[1]);
-      const tail = `\n// added: the runtime finds a thread's function by module and name\nimport { __register } from "${runtime}";\n__register(import.meta.url, { ${names.join(', ')} });\n`;
+      const register = uniqueName(source, '__register'), specifier = register === '__register' ? register : `__register as ${register}`;
+      const tail = `\n// added: the runtime finds a thread's function by module and name\nimport { ${specifier} } from "${runtime}";\n${register}(import.meta.url, { ${names.join(', ')} });\n`;
       erased = { js: stripTypeScriptTypes(source) + tail, error: null, added: tail.split('\n').length - 2 };
       fs.writeFileSync(path.join(dir, 'erased.js'), erased.js);
     } catch (e) {
@@ -120,7 +156,7 @@ export default function threads(options = {}) {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, entry.name);
         if (entry.isDirectory()) walk(p);
-        else if (/\.m?js$/.test(entry.name) && fs.readFileSync(p, 'utf8').includes('__register(')) registering.push(sourceOf(p));
+        else if (/\.m?js$/.test(entry.name) && helpersOf(fs.readFileSync(p, 'utf8'), runtime).__register) registering.push(sourceOf(p));
       }
     };
     walk(outDir);
@@ -172,8 +208,7 @@ export default function threads(options = {}) {
       if (id.startsWith(PLAYGROUND)) { // <key>.js compiled, <key>.erased.js with its types erased
         const name = id.slice(PLAYGROUND.length).replace(/\.js$/, ''), [ key, variant ] = name.split('.');
         const file = variant === 'erased' ? path.join(playgroundDir, key, 'erased.js') : path.join(playgroundDir, key, 'out', 'program.js');
-        return fs.readFileSync(file, 'utf8')
-          .replace(/__register\(import\.meta\.url,/, `__register(${JSON.stringify(`playground/${name}`)},`)
+        return keyRegistration(fs.readFileSync(file, 'utf8'), runtime, `playground/${name}`)
           .replace(/\n\/\/# sourceMappingURL=.*\s*$/, '\n');
       }
       if (id === MODULES_ID) {
@@ -183,8 +218,7 @@ export default function threads(options = {}) {
       if (!/\.m?ts$/.test(file) || /\.d\.m?ts$/.test(file) || /[?&]raw\b/.test(id)) return; // ?raw: the source text
       const out = emitted(file);
       if (!fs.existsSync(out)) return;
-      const code = fs.readFileSync(out, 'utf8')
-        .replace(/__register\(import\.meta\.url,/, `__register(${JSON.stringify(moduleKey(file))},`)
+      const code = keyRegistration(fs.readFileSync(out, 'utf8'), runtime, moduleKey(file))
         .replace(/\n\/\/# sourceMappingURL=.*\s*$/, '\n');
       let map = null;
       if (fs.existsSync(`${out}.map`)) {
