@@ -11,7 +11,7 @@
     "own-check": "\"$TSGO\" own check -p tsconfig.json --ownRuntime threads"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
+    "typescript": "^7.0.2",
     "vite": "^7.1.12"
   },
   "engines": {
