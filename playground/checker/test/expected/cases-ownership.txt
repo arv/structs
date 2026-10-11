@@ -1,8 +1,8 @@
 ownership.ts(10,10): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 9.
 ownership.ts(17,10): error TS96004: 'xs' cannot be used here: it shares objects with 'all', which may have been sent to 'send' on line 16.
 ownership.ts(23,10): error TS96006: 'xs' may have been consumed by 'send' on line 22.
-ownership.ts(27,10): error TS96009: 'xs' cannot be returned as 'sending': it may be referenced by the caller.
-ownership.ts(34,66): error TS96009: 'xs' cannot be returned as 'sending': it may be referenced by the caller.
+ownership.ts(27,10): error TS96009: 'xs' cannot be returned as 'Sending<T>': it may be referenced by the caller.
+ownership.ts(34,66): error TS96009: 'xs' cannot be returned as 'Sending<T>': it may be referenced by the caller.
 ownership.ts(37,3): error TS96010: Cannot change 'table': it is a shared value, which is immutable.
 ownership.ts(38,3): error TS96010: Cannot change 'rows[0]!': it is a shared value, which is immutable.
 ownership.ts(39,3): error TS96010: Cannot change 'table': it is a shared value, which is immutable.
@@ -15,5 +15,5 @@ ownership.ts(79,13): error TS96008: 'e as number[]' cannot be sent: it is captur
 ownership.ts(90,10): error TS96003: 'f' cannot be used here: it shares objects with 'xs', which was sent to 'send' on line 89.
 ownership.ts(97,49): error TS96008: 'first' cannot be sent: it is captured from an outer scope.
 ownership.ts(98,47): error TS96008: 'job' cannot be sent: it is captured from an outer scope.
-ownership.ts(106,13): error TS96007: 'this.items' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+ownership.ts(106,13): error TS96007: 'this.items' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 ownership.ts(116,10): error TS96003: 'items' cannot be used here: it shares objects with 'xs', which was sent to 'send' on line 114.

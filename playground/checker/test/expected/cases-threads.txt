@@ -3,6 +3,6 @@ threads.ts(46,3): error TS96005: 'snap' was consumed by 'share' on line 45.
 threads.ts(48,3): error TS96010: Cannot change 'p[0]!': it is a shared value, which is immutable.
 threads.ts(49,3): error TS96010: Cannot change 'p': it is a shared value, which is immutable.
 threads.ts(56,24): error TS96002: 'mine' cannot be used here: it may have been sent to 'spawn' on line 56.
-threads.ts(62,22): error TS96007: 'xs' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+threads.ts(62,22): error TS96007: 'xs' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 threads.ts(68,22): error TS96008: 'everyone' cannot be sent: it is captured from an outer scope.
-threads.ts(73,10): error TS96009: 'xs' cannot be returned as 'sending': it may be referenced by the caller.
+threads.ts(73,10): error TS96009: 'xs' cannot be returned as 'Sending<T>': it may be referenced by the caller.

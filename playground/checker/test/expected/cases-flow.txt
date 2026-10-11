@@ -13,20 +13,20 @@ flow.ts(68,7): error TS96003: 'q' cannot be used here: it shares objects with 'p
 flow.ts(71,7): error TS96003: 'first' cannot be used here: it shares objects with 'rest', which was sent to 'send' on line 70.
 flow.ts(77,7): error TS96005: 'x' was consumed by 'consume' on line 75.
 flow.ts(79,7): error TS96005: 'y' was consumed by 'send' on line 78.
-flow.ts(84,14): error TS96007: 'this.f' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+flow.ts(84,14): error TS96007: 'this.f' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 flow.ts(85,18): error TS96008: 'this.f' cannot be sent: it is captured from an outer scope.
-flow.ts(86,17): error TS96007: 'this' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+flow.ts(86,17): error TS96007: 'this' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 flow.ts(94,7): error TS96003: 'a' cannot be used here: it shares objects with 'f', which was sent to 'send' on line 93.
 flow.ts(96,30): error TS96008: 'c' cannot be sent: it is captured from an outer scope.
 flow.ts(99,7): error TS96003: 'c' cannot be used here: it shares objects with 'local', which was sent to 'send' on line 98.
-flow.ts(108,8): error TS96007: 'aliased' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
-flow.ts(110,8): error TS96007: 'filtered' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+flow.ts(108,8): error TS96007: 'aliased' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
+flow.ts(110,8): error TS96007: 'filtered' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 flow.ts(116,3): error TS96010: Cannot change 'p[0]!': it is a shared value, which is immutable.
 flow.ts(117,3): error TS96010: Cannot change 'p[0]!': it is a shared value, which is immutable.
 flow.ts(118,10): error TS96010: Cannot change 'p[0]!': it is a shared value, which is immutable.
 flow.ts(119,3): error TS96010: Cannot change 'p': it is a shared value, which is immutable.
 flow.ts(122,3): error TS96010: Cannot change 's': it is a shared value, which is immutable.
-flow.ts(135,51): error TS96009: 'x' cannot be returned as 'sending': it may be referenced by the caller.
-flow.ts(139,8): error TS96007: 'got' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
-flow.ts(143,8): error TS96007: 'b' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+flow.ts(135,51): error TS96009: 'x' cannot be returned as 'Sending<T>': it may be referenced by the caller.
+flow.ts(139,8): error TS96007: 'got' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
+flow.ts(143,8): error TS96007: 'b' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 flow.ts(150,5): error TS96001: 'top' cannot be used here: it was sent to 'send' on line 149.

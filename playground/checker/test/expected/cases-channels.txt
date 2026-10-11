@@ -4,7 +4,7 @@ channels.ts(26,10): error TS96003: 'first' cannot be used here: it shares object
 channels.ts(32,10): error TS96002: 'n' cannot be used here: it may have been sent to 'send' on line 31.
 channels.ts(39,10): error TS96004: 'other' cannot be used here: it shares objects with 'n', which may have been sent to 'send' on line 38.
 channels.ts(45,11): error TS96001: 'n' cannot be used here: it was sent to 'send' on line 44.
-channels.ts(49,11): error TS96007: 'n' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+channels.ts(49,11): error TS96007: 'n' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 channels.ts(58,24): error TS96008: 'n' cannot be sent: it is captured from an outer scope.
 channels.ts(67,39): error TS96002: 'kept' cannot be used here: it may have been sent to 'send' on line 67.
 channels.ts(82,18): error TS96021: A value of type 'Node | undefined' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.

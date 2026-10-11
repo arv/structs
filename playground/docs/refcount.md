@@ -68,7 +68,7 @@ Every expression of a counted type (a struct or SharedArray, possibly `| null`) 
 
 - **owned (+1)**: `new S()`, `new SharedArray(...)`, `__retain(E)`, a call to a function compiled
   here whose declared return type is counted, and a call to a declared function whose result is
-  `sending` (a channel's `recv()`, `join()`);
+  `Sending<T>` (a channel's `recv()`, `join()`);
 - **a stable borrow**: a parameter, a counted local that is never reassigned, `A[i]` where A is a
   stable borrow, `__unbox(v)`;
 - **an unstable borrow**: a reference field read `e.f`, `A[i]` where A is one, and the result of any
@@ -94,7 +94,7 @@ Rules:
 5. **Field stores.** `e.f = E` is `__store((e >> 2) + 2 + 2k, E')`, where E' is E if owned, else
    `__retain(E)`. If `e` is an unstable borrow and E contains a call, `e` is retained first.
 6. **Field reads.** `e.f` is `__I32[(e >> 2) + 2 + 2k]`.
-7. **Threads and channels.** A counted argument to a `sending` parameter of a declared function
+7. **Threads and channels.** A counted argument to a `Sending<T>` parameter of a declared function
    (`spawn`, `s.spawn`, `go`, a channel's `send`) is passed as `__ref(E)`. A channel's `send` also
    moves it: using the variable, or a local alias of it, afterwards is an error. A thread's
    arguments share it instead, so one SharedArray can go to every thread. A `for...of` over a

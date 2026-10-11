@@ -59,7 +59,7 @@ export function spawnInLoop(s: Scope, board: Slots<Pos[]>, barrier: Barrier) {
 
 // 2. Sending a value the caller still references.
 export function sendParameter(xs: Body[], s: Scope, board: Slots<Pos[]>, barrier: Barrier) {
-  s.spawn(worker, 0, xs, board, barrier);     // error: declare xs 'sending'
+  s.spawn(worker, 0, xs, board, barrier);     // error: declare xs Sending<T>
 }
 
 // 2. Sending a value captured from an outer scope.

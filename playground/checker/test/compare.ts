@@ -40,6 +40,14 @@ interface Case {
   forkCrashes?: boolean; // the fork's own check panics on it: compare with test/expected only
 }
 
+// The fork's messages name the `sending` keyword it parses; threads-check's name the plain TypeScript
+// type, `Sending<T>`. Otherwise the messages are the same.
+function reword(line: string): string {
+  return line
+    .replace("Declare the parameter 'sending' to take ownership.", "Declare the parameter 'Sending<T>' to take ownership.")
+    .replace("cannot be returned as 'sending':", "cannot be returned as 'Sending<T>':");
+}
+
 // What threads-check cannot report like the fork, and why.
 const knownDifferences: Record<string, { missing: string[]; reason: string }> = {
   "fork/ownLayoutStructUnionsErrors": {
@@ -136,7 +144,7 @@ function runFork(c: Case): { lines: string[]; ms: number } | undefined {
   if (result.status !== 0 && result.status !== 1) {
     throw new Error(`${c.name}: the fork's own check failed (${result.status}):\n${result.stdout}${result.stderr}`);
   }
-  return { lines: result.stdout.split(/\r?\n/).filter((l) => /error TS96\d\d\d/.test(l)), ms };
+  return { lines: result.stdout.split(/\r?\n/).filter((l) => /error TS96\d\d\d/.test(l)).map(reword), ms };
 }
 
 function expectedFile(c: Case): string {
