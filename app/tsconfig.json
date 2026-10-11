@@ -1,0 +1,18 @@
+{
+  // the demo app: plain TypeScript, which stock tsc checks as it is. the bundler plugin compiles it
+  // with the tsgo fork (vite.config.mjs), and `tsgo own check` proves its ownership rules
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "paths": {
+      "threads": ["../threads.d.mts"],
+      "threads/heap": ["../heap.d.mts"],
+      "threads/browser": ["../browser.d.mts"]
+    }
+  },
+  "include": ["*.ts"]
+}

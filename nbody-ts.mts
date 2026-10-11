@@ -1,17 +1,17 @@
-// threads/playground/presets/3-nbody.js written in the own/shared TypeScript extension. The tsgo fork
-// checks it (no ownership errors) and emits plain JavaScript for own.mjs:
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json
+// threads/playground/presets/3-nbody.js in plain TypeScript on threads.mjs. The tsgo fork checks it
+// (no ownership errors) and emits plain JavaScript for the runtime:
+//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
 //   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-ts.mjs
 // Each thread owns its slice of the bodies; every step it shares a snapshot of its positions, and the
 // others read their own copies. The hot loops are plain TypeScript on plain objects.
-import { Barrier, type BarrierCell, log, partition, scope, share, Slots, type SlotsCell, take, type Thread } from "./own.mjs";
+import { Barrier, log, partition, scope, type Sending, share, type Shared, Slots, take, type Thread } from "./threads.mjs";
 
 type Body = { x: number; y: number; z: number; vx: number; vy: number; vz: number; m: number };
 type Pos = { x: number; y: number; z: number; m: number };
 
 const BODIES = 800, STEPS = 30, DT = 0.001, SOFTEN = 0.01;
 
-function makeBodies(): sending Body[] {
+function makeBodies(): Sending<Body[]> {
   let seed = 1;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const bodies: Body[] = [];
@@ -21,7 +21,7 @@ function makeBodies(): sending Body[] {
 }
 
 // new velocities for this thread's bodies, from everyone's positions (all: every snapshot, in body order)
-function accelerate(mine: Body[], all: readonly shared Pos[]) {
+function accelerate(mine: Body[], all: Shared<Pos[]>) {
   const n = all.length;
   for (let i = 0; i < mine.length; i++) {
     const b = mine[i];
@@ -49,7 +49,7 @@ function energy(bodies: Body[]): number {
 }
 
 // a thread: its own slice, the board of snapshots, and the barrier
-function worker(t: number, mine: sending Body[], board: shared SlotsCell<Pos[]>, barrier: shared BarrierCell): sending Body[] {
+function worker(t: number, mine: Sending<Body[]>, board: Slots<Pos[]>, barrier: Barrier): Sending<Body[]> {
   for (let s = 0; s < STEPS; s++) {
     board.set(t, share(mine.map(b => ({ x: b.x, y: b.y, z: b.z, m: b.m }))));
     barrier.wait(); // everyone has shared their positions
@@ -64,7 +64,7 @@ function simulate(threads: number): number {
   const board = new Slots<Pos[]>(threads), barrier = new Barrier(threads);
   return scope(s => {
     const parts = partition(makeBodies(), threads);
-    const ts: (shared Thread<Body[]>)[] = [];
+    const ts: Thread<Body[]>[] = [];
     for (let t = 0; t < threads; t++) ts.push(s.spawn(worker, t, take(parts, t), board, barrier));
     return energy(ts.flatMap(th => th.join()));
   });

@@ -8,14 +8,20 @@
 //   js-apoll    js-node with clean points polling by Atomics.load, not a plain load
 //   own-node    the program written for own and shared values (<program>-own.mjs), on node
 //   own-chrome  the same, on Web Workers in Chrome
-//   ts-node     the program written in the TypeScript extension (<program>-ts.mts), as the tsgo fork
+//   ts-node     the program in TypeScript, moving and sharing objects (<program>-ts.mts), as the tsgo fork
 //               emitted it (build/ts/<program>-ts.mjs: compile first, see tsconfig.json), on node
 //   ts-chrome   the same, on Web Workers in Chrome
 //   cells-node  own and shared values with the hot data in a shared typed-array cell (<program>-cells.mjs)
 //   cells-chrome  the same, in Chrome
-//   struct-node the TypeScript extension with SharedArray and shared struct typed layouts
+//   struct-node TypeScript with SharedArray and shared struct typed layouts
 //               (<program>-struct.mts, emitted as build/ts/<program>-struct.mjs), on node
 //   struct-chrome the same, in Chrome
+//   chan-node   TypeScript with goroutines and channels (chan.mjs; <program>-chan.mts,
+//               emitted as build/ts/<program>-chan.mjs), on node
+//   chan-chrome the same, in Chrome
+//   chan-struct-node  goroutines and channels over a SharedArray of shared structs, the channels in
+//               the barriers' place (<program>-chan-struct.mts), on node
+//   chan-struct-chrome  the same, in Chrome
 //   v8          plain V8 (node) running the original preset, with an inline Thread shim: 1 thread
 // every program runs its thread counts twice, 1, 2, 4, 8 and again: the first pass is cold (it
 // includes JIT warm-up in every worker), the second warm. checks that every configuration
@@ -121,6 +127,8 @@ for (const p of programs) {
   both('ts', path.join(here, 'build', 'ts', `${p}-ts.mjs`));
   both('cells', path.join(here, `${p}-cells.mjs`));
   both('struct', path.join(here, 'build', 'ts', `${p}-struct.mjs`));
+  both('chan', path.join(here, 'build', 'ts', `${p}-chan.mjs`));
+  both('chan-struct', path.join(here, 'build', 'ts', `${p}-chan-struct.mjs`));
   if (want('v8')) {
     // the original with an inline shim: threads run to completion when made, so only 1 means anything
     const shimmed = path.join(work, `${p}-v8.mjs`);

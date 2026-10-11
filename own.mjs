@@ -8,7 +8,7 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, setThreadEntry, setAfterTask,
+import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
   $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -86,10 +86,10 @@ function put(at, v, moved, seen) {
   return box(at, T_OBJ, body);
 }
 // a blob of v in the shared heap; its address
-function write(v, moved) {
+function write(v, moved, alloc = $alloc) {
   wn = 1;
   put(0, v, moved, new Set());
-  const a = $alloc(wn * 8);
+  const a = alloc(wn * 8);
   U8.set(new Uint8Array(wf.buffer, 0, wn * 8), a);
   return a;
 }
@@ -122,7 +122,7 @@ function get(base, at, frozen) {
     }
     case T_SHARED: return materialize(p);
     case T_CELL: return cell(p);
-    case T_COUNTED: threadArgs.push(p); return p;
+    case T_COUNTED: if (countedInto !== null) countedInto.push(p); return p; // else the reader owns it
   }
   throw new Error('own: bad value word');
 }
@@ -164,6 +164,19 @@ const send = v => {
   revoke(moved);
   return a;
 };
+// a message (chan.mjs): v moved into a block of its own, which the receiver frees once it has read
+// it. [address, bytes]
+export function __message(v) {
+  const moved = [];
+  const a = write(v, moved, $allocBlock), bytes = wn * 8;
+  revoke(moved);
+  return [ a, bytes ];
+}
+export function __unmessage(a, bytes) {
+  const v = read(a, false);
+  $freeBlock(a, bytes);
+  return v;
+}
 
 // ---- sharing ----
 const deepFreeze = v => {
@@ -217,6 +230,9 @@ function cell(a) {
   }
   return c;
 }
+// for cells defined outside this module (chan.mjs): their kind's class, and a new one's block
+export const __cellKind = (kind, Cls) => { cellKinds.set(kind, Cls); };
+export const __newCell = (kind, bytes, self) => newCell(kind, bytes, self);
 const newCell = (kind, bytes, self) => {
   const a = $alloc(bytes);
   I32[a >> 2] = kind;
@@ -283,17 +299,19 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `shared struct Name { a: number; b: Name | null }` compiles to __sharedStruct('Name', ['a', 'b'], [1]).
-// a struct's block is [kind][count] and then its fields, 8 bytes each, in order: a number field is an
-// f64, a reference field (refs: a struct or a SharedArray) the address in its low half, 0 for null.
+// `const Name = struct({ a: f64, b: ref<Name>() })` (threads.mjs), or `shared struct Name { a: number;
+// b: Name | null }` in the syntax, compiles to __sharedStruct('Name', ['a', 'b'], [1]). a struct's
+// block is [kind][count] and then its fields, 8 bytes each, in order: a number field is an f64, a
+// reference field (refs: a struct or a SharedArray) the address in its low half, 0 for null.
 // compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
 // `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
 // boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
-// read and write the same block. uncompiled code can use the class directly. every worker evaluates
-// the same modules in the same order, so a struct gets the same kind in each
-let structKinds = 100;
+// read and write the same block. uncompiled code can use the class directly.
+// a struct's kind is the address of its name and layout in the shared string table, so every thread
+// agrees on it whatever order it loads modules in (a page's workers load them on demand), and two
+// structs with one layout may share it. it is at least CTRL_BYTES, so never a small cell kind
 export function __sharedStruct(name, fields, refs = []) {
-  const kind = structKinds++, n = fields.length, size = 8 + n * 8;
+  const kind = $intern(`struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]`), n = fields.length, size = 8 + n * 8;
   const Struct = { [name]: class {
     constructor() {
       const a = __newStruct(Struct);
@@ -348,12 +366,13 @@ export function __newSharedArray(type, length) {
 // the block whose count an address's lifetime is, and where that count is
 const owner = p => { const w = I32[(p >> 2) + 1]; return w < 0 ? p + w : p; };
 const countAt = o => I32[o >> 2] === K_SHARED_ARRAY ? (o >> 2) + 3 : (o >> 2) + 1;
+// null is 0; a raw value can also be undefined at run time (a missing argument, `f?.()`)
 export function __retain(p) {
-  if (p !== 0) Atomics.add(I32, countAt(owner(p)), 1);
+  if (p) Atomics.add(I32, countAt(owner(p)), 1);
   return p;
 }
 export function __release(p) {
-  if (p === 0) return;
+  if (!p) return;
   const o = owner(p);
   if (Atomics.sub(I32, countAt(o), 1) === 1) destroy(o);
 }
@@ -405,13 +424,16 @@ export function __hold(fn, ...ps) {
 // a counted spawn argument: retained for the thread, which releases it when its function returns
 class CountedArg { constructor(a) { this.a = a; } }
 export const __ref = a => new CountedArg(__retain(a));
-let threadArgs = [];
+// where get() records the counted values it reads: a thread's arguments, released when its function
+// returns, or null, when the reader owns them (a channel message's receiver)
+let countedInto = null;
+export const __isCounted = v => v instanceof CountedArg;
 
 // boxing: where a struct or SharedArray value (an address) flows into `any`, `unknown`, a generic
 // and the like, the compiler wraps it in this thread's one handle object for that address (so ===
 // still holds), and unwraps it on the way back. a struct's handle is an instance of its class; a
 // SharedArray's is an array-like Proxy over the same memory
-export const __box = a => cell(a);
+export const __box = a => a ? cell(a) : null;
 // for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
 export class SharedArray {
   constructor(type, length) {
@@ -421,7 +443,8 @@ export class SharedArray {
   }
 }
 export function __unbox(v) {
-  const a = v !== null && typeof v === 'object' ? v.$cell : undefined;
+  if (v == null) return 0;
+  const a = typeof v === 'object' ? v.$cell : undefined;
   if (a === undefined || !(I32[a >> 2] === K_SHARED_ARRAY || I32[a >> 2] >= 100)) throw new TypeError('own: not a shared struct or SharedArray');
   return a;
 }
@@ -473,8 +496,9 @@ export function __register(url, table) {
 }
 export const fns = table => __register('', table);
 setThreadEntry(t => {
-  threadArgs = [];
-  const [ key, ...args ] = read(I32[(t + 16) >> 2], false), mine = threadArgs;
+  const mine = countedInto = [];
+  const [ key, ...args ] = read(I32[(t + 16) >> 2], false);
+  countedInto = null;
   try {
     const f = byKey.get(key);
     if (f === undefined) throw new Error(`own: no function ${key} in this worker`);
@@ -485,6 +509,16 @@ setThreadEntry(t => {
 });
 // between threads, a worker yields to its event loop when handles or closures wait to be finalized
 setAfterTask(() => finalizable > 0);
+// in a page's worker pool (threads-worker.mjs), a worker loads a thread's module the first time a
+// thread needs it: a key is `${module}#${name}`, and the loader maps a module to its import
+let moduleLoader = null;
+export function setModuleLoader(load) {
+  moduleLoader = load;
+  setBeforeTask(async t => {
+    const base = I32[(t + 16) >> 2], key = get(base, I32[base >> 2] + 1, false); // the blob's [key, ...args]
+    if (!byKey.has(key)) await moduleLoader(key.slice(0, key.lastIndexOf('#')));
+  });
+}
 class Thread {
   constructor(t) { this.t = t; this.joined = false; }
   join() {
@@ -493,16 +527,27 @@ class Thread {
     $quiescent();
     return read(threadJoin(this.t), false);
   }
+  // for a page's main thread, which must not block
+  async joinAsync() {
+    if (this.joined) throw new TypeError('own: a thread is joined once (its result moves out)');
+    this.joined = true;
+    $quiescent();
+    return read(await threadJoinAsync(this.t), false);
+  }
 }
-export function spawn(fn, ...args) {
+export const spawn = (fn, ...args) => new Thread(__start(fn, args, false));
+// a thread block for fn(...args), queued for the pool. a detached thread (chan.mjs go) is never
+// joined, so the runtime prints its error if it throws
+export function __start(fn, args, detached) {
   const key = keyOf.get(fn);
   if (key === undefined) throw new TypeError('own: spawn a top-level function of a module the compiler registered (or fns())');
   const t = $alloc(32);
   I32[t >> 2] = K_THREAD;
+  I32[(t + 4) >> 2] = detached ? 1 : 0;
   I32[(t + 16) >> 2] = send([ key, ...args ]);
   $quiescent();
   spawnThread(t);
-  return new Thread(t);
+  return t;
 }
 
 // structured threads: scope(s => ...) joins every thread s spawned before it returns

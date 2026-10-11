@@ -27,6 +27,7 @@ const C_HEAP_END = 16;
 const C_EPOCH = 17;      // reclamation's global epoch (see $defer)
 const C_FREE_LOCK = 18;  // guards the free lists
 const C_PEND = 19, C_PEND_LEN = 20, C_PEND_CAP = 21, C_PEND_LOCK = 22; // decrements left by threads that ended
+export const C_ACTIVITY = 23, C_SELECTING = 24; // bumped on every channel change; threads waiting in select (chan.mjs)
 const C_FREE = 1100;     // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for larger
 const C_CNT = 32;        // counters, see COUNTERS
 const C_RING = 64, RING = 1024;
@@ -49,7 +50,7 @@ const flushCounts = () => {
 // array:  [0 kind][4 lock][8 slots][12 length]
 // fn:     [0 kind][4 -][8 fn index][12 -][16 env word]
 // lock:   [0 kind][4 -][8 state 0/1/2]   cond: [0 kind][4 -][8 seq]
-// thread: [0 kind][4 -][8 done][12 threw][16 fn word][24 result word]
+// thread: [0 kind][4 detached][8 done][12 threw][16 fn word][24 result word]
 // view:   [0 kind][4 -][8 byte offset][12 length]   sab: [0 kind][4 -][8 data][12 bytes]
 // string: [0 kind][4 length][8 hash][12 -][16 utf-16 units]
 // shape:  [0 parent][4 key][8 count][12 first child][16 next sibling]
@@ -872,6 +873,20 @@ export function threadJoin(a) {
     while (Atomics.load(I32, di) === 0) Atomics.wait(I32, di, 0);
     cleanExit();
   }
+  return threadResult(a);
+}
+// the same without blocking, for a thread that must not (a page's main thread)
+export async function threadJoinAsync(a) {
+  const di = (a + 8) >> 2;
+  while (Atomics.load(I32, di) === 0) {
+    const w = Atomics.waitAsync(I32, di, 0);
+    if (!w.async) continue;
+    const alive = setTimeout(() => {}, 1 << 30); // node lets a worker exit on a bare waitAsync
+    try { await w.value; } finally { clearTimeout(alive); }
+  }
+  return threadResult(a);
+}
+function threadResult(a) {
   const r = $dec(a + 24);
   if (I32[(a + 12) >> 2]) throw r;
   return r;
@@ -960,6 +975,9 @@ export const setThreadEntry = f => { threadEntry = f; };
 // handles to finalize, which a FinalizationRegistry does only between tasks)
 let afterTask = () => false;
 export const setAfterTask = f => { afterTask = f; };
+// what a worker does before it runs a thread, if anything (own.mjs: load the thread's module)
+let beforeTask = null;
+export const setBeforeTask = f => { beforeTask = f; };
 const eventLoopTurn = () => new Promise(resolve => {
   const ch = new MessageChannel();
   ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
@@ -977,6 +995,7 @@ function runThread(t) {
   }
   try { $enc(t + 24, r); } catch (e) { $enc(t + 24, String(e)); threw = 1; }
   I32[(t + 12) >> 2] = threw;
+  if (threw && I32[(t + 4) >> 2] === 1) $log(`a detached thread threw: ${r}`); // nothing joins it
   threadEnd();
   Atomics.store(I32, (t + 8) >> 2, 1);
   Atomics.notify(I32, (t + 8) >> 2);
@@ -1011,6 +1030,7 @@ export async function poolLoop() {
     let t;
     while ((t = Atomics.load(I32, q)) === 0) Atomics.wait(PRIV, 0, 0, 0.01);
     Atomics.store(I32, q, 0);
+    if (beforeTask !== null) await beforeTask(t);
     runThread(t);
   }
 }
@@ -1033,3 +1053,7 @@ export function counters(sab) {
   out.heapBytes = i32[C_ALLOC] - CTRL_BYTES;
   return out;
 }
+
+// a page makes the heap itself (heap.mjs) and has no coordinator to set it up: the first runtime to
+// load on a fresh heap does. a coordinator (run.mjs, page.mjs) calls initShared before any worker starts
+if (SAB && Atomics.compareExchange(I32, C_ALLOC, 0, -1) === 0) initShared(SAB);

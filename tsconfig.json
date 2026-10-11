@@ -1,7 +1,8 @@
 {
-  // programs written in the own/shared TypeScript extension, for the tsgo fork:
-  //   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json
-  // emits build/ts/*.mjs for own.mjs (run them with run.mjs or chrome.mjs)
+  // programs in plain TypeScript on threads.mjs: stock tsc type-checks them, and the tsgo fork checks
+  // ownership and emits build/ts/*.mjs for the runtime (run them with run.mjs or chrome.mjs):
+  //   <fork>/built/local/tsgo own check -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
+  //   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
   "compilerOptions": {
     "target": "es2022",
     "module": "esnext",
@@ -9,8 +10,7 @@
     "strict": true,
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
-    "outDir": "build/ts",
-    "ownRuntime": "./own.mjs"
+    "outDir": "build/ts"
   },
-  "files": ["nbody-ts.mts", "nbody-struct.mts", "tutorial.mts"]
+  "files": ["nbody-ts.mts", "nbody-struct.mts", "tutorial.mts", "refcount.mts", "mandelbrot-chan.mts", "pipeline.mts", "nbody-chan.mts", "nbody-chan-struct.mts"]
 }

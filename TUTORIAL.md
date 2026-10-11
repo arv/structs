@@ -1,27 +1,31 @@
 # Tutorial: threads with own and shared values
 
 This walks through [tutorial.mts](tutorial.mts): a program that splits 200,000 random points across
-threads and counts which of three centers each point is nearest to. It is written in the own/shared
-TypeScript extension, checked and compiled by the tsgo fork (branch `own-shared`), and run on
-[own.mjs](own.mjs). The ideas behind it are in [README.md](README.md).
+threads and counts which of three centers each point is nearest to. It is plain TypeScript against
+[threads.d.mts](threads.d.mts): stock tsc checks its types, the ownership checker its ownership, and
+the tsgo fork (branch `own-shared`) compiles it to run on [threads.mjs](threads.mjs). The ideas
+behind it are in [README.md](README.md).
 
-You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it) and node 22 or later. To
-run in Chrome as well, you also need `playwright-core`.
+You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it), TypeScript, and node 22 or
+later. To run in Chrome as well, you also need `playwright-core`.
 
 ## 1. Write the program
 
 Every value a thread touches is one of three kinds, and the types say which:
 
-- **Owned**, the default: an ordinary object only one thread can reach. `sending T` moves ownership.
+- **Owned**, the default: an ordinary object only one thread can reach. `Sending<T>` moves ownership.
   The caller gives the value up, and the receiver owns it.
-- **Shared**: `shared T`, deeply immutable, so any number of threads may read it at once.
-- **A cell**: shared *and* mutable, but only through methods that synchronize (`Barrier`, `Slots`, a
-  `shared struct`).
+- **Shared**: `Shared<T>`, deeply immutable, so any number of threads may read it at once.
+- **A cell**: shared *and* mutable, but only through what synchronizes it (`Barrier`, `Slots`, a
+  `Channel`), or in place for shared structs and SharedArrays, ordered by one of those.
+
+To TypeScript, `Sending<T>` is just `T` and `Shared<T>` is a deeply readonly `T`, so the program is
+ordinary TypeScript.
 
 The thread function takes its own points and reads the shared centers:
 
 ```ts
-function countNearest(points: sending Point[], centers: shared Point[]): sending number[] {
+function countNearest(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> {
   const counts = centers.map(() => 0);
   for (const p of points) { /* plain loops over plain objects: find the nearest center */ counts[best]++; }
   return counts;
@@ -34,7 +38,7 @@ function countNearest(points: sending Point[], centers: shared Point[]): sending
 const centers = share([{ x: 0.25, y: 0.25 }, { x: 0.75, y: 0.25 }, { x: 0.5, y: 0.75 }]);
 const totals = scope(s => {
   const parts = partition(randomPoints(200_000), threads); // one owned array per thread
-  const ts: (shared Thread<number[]>)[] = [];
+  const ts: Thread<number[]>[] = [];
   for (let t = 0; t < threads; t++) ts.push(s.spawn(countNearest, take(parts, t), centers));
   const sums = centers.map(() => 0);
   for (const th of ts) th.join().forEach((n, c) => { sums[c] += n; });
@@ -45,46 +49,52 @@ const totals = scope(s => {
 - `share(...)` turns a value you own into a shared one. The literal is fresh, so nothing else can
   change it.
 - `partition` splits an owned array into owned parts, and `take(parts, t)` moves one part out.
-- `s.spawn(f, ...args)` starts `f` on a thread. The arguments are `sending`, so part `t` moves to its
+- `s.spawn(f, ...args)` starts `f` on a thread. The arguments are `Sending`, so part `t` moves to its
   thread while `centers`, being shared, is just passed along.
 - `th.join()` moves the thread's result back.
 - `scope` joins every thread it started before it returns, so no thread outlives the data it uses.
 
-## 2. Compile it
+## 2. Check it and compile it
 
 ```sh
-/path/to/tsgo-own/built/local/tsgo -p threads/escape-proto/tsconfig.json
+tsc -p threads/escape-proto/tsconfig.json --noEmit                                       # types
+/path/to/tsgo-own/built/local/tsgo own check -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
+/path/to/tsgo-own/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
 ```
 
-The checker follows each value's region, meaning the objects reachable from it, through the
-function. It rejects any use of a region after it was moved, a write to a shared value, and moving
-anything the code doesn't own. Three typical mistakes:
+The first is stock TypeScript. The second is the ownership checker, which runs in CI like a linter:
+it reports only ownership errors and exits 1 if there are any. It follows each value's region,
+meaning the objects reachable from it, through the function, and rejects any use of a region after
+it was moved, a write to a shared value, and moving anything the code doesn't own. The third compiles
+to `build/ts`; a web page uses the bundler plugin instead (see [README.md](README.md)). Three typical
+mistakes:
 
 ```ts
 const points = randomPoints(1000);
 s.spawn(countNearest, points, centers);
 log(points.length);                    // 1. points moved to the thread
-centers[0].x = 0.5;                    // 2. centers is shared
+(centers[0] as Point).x = 0.5;         // 2. centers is shared
 s.spawn(countNearest, mine, centers);  // 3. mine belongs to the caller
 ```
 
 ```
-mistakes.mts(37,9): error TS96001: 'points' cannot be used here: it was sent to 'spawn' on line 36.
-mistakes.mts(38,5): error TS96010: Cannot change 'centers[0]': it is a shared value, which is immutable.
-mistakes.mts(39,27): error TS96008: 'mine' cannot be sent: it is captured from an outer scope.
+mistakes.mts(12,17): error TS96001: 'points' cannot be used here: it was sent to 'spawn' on line 11.
+mistakes.mts(13,5): error TS96010: Cannot change 'centers[0] as Point': it is a shared value, which is immutable.
+mistakes.mts(14,27): error TS96008: 'mine' cannot be sent: it is captured from an outer scope.
 ```
 
-The fixes are to use `points` before sending it, to `share` a changed copy rather than the original,
-and to create what a thread gets where it is sent, as `main` does with `randomPoints`.
+Without the cast, `centers[0].x = 0.5` is already a tsc error, since a `Shared<T>` is readonly. The
+fixes are to use `points` before sending it, to `share` a changed copy rather than the original, and
+to create what a thread gets where it is sent, as `main` does with `randomPoints`.
 
 ## 3. What comes out
 
-The extension's syntax is erased, and the compiler adds two things for the runtime: an import of
-its helpers, and a table of the module's functions so a thread can find the one it should run:
+The types are erased, and the compiler adds two things for the runtime: an import of its helpers, and
+a table of the module's functions so a thread can find the one it should run:
 
 ```js
-import { __register } from "./own.mjs";
-import { log, partition, scope, share, take } from "./own.mjs";
+import { __register } from "./threads.mjs";
+import { log, partition, scope, share, take } from "./threads.mjs";
 function countNearest(points, centers) {
     const counts = centers.map(() => 0);
     ...
@@ -144,7 +154,7 @@ copying is what stops it scaling past a few threads.
 ## Limits
 
 - **No collector for what crosses.** Moved and shared data in the SharedArrayBuffer is never freed.
-- **A value captured by a closure can't be moved out of it,** even one received as `sending`. Create
+- **A value captured by a closure can't be moved out of it,** even one received as `Sending`. Create
   it inside, as `main` does in the `scope` callback.
 - **Arrays of owned values** are split with the trusted `partition` and `take`. The checker can't
   prove that two slices of one array are disjoint.

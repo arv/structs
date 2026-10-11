@@ -2,11 +2,12 @@
 // preset's own code, nearly, with typed layouts. The tsgo fork lays `Body` out as 7 numbers in the
 // shared heap and compiles `bodies[i].x` to a typed-array read, so threads share the bodies with no
 // copying: each thread writes only its own slice, and the barriers order the reads and the writes.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json
+//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
 //   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-struct.mjs
-import { Barrier, type BarrierCell, log, scope, SharedArray } from "./own.mjs";
+import { Barrier, f64, log, scope, SharedArray, struct, type Struct } from "./threads.mjs";
 
-shared struct Body { x: number; y: number; z: number; vx: number; vy: number; vz: number; m: number }
+const Body = struct({ x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, m: f64 });
+type Body = Struct<typeof Body>;
 
 const BODIES = 800, STEPS = 30, DT = 0.001, SOFTEN = 0.01;
 
@@ -58,7 +59,7 @@ function energy(bodies: SharedArray<Body>): number {
 }
 
 // a thread: its slice [lo, hi) of the shared bodies, and the barrier
-function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: shared BarrierCell) {
+function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barrier) {
   for (let s = 0; s < STEPS; s++) {
     accelerate(bodies, lo, hi);
     barrier.wait(); // everyone has read the old positions

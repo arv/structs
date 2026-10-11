@@ -75,7 +75,16 @@ export declare function __newSharedArray(type: unknown, length: number): number;
 export declare const __OOB: { readonly [index: number]: never };
 export declare function __box(address: number): object;
 export declare function __unbox(value: unknown): number;
+/** Runtime support for reference counting (REFCOUNT.md), which the compiler emits; not called by hand. */
+export declare function __retain(address: number): number;
+export declare function __release(address: number): void;
+export declare function __store(index: number, address: number): number;
+export declare function __ref(address: number): unknown;
+export declare function __quiescent(): void;
+export declare function __hold<F extends Function>(fn: F, ...addresses: number[]): F;
+/** The shared heap: bytes in use, blocks allocated and freed, and decrements waiting for quiescent points. */
+export declare function __heapStats(): { heapBytes: number; allocated: number; freed: number; pending: number };
 /** Runtime support for `shared struct`, which the compiler emits; not called by hand. */
-export declare function __sharedStruct(name: string, fields: readonly string[]): any;
+export declare function __sharedStruct(name: string, fields: readonly string[], refs?: readonly number[]): any;
 /** Runtime support for spawning: the compiler registers a module's top-level functions. */
 export declare function __register(url: string, table: Record<string, Function>): void;

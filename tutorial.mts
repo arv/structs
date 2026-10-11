@@ -1,12 +1,12 @@
 // The example of TUTORIAL.md: for many random points, count which of a few centers each is nearest
 // to, on several threads. The points are owned: each thread gets its own share of them. The centers
 // are shared: every thread reads them.
-import { log, partition, scope, share, take, type Thread } from "./own.mjs";
+import { log, partition, scope, type Sending, share, type Shared, take, type Thread } from "./threads.mjs";
 
 type Point = { x: number; y: number };
 
 // a fresh array, which the caller owns
-function randomPoints(n: number): sending Point[] {
+function randomPoints(n: number): Sending<Point[]> {
   let seed = 7;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const points: Point[] = [];
@@ -15,7 +15,7 @@ function randomPoints(n: number): sending Point[] {
 }
 
 // runs on a thread: how many of its points are nearest to each center
-function countNearest(points: sending Point[], centers: shared Point[]): sending number[] {
+function countNearest(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> {
   const counts = centers.map(() => 0);
   for (const p of points) {
     let best = 0, bestDistance = Infinity;
@@ -33,7 +33,7 @@ export function main(threadCounts: readonly number[]) {
   for (const threads of threadCounts) {
     const totals = scope(s => {
       const parts = partition(randomPoints(200_000), threads);
-      const ts: (shared Thread<number[]>)[] = [];
+      const ts: Thread<number[]>[] = [];
       for (let t = 0; t < threads; t++) ts.push(s.spawn(countNearest, take(parts, t), centers));
       const sums = centers.map(() => 0);
       for (const th of ts) th.join().forEach((n, c) => { sums[c] += n; });
