@@ -1,0 +1,24 @@
+counting.ts(10,3): error TS96020: 'current' cannot be reassigned: a closure captures it, and its value is a counted address in the shared heap.
+counting.ts(19,3): error TS96020: 'n' cannot be reassigned: a closure captures it, and its value is a counted address in the shared heap.
+counting.ts(24,18): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(25,20): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(26,25): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(27,13): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(29,17): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(32,19): error TS96021: A value of type 'Node | null' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(37,16): error TS96021: A value of type 'Node & Cell' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(38,22): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(42,11): error TS96024: 'a' cannot be bound by destructuring: its value is an address in the shared heap.
+counting.ts(44,4): error TS96024: 'x' cannot be bound by destructuring: its value is an address in the shared heap.
+counting.ts(45,14): error TS96022: A 'for-of' or 'for-in' variable cannot have type 'Node': its value is an address in the shared heap.
+counting.ts(47,8): error TS96022: A 'for-of' or 'for-in' variable cannot have type 'Node | null': its value is an address in the shared heap.
+counting.ts(52,36): error TS96023: 'n' cannot be captured by a method or a class: its value is a counted address in the shared heap, which only functions and arrow functions can hold.
+counting.ts(53,17): error TS96023: 'n' cannot be captured by a method or a class: its value is a counted address in the shared heap, which only functions and arrow functions can hold.
+counting.ts(58,28): error TS96025: A generator's parameter cannot have type 'Node': the generator runs after its caller's borrow ends.
+counting.ts(62,25): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(67,17): error TS96021: A value of type 'Node & Cell' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(67,20): error TS96021: A value of type 'SharedArray<number>' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(68,23): error TS96021: A value of type 'Node & Cell' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(76,3): error TS96015: A shared struct field must be a number, a shared struct or a SharedArray.
+counting.ts(77,3): error TS96015: A shared struct field must be a number, a shared struct or a SharedArray.
+counting.ts(79,27): error TS96015: A shared struct field must be a number, a shared struct or a SharedArray.

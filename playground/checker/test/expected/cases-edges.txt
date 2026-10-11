@@ -1,0 +1,25 @@
+edges.ts(18,5): error TS96001: 'local' cannot be used here: it was sent to 'send' on line 17.
+edges.ts(24,19): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+edges.ts(25,19): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+edges.ts(37,39): error TS96007: 'this.#items' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+edges.ts(38,43): error TS96009: 'new Holder()' cannot be returned as 'sending': it may be referenced by the caller.
+edges.ts(48,7): error TS96001: 'xs' cannot be used here: it was sent to 'Owner' on line 47.
+edges.ts(51,7): error TS96005: 'ys' was consumed by 'Owner' on line 50.
+edges.ts(59,7): error TS96001: 'mine' cannot be used here: it was sent to 'spawn' on line 58.
+edges.ts(60,63): error TS96007: 'args' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+edges.ts(77,10): error TS96001: 'n' cannot be used here: it was sent to 'send' on line 76.
+edges.ts(85,7): error TS96001: 'xs' cannot be used here: it was sent to 'f' on line 84.
+edges.ts(86,28): error TS96001: 'xs' cannot be used here: it was sent to 'f' on line 84.
+edges.ts(87,11): error TS96003: 't' cannot be used here: it shares objects with 'xs', which was sent to 'f' on line 84.
+edges.ts(89,10): error TS96003: 't' cannot be used here: it shares objects with 'xs', which was sent to 'f' on line 84.
+edges.ts(96,11): error TS96007: 'b' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+edges.ts(97,11): error TS96007: 'c!' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+edges.ts(108,28): error TS96003: 'first' cannot be used here: it shares objects with 'points', which was sent to 'send' on line 107.
+edges.ts(115,27): error TS96010: Cannot change 'row': it is a shared value, which is immutable.
+edges.ts(116,3): error TS96010: Cannot change 'rows[0]!': it is a shared value, which is immutable.
+edges.ts(117,3): error TS96010: Cannot change 'table as number[]': it is a shared value, which is immutable.
+edges.ts(128,7): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 126.
+edges.ts(130,18): error TS96007: 'o[k]!' cannot be sent: it may be referenced by the caller. Declare the parameter 'sending' to take ownership.
+edges.ts(136,10): error TS96003: 'ys' cannot be used here: it shares objects with 'zs', which was sent to 'send' on line 135.
+edges.ts(145,21): error TS96009: 'mine' cannot be returned as 'sending': it may be referenced by the caller.
+edges.ts(156,10): error TS96008: 'xs' cannot be sent: it is captured from an outer scope.

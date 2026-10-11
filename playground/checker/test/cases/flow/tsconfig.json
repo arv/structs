@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022"],
+    "noEmit": true,
+    "paths": { "threads": ["../../../../runtime/threads.d.mts"] }
+  },
+  "include": ["*.ts"]
+}
