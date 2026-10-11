@@ -16,6 +16,7 @@ import nbodyStruct from "./programs/nbody-struct.ts?raw";
 import nbodyTs from "./programs/nbody-ts.ts?raw";
 import pipeline from "./programs/pipeline.ts?raw";
 import refcount from "./programs/refcount.ts?raw";
+import sharedVector from "./programs/shared-vector.ts?raw";
 import tutorial from "./programs/tutorial.ts?raw";
 
 type Diagnostic = { line: number; col: number; code: string; message: string };
@@ -34,6 +35,7 @@ const PRESETS: [string, string][] = [
   ["Nearest centers (the tutorial)", tutorial],
   ["What channels cost", pipeline],
   ["Reference counting under a race", refcount],
+  ["A growable SharedVector, in user space", sharedVector],
   ["Mistakes the checker catches", mistakes],
 ];
 

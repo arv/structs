@@ -80,8 +80,8 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 
 [programs/](programs): N-body four ways (shared structs with a barrier, shared structs with channels,
 moving and sharing objects, channels copying objects), Mandelbrot on channels, the nearest-centers
-example, what channels cost, reference counting under a race, and the mistakes the checker catches.
-Each exports `main(threadCounts)`.
+example, what channels cost, reference counting under a race, a growable `SharedVector` written in
+user space on the API above, and the mistakes the checker catches. Each exports `main(threadCounts)`.
 
 Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
