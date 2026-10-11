@@ -123,9 +123,9 @@ function get(base, at, frozen) {
     case T_FALSE: return false;
     case T_TRUE: return true;
     case T_STR: {
-      const repeated = I32[(base >> 2) + p * 2 + 1] !== 0;
-      if (repeated && decoded !== null) {
-        const s = decoded.get(p);
+      const repeated = decoded !== null && I32[(base >> 2) + p * 2 + 1] !== 0; // cached within a read()
+      if (repeated) {
+        const s = decoded?.get(p);
         if (s !== undefined) return s;
       }
       const n = I32[(base >> 2) + p * 2], u = (base + (p + 1) * 8) >> 1;
@@ -150,11 +150,12 @@ function get(base, at, frozen) {
   }
   throw new Error('own: bad value word');
 }
-// the repeated strings of the blob being read, by body: decoded once per read
+// the repeated strings of the blob being read, by body: decoded once per read. null outside a read
+// (a get() of one value of a blob caches nothing), undefined in one until a string repeats
 let decoded = null;
 function read(a, frozen) {
   const outer = decoded;
-  decoded = null;
+  decoded = undefined;
   try {
     return get(a, 0, frozen);
   } finally {
@@ -192,17 +193,12 @@ function revoke(objs) {
     Object.setPrototypeOf(o, REVOKED);
   }
 }
-const send = v => {
-  const moved = [];
-  const a = write(v, moved);
-  revoke(moved);
-  return a;
-};
-// a message (chan.mjs): v moved into a block of its own, which the receiver frees once it has read
-// it. [address, bytes]
+// a message (chan.mjs, and a thread's arguments and result): v moved into a block of its own, which
+// the receiver frees once it has read it. [address, bytes]
+const messageBlock = bytes => $allocBlock(bytes, false); // written whole
 export function __message(v) {
   const moved = [];
-  const a = write(v, moved, $allocBlock), bytes = wn * 8;
+  const a = write(v, moved, messageBlock), bytes = wn * 8;
   revoke(moved);
   return [ a, bytes ];
 }
@@ -558,12 +554,16 @@ export function __register(url, table) {
 export const fns = table => __register('', table);
 setThreadEntry(t => {
   const mine = countedInto = [];
-  const [ key, ...args ] = read(I32[(t + 16) >> 2], false);
+  const [ key, ...args ] = __unmessage(I32[(t + 16) >> 2], I32[(t + 20) >> 2]); // frees the arguments
   countedInto = null;
   try {
     const f = byKey.get(key);
     if (f === undefined) throw new Error(`own: no function ${key} in this worker`);
-    return send(f(...args));
+    const r = f(...args);
+    if (I32[(t + 4) >> 2] === 1) return 0; // detached: nothing reads a result
+    const [ a, bytes ] = __message(r);
+    I32[(t + 20) >> 2] = bytes;
+    return a;
   } finally {
     for (const p of mine) __release(p);
   }
@@ -586,26 +586,38 @@ class Thread {
     if (this.joined) throw new TypeError('own: a thread is joined once (its result moves out)');
     this.joined = true;
     $quiescent();
-    return read(threadJoin(this.t), false);
+    try {
+      return __unmessage(threadJoin(this.t), I32[(this.t + 20) >> 2]);
+    } finally {
+      $freeBlock(this.t, 32);
+    }
   }
   // for a page's main thread, which must not block
   async joinAsync() {
     if (this.joined) throw new TypeError('own: a thread is joined once (its result moves out)');
     this.joined = true;
     $quiescent();
-    return read(await threadJoinAsync(this.t), false);
+    try {
+      return __unmessage(await threadJoinAsync(this.t), I32[(this.t + 20) >> 2]);
+    } finally {
+      $freeBlock(this.t, 32);
+    }
   }
 }
 export const spawn = (fn, ...args) => new Thread(__start(fn, args, false));
-// a thread block for fn(...args), queued for the pool. a detached thread (chan.mjs go) is never
-// joined, so the runtime prints its error if it throws
+// a thread block for fn(...args), queued for the pool: [kind][detached][done][threw][arguments][their
+// bytes][result]. the arguments, and then the result, are messages: the thread frees its arguments
+// once it has read them, and whoever joins it frees the result and the block. a detached thread
+// (chan.mjs go) is never joined: it has no result, the runtime frees its block and prints its error
+// if it throws
 export function __start(fn, args, detached) {
   const key = keyOf.get(fn);
   if (key === undefined) throw new TypeError('own: spawn a top-level function of a module the compiler registered (or fns())');
-  const t = $alloc(32);
+  const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 4) >> 2] = detached ? 1 : 0;
-  I32[(t + 16) >> 2] = send([ key, ...args ]);
+  const [ a, bytes ] = __message([ key, ...args ]);
+  I32[(t + 16) >> 2] = a; I32[(t + 20) >> 2] = bytes;
   $quiescent();
   spawnThread(t);
   return t;

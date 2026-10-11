@@ -150,7 +150,7 @@ function setSlot(a, off, v) {
 const CATCH = new Proxy(Object.create(null), {
   get: (t, key, receiver) => typeof key === 'symbol' ? undefined : sgetNamed(receiver[ADDR], $intern(key)),
   set: (t, key, v, receiver) => {
-    if (typeof key === 'symbol') throw new TypeError('escape-proto: symbol keys are not shared');
+    if (typeof key === 'symbol') throw new TypeError('threads: symbol keys are not shared');
     ssetNamed(receiver[ADDR], $intern(key), v);
     return true;
   },
@@ -219,7 +219,7 @@ const makeHandle = (a, kind) => {
       return v;
     }
   }
-  throw new Error(`escape-proto: no handle for kind ${kind}`);
+  throw new Error(`threads: no handle for kind ${kind}`);
 };
 export const HK = new Int32Array(1 << 16), HV = new Array(1 << 16).fill(null);
 const HMAP = new Map();
@@ -241,15 +241,25 @@ const newHandle = (a, kind) => {
 };
 
 // ---- allocation: bump, per-thread chunks. only blocks own.mjs counts are freed ($freeBlock) ----
+// the cursor never passes the end: an allocation that does not fit leaves what is left to smaller
+// ones, and the last chunk may be short
 const CHUNK = 64 << 10;
 let acur = 0, aend = 0;
+export const heapFullMessage = () => `threads: the shared heap is full (${I32[C_HEAP_END] >> 20} MB)`;
 export function $alloc(bytes) {
   bytes = (bytes + 7) & ~7;
   if (acur + bytes <= aend) { const p = acur; acur += bytes; return p; }
-  const want = bytes > CHUNK >> 2 ? bytes : CHUNK;
-  const p = Atomics.add(I32, C_ALLOC, want);
-  if (p + want > I32[C_HEAP_END]) throw new RangeError('escape-proto: shared heap full (raise --heap)');
-  if (want === CHUNK) { acur = p + bytes; aend = p + CHUNK; }
+  const end = I32[C_HEAP_END];
+  let p = Atomics.load(I32, C_ALLOC), want;
+  for (;;) {
+    const left = end - p;
+    want = bytes > CHUNK >> 2 ? bytes : Math.min(CHUNK, left);
+    if (want < bytes || want > left) throw new RangeError(heapFullMessage());
+    const q = Atomics.compareExchange(I32, C_ALLOC, p, p + want);
+    if (q === p) break;
+    p = q;
+  }
+  if (want > bytes) { acur = p + bytes; aend = p + want; }
   return p;
 }
 
@@ -263,15 +273,18 @@ const munlock = i => {
 };
 
 // ---- free lists, for the blocks own.mjs frees ----
-// a block of up to 2 KiB goes on the list for its size; a larger one on one list of large blocks,
-// reused only at the same size. each thread keeps a cache per size and trades with the global
-// lists, under one lock, a batch at a time. a free block is [K_FREE][next] ([K_FREE][bytes][next]
-// when large); with --check its other words are POISON, so a read after free stands out
+// a block of up to 2 KiB goes on the list for its size, and each thread keeps a cache per size that
+// it trades with the global lists, under one lock, a batch at a time. a larger block goes on one list
+// of large blocks, in address order, from which an allocation takes the smallest that fits and puts
+// back what is left of it; a large block that is freed next to another merges with it. a free block
+// is [K_FREE][next] ([K_FREE][bytes][next] when large); with --check its other words are POISON, so a
+// read after free stands out
 const SMALL = 256, BATCH = 32;
 export const K_FREE = 99, POISON = -1.2345e300;
 const caches = [];
 const cacheFor = c => caches[c] ?? (caches[c] = []);
-export function $allocBlock(bytes) {
+// zero: whether the block must be zeroed (a message's is overwritten whole)
+export function $allocBlock(bytes, zero = true) {
   bytes = (bytes + 7) & ~7;
   count(N_BALLOC);
   const c = bytes >> 3;
@@ -288,15 +301,53 @@ export function $allocBlock(bytes) {
     }
     if (cache.length !== 0) p = cache.pop();
   } else if (Atomics.load(I32, C_FREE) !== 0) {
+    // the smallest large block that fits; what is left of it goes back on the list for its size
     mlock(C_FREE_LOCK);
-    let link = C_FREE; // the i32 index that points at p
-    for (p = I32[link]; p !== 0 && I32[(p >> 2) + 1] !== bytes; p = I32[link]) link = (p >> 2) + 2;
-    if (p !== 0) I32[link] = I32[(p >> 2) + 2];
+    let best = 0, bestLink = 0;
+    for (let link = C_FREE, q = I32[link]; q !== 0; link = (q >> 2) + 2, q = I32[link]) {
+      const size = I32[(q >> 2) + 1];
+      if (size >= bytes && (best === 0 || size < I32[(best >> 2) + 1])) {
+        best = q; bestLink = link;
+        if (size === bytes) break;
+      }
+    }
+    if (best !== 0) {
+      p = best;
+      I32[bestLink] = I32[(p >> 2) + 2];
+      const rest = I32[(p >> 2) + 1] - bytes;
+      if (rest !== 0) freeLocked(p + bytes, rest);
+    }
     munlock(C_FREE_LOCK);
   }
   if (p === 0) return $alloc(bytes); // fresh memory is zero
-  I32.fill(0, p >> 2, (p + bytes) >> 2);
+  if (zero) I32.fill(0, p >> 2, (p + bytes) >> 2);
   return p;
+}
+// under C_FREE_LOCK: a free block onto the global list for its size. a large one goes in address
+// order, merged with the free blocks right before and after it
+function freeLocked(p, bytes) {
+  I32[p >> 2] = K_FREE;
+  const c = bytes >> 3;
+  if (c <= SMALL) {
+    I32[(p >> 2) + 1] = I32[C_FREE + c];
+    I32[C_FREE + c] = p;
+    return;
+  }
+  let link = C_FREE, prev = 0; // link: the i32 index that points at the first block after p
+  for (let q = I32[link]; q !== 0 && q < p; q = I32[link]) { prev = q; link = (q >> 2) + 2; }
+  let next = I32[link];
+  if (next !== 0 && p + bytes === next) {
+    bytes += I32[(next >> 2) + 1];
+    next = I32[(next >> 2) + 2];
+  }
+  if (prev !== 0 && prev + I32[(prev >> 2) + 1] === p) {
+    I32[(prev >> 2) + 1] += bytes;
+    I32[(prev >> 2) + 2] = next;
+    return;
+  }
+  I32[(p >> 2) + 1] = bytes;
+  I32[(p >> 2) + 2] = next;
+  I32[link] = p;
 }
 export function $freeBlock(p, bytes) {
   bytes = (bytes + 7) & ~7;
@@ -318,10 +369,8 @@ export function $freeBlock(p, bytes) {
     }
     return;
   }
-  I32[(p >> 2) + 1] = bytes;
   mlock(C_FREE_LOCK);
-  I32[(p >> 2) + 2] = I32[C_FREE];
-  I32[C_FREE] = p;
+  freeLocked(p, bytes);
   munlock(C_FREE_LOCK);
 }
 
@@ -667,7 +716,7 @@ function publish(v) {
     return h;
   }
   if (typeof v === 'function') {
-    if (v.$idx === undefined) throw new TypeError(`escape-proto: cannot share a host function (${v.name})`);
+    if (v.$idx === undefined) throw new TypeError(`threads: cannot share a host function (${v.name})`);
     const a = $alloc(24);
     I32[a >> 2] = K_FN; I32[(a + 8) >> 2] = v.$idx;
     initUndef(a + 16, 1);
@@ -680,7 +729,7 @@ function publish(v) {
   }
   const proto = Object.getPrototypeOf(v);
   const isProto = classProtos.has(v);
-  if (proto !== Object.prototype && !classProtos.has(proto) && !isProto) throw new TypeError('escape-proto: cannot share this kind of object');
+  if (proto !== Object.prototype && !classProtos.has(proto) && !isProto) throw new TypeError('threads: cannot share this kind of object');
   const keys = Object.keys(v), n = keys.length;
   const a = $alloc(24), blk = newSlots(n < 4 ? 4 : n);
   I32[a >> 2] = K_OBJ; I32[(a + 4) >> 2] = MY_TAG;
@@ -708,7 +757,7 @@ function publish(v) {
 }
 function viewRec(v) {
   if (v.$rec !== undefined) return v.$rec;
-  if (v.buffer !== SAB) throw new TypeError('escape-proto: only views of shared buffers can be shared');
+  if (v.buffer !== SAB) throw new TypeError('threads: only views of shared buffers can be shared');
   const a = $alloc(16);
   I32[a >> 2] = K_VIEW; I32[(a + 8) >> 2] = v.byteOffset; I32[(a + 12) >> 2] = v.length;
   v.$rec = a;
@@ -727,7 +776,7 @@ function sgetNamed(a, key) {
 }
 function ssetNamed(a, key, v) {
   count(N_SLOWSET);
-  if (I32[a >> 2] !== K_OBJ) throw new TypeError(`escape-proto: cannot set ${$str(key)} here`);
+  if (I32[a >> 2] !== K_OBJ) throw new TypeError(`threads: cannot set ${$str(key)} here`);
   if (I32[(a + 4) >> 2] === MY_TAG) return ssetBody(a, key, v);
   count(N_LOCKED);
   rlock(a);
@@ -763,18 +812,18 @@ export function $sget(h, key) {
 }
 export function $sset(h, key, v) {
   if (h[KIND] === K_OBJ) return ssetNamed(h[ADDR], key, v);
-  throw new TypeError(`escape-proto: cannot set ${$str(key)} on a shared ${h.constructor?.name ?? 'value'}`);
+  throw new TypeError(`threads: cannot set ${$str(key)} on a shared ${h.constructor?.name ?? 'value'}`);
 }
 export function $scall(h, key, a0, a1, a2) {
   if (h[KIND] === K_ARR && key === K_push) return spush(h[ADDR], a0);
   const f = h[KIND] === K_OBJ ? sgetNamed(h[ADDR], key) : h[$str(key)];
-  if (typeof f !== 'function') throw new TypeError(`escape-proto: ${$str(key)} is not a function here`);
+  if (typeof f !== 'function') throw new TypeError(`threads: ${$str(key)} is not a function here`);
   return f.call(h, a0, a1, a2);
 }
 
 // ---- shared arrays: capacity never shrinks; a grow publishes the block before the length ----
 export function $sgeti(h, i) {
-  if (h[KIND] !== K_ARR) throw new TypeError('escape-proto: indexing a shared non-array');
+  if (h[KIND] !== K_ARR) throw new TypeError('threads: indexing a shared non-array');
   const a = h[ADDR];
   if (!(i >= 0 && i < I32[(a + 12) >> 2]) || (i | 0) !== i) return undefined;
   const blk = I32[(a + 8) >> 2];
@@ -794,7 +843,7 @@ function arrStore(a, i, v) { // owner, or holding the lock
   if (i >= I32[(a + 12) >> 2]) Atomics.store(I32, (a + 12) >> 2, i + 1);
 }
 export function $sseti(h, i, v) {
-  if (h[KIND] !== K_ARR || !(i >= 0 && (i | 0) === i)) throw new TypeError('escape-proto: unsupported shared element write');
+  if (h[KIND] !== K_ARR || !(i >= 0 && (i | 0) === i)) throw new TypeError('threads: unsupported shared element write');
   const a = h[ADDR];
   if (I32[(a + 4) >> 2] === MY_TAG) { arrStore(a, i, v); return v; }
   count(N_LOCKED);
@@ -888,7 +937,7 @@ export function $newThread(fn) {
 export function spawnThread(t) {
   Atomics.add(I32, C_LIVE, 1);
   const tail = Atomics.add(I32, C_RING_TAIL, 1);
-  if (tail - Atomics.load(I32, C_RING_HEAD) >= RING) throw new RangeError('escape-proto: too many threads waiting to start');
+  if (tail - Atomics.load(I32, C_RING_HEAD) >= RING) throw new RangeError('threads: too many threads waiting to start');
   Atomics.store(I32, C_RING + (tail % RING), t);
   const pending = Atomics.add(I32, C_PENDING, 1) + 1;
   Atomics.notify(I32, C_PENDING, 1);
@@ -926,7 +975,7 @@ export function $newSAB(bytes) {
   return newHandle(a, K_SAB);
 }
 export function $newTA(Ctor, buf) {
-  if (Ctor !== Int32Array || !(buf instanceof SharedBuffer)) throw new TypeError('escape-proto: only new Int32Array(sharedBuffer)');
+  if (Ctor !== Int32Array || !(buf instanceof SharedBuffer)) throw new TypeError('threads: only new Int32Array(sharedBuffer)');
   return new Int32Array(SAB, I32[(buf[ADDR] + 8) >> 2], I32[(buf[ADDR] + 12) >> 2] >> 2);
 }
 
@@ -968,17 +1017,19 @@ export function initShared(sab) { // once, before any worker starts
   i32[C_EPOCH] = 1;
 }
 export function attach(sab, opts, postMessage, writeOut) {
-  if (sab !== SAB) throw new Error('escape-proto: attach to the heap the worker was started with');
+  if (sab !== SAB) throw new Error('threads: attach to the heap the worker was started with');
   ROOT = I32[C_ROOT_SHAPE];
   post = postMessage;
   write = writeOut;
   CHECK = !!opts.check;
   K_length = $intern('length'); K_push = $intern('push');
+  $intern(HEAP_FULL()); // so that a thread can report a full heap without allocating
 }
+const HEAP_FULL = () => `RangeError: ${heapFullMessage()}`;
 export const $ctrl = () => I32;
 
 export function threadBegin(tid) {
-  if (tid >= MAX_THREADS) throw new RangeError('escape-proto: out of thread ids');
+  if (tid >= MAX_THREADS) throw new RangeError('threads: out of thread ids');
   MY_TID = tid; MY_ID = tid << 12; MY_TAG = MY_ID | LOCAL; ME = C_THREADS + tid * T_ENTRY;
   I32[ME + T_LEN] = 0; I32[ME + T_CAP] = 0; I32[ME + T_LIST] = 0;
   Atomics.store(I32, ME + T_CLEAN, 0);
@@ -1021,13 +1072,25 @@ function runThread(t) {
     r = e instanceof Error ? String(e) : e;
     threw = 1;
   }
-  try { $enc(t + 24, r); } catch (e) { $enc(t + 24, String(e)); threw = 1; }
+  // the result, or what went wrong storing it. a full heap is reported with a message interned when
+  // the worker attached, which needs no memory: whoever joins the thread must hear that it ended
+  try {
+    $enc(t + 24, r);
+  } catch (e) {
+    threw = 1;
+    try { $enc(t + 24, String(e)); } catch { $enc(t + 24, HEAP_FULL()); }
+  }
   I32[(t + 12) >> 2] = threw;
-  if (threw && I32[(t + 4) >> 2] === 1) $log(`a detached thread threw: ${r}`); // nothing joins it
-  threadEnd();
-  Atomics.store(I32, (t + 8) >> 2, 1);
-  Atomics.notify(I32, (t + 8) >> 2);
-  if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
+  const detached = I32[(t + 4) >> 2] === 1; // only own.mjs's threads are: nothing joins them
+  try {
+    if (threw && detached) $log(`a detached thread threw: ${r}`);
+    threadEnd();
+  } finally {
+    Atomics.store(I32, (t + 8) >> 2, 1);
+    Atomics.notify(I32, (t + 8) >> 2);
+    if (detached) $freeBlock(t, 32);
+    if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
+  }
 }
 // a pool worker: take threads off the queue until shutdown
 // while it has handles to finalize it waits asynchronously, so its event loop runs the registry

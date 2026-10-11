@@ -121,8 +121,9 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 - A page needs cross-origin isolation (the COOP and COEP headers) for SharedArrayBuffer. The dev server
   sends them; a production server must too.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference counted, but cycles of them
-  leak, and moved and shared values are never freed (channel messages are). Neither are interned
-  strings, so a `str` field suits labels and names better than an endless stream of distinct text.
+  leak. A moved value (a thread's arguments and result, a channel's message) is freed once it is read,
+  but shared values are never freed, and neither are interned strings: a `str` field suits labels and
+  names better than an endless stream of distinct text.
 - A thread runs a top-level function; closures do not cross threads.
 - A goroutine is a whole worker: one per core is fine, thousands are not.
 
