@@ -8,6 +8,12 @@ import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import TsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 import threadsTypes from "./runtime/threads.d.mts?raw";
+import channelPipeline from "./programs/channel-pipeline.ts?raw";
+import channelWorkers from "./programs/channel-workers.ts?raw";
+import hello from "./programs/hello.ts?raw";
+import move from "./programs/move.ts?raw";
+import share from "./programs/share.ts?raw";
+import structTally from "./programs/struct-tally.ts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
 import nbodyChan from "./programs/nbody-chan.ts?raw";
@@ -26,18 +32,37 @@ type Result = {
   erased: { js: string | null; error: string | null; added: number };
 };
 
-const PRESETS: [string, string][] = [
-  ["N-body: shared structs and a barrier", nbodyStruct],
-  ["N-body: shared structs and channels", nbodyChanStruct],
-  ["N-body: moving and sharing objects", nbodyTs],
-  ["N-body: channels, copying objects", nbodyChan],
-  ["Mandelbrot: goroutines and channels", mandelbrotChan],
-  ["Nearest centers (the tutorial)", tutorial],
-  ["What channels cost", pipeline],
-  ["Reference counting under a race", refcount],
-  ["A growable SharedVector, in user space", sharedVector],
-  ["Mistakes the checker catches", mistakes],
+// [group, name, source]: the basics first, one idea each, then the bigger examples
+const PRESETS: [string, string, string][] = [
+  ["Basics", "Hello, threads", hello],
+  ["Basics", "Moving a value to a thread", move],
+  ["Basics", "Sharing a value with threads", share],
+  ["Basics", "A shared struct", structTally],
+  ["Basics", "Channels: a pipeline", channelPipeline],
+  ["Basics", "Channels: a pool of workers", channelWorkers],
+  ["Examples", "N-body: shared structs and a barrier", nbodyStruct],
+  ["Examples", "N-body: shared structs and channels", nbodyChanStruct],
+  ["Examples", "N-body: moving and sharing objects", nbodyTs],
+  ["Examples", "N-body: channels, copying objects", nbodyChan],
+  ["Examples", "Mandelbrot: goroutines and channels", mandelbrotChan],
+  ["Examples", "Nearest centers (the tutorial)", tutorial],
+  ["Examples", "What channels cost", pipeline],
+  ["Examples", "Reference counting under a race", refcount],
+  ["Examples", "A growable SharedVector, in user space", sharedVector],
+  ["Examples", "Mistakes the checker catches", mistakes],
 ];
+
+// what the page remembers in this browser: the program picked last, by name, and each program's text
+// as edited (none once it is back to the original). storage can be blocked: then nothing is kept
+const storage = {
+  get: (key: string) => { try { return localStorage.getItem(key); } catch { return null; } },
+  set: (key: string, value: string) => { try { localStorage.setItem(key, value); } catch {} },
+  remove: (key: string) => { try { localStorage.removeItem(key); } catch {} },
+};
+const PROGRAM_KEY = "threads-playground:program";
+const textKey = (index: number) => `threads-playground:text:${PRESETS[index][1]}`;
+const programText = (index: number) => storage.get(textKey(index)) ?? PRESETS[index][2];
+const initial = Math.max(0, PRESETS.findIndex(([, name]) => name === storage.get(PROGRAM_KEY)));
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const diagnostics = $("diagnostics"), output = $("output");
@@ -70,7 +95,7 @@ const options: monaco.editor.IStandaloneEditorConstructionOptions = {
   automaticLayout: true, minimap: { enabled: false }, scrollBeyondLastLine: false, theme: theme(),
   fontSize: 12.5, lineNumbersMinChars: 3, tabSize: 2, renderLineHighlight: "none",
 };
-const sourceModel = monaco.editor.createModel(PRESETS[0][1], "typescript", monaco.Uri.parse("file:///program.ts"));
+const sourceModel = monaco.editor.createModel(programText(initial), "typescript", monaco.Uri.parse("file:///program.ts"));
 const editor = monaco.editor.create($("source"), { ...options, model: sourceModel });
 const jsModel = monaco.editor.createModel("", "javascript", monaco.Uri.parse("file:///compiled.js"));
 const jsEditor = monaco.editor.create($("js"), { ...options, model: jsModel, readOnly: true, domReadOnly: true });
@@ -203,12 +228,12 @@ runButton.addEventListener("click", async () => {
   const erased = mode() === "erased", name = erased ? `${result.key}.erased` : result.key;
   running = true;
   updateRun();
-  print(`<div class="run">${erased ? "Types erased" : "Compiled"} · ${preset.selectedOptions[0]?.text ?? "program"} · threads ${counts.join(", ")}</div>`);
+  print(`<div class="run">${erased ? "Types erased" : "Compiled"} · ${preset.selectedOptions[0]?.text ?? "program"} · main(${JSON.stringify(counts)}) on a worker</div>`);
   const t0 = performance.now();
   try {
     const program = await import(/* @vite-ignore */ `/@id/virtual:threads/playground/${name}.js`);
     if (typeof program.main !== "function") throw new Error("the program exports no main(threadCounts)");
-    await run(program.main, counts);
+    await run(program.main, counts); // main runs on a worker, like any thread; the page awaits it
     print(`<div class="done">done in ${(performance.now() - t0).toFixed(0)} ms</div>`);
   } catch (e) {
     print(`<div class="error">${escapeHtml(String(e))}</div>`);
@@ -219,15 +244,31 @@ runButton.addEventListener("click", async () => {
 });
 
 // ---- the rest of the page ----
-for (const [name] of PRESETS) preset.add(new Option(name));
+for (const [group, name] of PRESETS) {
+  let optgroup = [...preset.querySelectorAll("optgroup")].find(g => g.label === group);
+  if (!optgroup) preset.append(optgroup = Object.assign(document.createElement("optgroup"), { label: group }));
+  optgroup.append(new Option(name));
+}
+preset.selectedIndex = initial;
 preset.addEventListener("change", () => {
-  sourceModel.setValue(PRESETS[preset.selectedIndex][1]);
+  storage.set(PROGRAM_KEY, PRESETS[preset.selectedIndex][1]);
+  sourceModel.setValue(programText(preset.selectedIndex));
   editor.setScrollTop(0);
 });
+// keep the text as edited, and offer to put the original back
+const reset = $<HTMLButtonElement>("reset");
+function remember() {
+  const index = preset.selectedIndex, text = sourceModel.getValue(), edited = text !== PRESETS[index][2];
+  if (edited) storage.set(textKey(index), text); else storage.remove(textKey(index));
+  reset.hidden = !edited;
+}
+reset.addEventListener("click", () => sourceModel.setValue(PRESETS[preset.selectedIndex][2]));
 sourceModel.onDidChangeContent(() => {
+  remember();
   clearTimeout(timer);
   timer = window.setTimeout(compile, 400);
 });
+remember();
 for (const radio of document.querySelectorAll('input[name="mode"]')) radio.addEventListener("change", () => { showJs(); updateRun(); });
 $("clear").addEventListener("click", () => { output.textContent = ""; });
 

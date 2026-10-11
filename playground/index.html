@@ -76,12 +76,13 @@
   <header>
     <h1>Threads playground</h1>
     <label>Program <select id="preset"></select></label>
+    <button id="reset" class="quiet" title="Discard your edits to this program" hidden>Reset</button>
     <span role="radiogroup" aria-label="What runs">
       <label><input type="radio" name="mode" value="compiled" checked> Compiled</label>
       <label><input type="radio" name="mode" value="erased"> Types erased</label>
     </span>
     <label>Threads <input id="threads" type="text" value="1,2,4,8" size="9"></label>
-    <button id="run" disabled>Run</button>
+    <button id="run" title="Starts main(threadCounts) on a worker" disabled>Run</button>
     <span id="status">Starting the workers…</span>
   </header>
   <main>
@@ -96,7 +97,7 @@
     </section>
   </main>
   <section id="output-pane">
-    <h2>Output <button id="clear" class="quiet">Clear</button></h2>
+    <h2>Output <span class="hint">Run starts main on a worker, like any thread, so it may block; the page only awaits it</span> <button id="clear" class="quiet">Clear</button></h2>
     <pre id="output" aria-live="polite"></pre>
   </section>
   <script type="module" src="./main.ts"></script>

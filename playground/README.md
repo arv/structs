@@ -38,7 +38,9 @@ completions and errors from the threads API, and see:
 - the JavaScript the fork compiles it to, with what the compiler added marked;
 - the same program with its types only erased, which still runs;
 - the ownership checker's errors, as squiggles in the editor and in a list;
-- its output, run on a pool of Web Workers (Run).
+- its output, run on a pool of Web Workers (Run). `main` runs on a worker too, started like any other
+  thread, so it may block (`join`, `recv`, a barrier); the page itself never blocks, it only awaits
+  `main`'s result.
 
 The dev server compiles, so a production build (`npm run build`) shows the page but cannot compile.
 
@@ -78,7 +80,9 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 
 ## Programs
 
-[programs/](programs): N-body four ways (shared structs with a barrier, shared structs with channels,
+[programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
+thread; sharing a value; a shared struct; a channel pipeline; a pool of workers on channels. Then the
+bigger examples: N-body four ways (shared structs with a barrier, shared structs with channels,
 moving and sharing objects, channels copying objects), Mandelbrot on channels, the nearest-centers
 example, what channels cost, reference counting under a race, a growable `SharedVector` written in
 user space on the API above, and the mistakes the checker catches. Each exports `main(threadCounts)`.
