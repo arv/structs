@@ -65,7 +65,7 @@ const LOCAL = 0x800, PENDING = 0x400, DEPTH = 0x3ff;
 // sets the heap up, through initShared, and reads it through the functions that take the buffer
 const SAB = globalThis.__escapeSab ?? null;
 export const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB);
-const U16 = SAB && new Uint16Array(SAB);
+const U16 = SAB && new Uint16Array(SAB), U8 = SAB && new Uint8Array(SAB);
 let ROOT, post, write;
 let FNS = [];
 let MY_TID = 0, MY_ID = 0, MY_TAG = 0, ME = 0;
@@ -474,7 +474,27 @@ const stwWait = () => {
   mlock(C_STW_LOCK);
 };
 
-// ---- strings: interned, so a string's address is its identity (keys compare by address) ----
+// ---- text in shared memory: a string is stored a byte per char when it is ASCII, and as UTF-16
+// units otherwise. TextDecoder makes a string of long ASCII text several times faster than
+// String.fromCharCode does, and of short text more slowly; it takes no view of shared memory, so the
+// bytes are copied out first ----
+const asciiDecoder = new TextDecoder();
+const decodeScratch = new Uint8Array(1 << 16);
+export const $isAscii = s => /^[\0-\x7f]*$/.test(s);
+export function $decodeAscii(at, n) { // n chars from byte `at`
+  if (n < 64) return String.fromCharCode.apply(null, U8.subarray(at, at + n));
+  if (n > decodeScratch.length) return asciiDecoder.decode(U8.slice(at, at + n));
+  decodeScratch.set(U8.subarray(at, at + n));
+  return asciiDecoder.decode(decodeScratch.subarray(0, n));
+}
+export function $decodeUtf16(u, n) { // n units from U16[u]
+  let s = '';
+  for (let i = 0; i < n; i += 4096) s += String.fromCharCode.apply(null, U16.subarray(u + i, u + Math.min(n, i + 4096)));
+  return s;
+}
+
+// ---- strings: interned, so a string's address is its identity (keys compare by address). a string
+// is [K_STR][length][hash][ascii] and then its text ----
 const strAddr = new Map(), addrStr = new Map();
 const strHash = s => {
   let h = 0x811c9dc5;
@@ -483,8 +503,12 @@ const strHash = s => {
 };
 const strIs = (a, s) => {
   if (I32[(a + 4) >> 2] !== s.length) return false;
-  const u = (a + 16) >> 1;
-  for (let i = 0; i < s.length; i++) if (U16[u + i] !== s.charCodeAt(i)) return false;
+  if (I32[(a + 12) >> 2] !== 0) {
+    for (let i = 0; i < s.length; i++) if (U8[a + 16 + i] !== s.charCodeAt(i)) return false;
+  } else {
+    const u = (a + 16) >> 1;
+    for (let i = 0; i < s.length; i++) if (U16[u + i] !== s.charCodeAt(i)) return false;
+  }
   return true;
 };
 // the table is a block [capacity][count] and then its slots, each 0 or a string's address. a filled
@@ -522,11 +546,11 @@ export function $intern(s) {
     const t = Atomics.load(I32, C_STR_TABLE);
     a = strFind(t, s, h);
     if (a < 0) {
-      const slot = (t >> 2) + 2 - 1 - a;
-      a = $alloc(16 + s.length * 2);
-      I32[a >> 2] = K_STR; I32[(a + 4) >> 2] = s.length; I32[(a + 8) >> 2] = h;
-      const u = (a + 16) >> 1;
-      for (let k = 0; k < s.length; k++) U16[u + k] = s.charCodeAt(k);
+      const slot = (t >> 2) + 2 - 1 - a, ascii = $isAscii(s);
+      a = $alloc(16 + s.length * (ascii ? 1 : 2));
+      I32[a >> 2] = K_STR; I32[(a + 4) >> 2] = s.length; I32[(a + 8) >> 2] = h; I32[(a + 12) >> 2] = ascii ? 1 : 0;
+      if (ascii) for (let k = 0; k < s.length; k++) U8[a + 16 + k] = s.charCodeAt(k);
+      else for (let k = 0, u = (a + 16) >> 1; k < s.length; k++) U16[u + k] = s.charCodeAt(k);
       Atomics.store(I32, slot, a);
       if (++I32[(t >> 2) + 1] * 2 > I32[t >> 2]) strGrow(t);
     }
@@ -540,9 +564,8 @@ export const $internedHere = s => strAddr.get(s) ?? 0;
 export function $str(a) {
   let s = addrStr.get(a);
   if (s !== undefined) return s;
-  const n = I32[(a + 4) >> 2], u = (a + 16) >> 1;
-  s = '';
-  for (let i = 0; i < n; i += 4096) s += String.fromCharCode.apply(null, Array.from(U16.subarray(u + i, u + Math.min(n, i + 4096))));
+  const n = I32[(a + 4) >> 2];
+  s = I32[(a + 12) >> 2] !== 0 ? $decodeAscii(a + 16, n) : $decodeUtf16((a + 16) >> 1, n);
   addrStr.set(a, s); strAddr.set(s, a);
   return s;
 }

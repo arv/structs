@@ -8,35 +8,39 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
+import { $alloc, $decodeAscii, $decodeUtf16, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
   $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
-const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB), U8 = SAB && new Uint8Array(SAB), U16 = SAB && new Uint16Array(SAB);
+const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB), U8 = SAB && new Uint8Array(SAB);
 
 export { $log as log };
 
 // ---- the wire format: a blob of 8-byte words in the shared heap. word 0 is the root value ----
 // a value word is a number (f64), or a box: hi = 0xFFF80000 | tag << 11, lo = payload. payloads
 // of strings, arrays and objects are the word offset of their body in the same blob
-//   string body: [length][repeated] then utf-16 units     array body: [length] then value words
+//   string body: [length][flags] then its text: a byte per char if it is ASCII, else UTF-16 units
+//   array body: [length] then value words
 //   object body: [count] then count key words (interned key address) then count value words
 // a string that occurs more than once in a value is written once: its other occurrences point at the
-// same body, which is marked repeated, so that a reader decodes it once. a string this thread has
+// same body, which is marked repeated, so that a reader decodes it once. a long ASCII string is
+// written by TextEncoder.encodeInto (into this thread's buffer: it takes no view of shared memory). a string this thread has
 // interned (a `str` field's) or read from the string table already is not copied at all: it is the
 // address of its one copy there (T_ISTR). nothing else is added to the string table, whose strings
 // are never freed: a channel message is freed whole once it is read
 const BOX = 0xFFF80000 | 0;
+const STR_REPEATED = 1, STR_ASCII = 2; // a string body's flags
 const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9, T_COUNTED = 10, T_ISTR = 11;
 
 // writing: into a growing private buffer, then copied into the heap in one piece
-let wf = new Float64Array(1024), wi = new Int32Array(wf.buffer), wn = 0;
+let wf = new Float64Array(1024), wi = new Int32Array(wf.buffer), wb = new Uint8Array(wf.buffer), wu = new Uint16Array(wf.buffer), wn = 0;
+const encoder = new TextEncoder();
 const written = new Map(); // the strings in the blob being written -> their body
 const reserve = words => {
   if (wn + words <= wf.length) return;
   const nf = new Float64Array(Math.max(wf.length * 2, wn + words));
   nf.set(wf.subarray(0, wn));
-  wf = nf; wi = new Int32Array(wf.buffer);
+  wf = nf; wi = new Int32Array(wf.buffer); wb = new Uint8Array(wf.buffer); wu = new Uint16Array(wf.buffer);
 };
 const box = (at, tag, p) => { wi[at * 2] = p; wi[at * 2 + 1] = BOX | (tag << 11); };
 
@@ -61,16 +65,34 @@ function put(at, v, moved, seen) {
     if (interned !== 0) return box(at, T_ISTR, interned);
     let body = written.get(v);
     if (body !== undefined) {
-      wi[body * 2 + 1] = 1; // repeated
+      wi[body * 2 + 1] |= STR_REPEATED;
       return box(at, T_STR, body);
     }
-    const words = 1 + ((v.length + 3) >> 2);
-    reserve(words);
-    body = wn; wn += words;
-    wi[body * 2] = v.length; wi[body * 2 + 1] = 0;
+    // a byte per char if it is ASCII (encodeInto writes ASCII as is, and anything else as more bytes
+    // than chars), else UTF-16 units
+    const n = v.length;
+    reserve(1 + ((n + 7) >> 3));
+    body = wn;
+    const o = (body + 1) * 8;
+    let ascii = true;
+    if (n >= 256) {
+      const r = encoder.encodeInto(v, wb.subarray(o, o + n));
+      ascii = r.read === n && r.written === n;
+    } else {
+      for (let i = 0; i < n; i++) {
+        const c = v.charCodeAt(i);
+        if (c >= 128) { ascii = false; break; }
+        wb[o + i] = c;
+      }
+    }
+    if (ascii) wn += 1 + ((n + 7) >> 3);
+    else {
+      reserve(1 + ((n + 3) >> 2));
+      for (let i = 0, u = o >> 1; i < n; i++) wu[u + i] = v.charCodeAt(i);
+      wn += 1 + ((n + 3) >> 2);
+    }
+    wi[body * 2] = n; wi[body * 2 + 1] = ascii ? STR_ASCII : 0;
     written.set(v, body);
-    const u = new Uint16Array(wf.buffer, (body + 1) * 8, v.length);
-    for (let i = 0; i < v.length; i++) u[i] = v.charCodeAt(i);
     return box(at, T_STR, body);
   }
   if (typeof v !== 'object') throw new TypeError(`own: cannot send a ${typeof v}`);
@@ -123,14 +145,14 @@ function get(base, at, frozen) {
     case T_FALSE: return false;
     case T_TRUE: return true;
     case T_STR: {
-      const repeated = decoded !== null && I32[(base >> 2) + p * 2 + 1] !== 0; // cached within a read()
+      const flags = I32[(base >> 2) + p * 2 + 1];
+      const repeated = decoded !== null && (flags & STR_REPEATED) !== 0; // cached within a read()
       if (repeated) {
         const s = decoded?.get(p);
         if (s !== undefined) return s;
       }
-      const n = I32[(base >> 2) + p * 2], u = (base + (p + 1) * 8) >> 1;
-      let s = '';
-      for (let k = 0; k < n; k += 4096) s += String.fromCharCode.apply(null, U16.subarray(u + k, u + Math.min(n, k + 4096)));
+      const n = I32[(base >> 2) + p * 2], text = base + (p + 1) * 8;
+      const s = flags & STR_ASCII ? $decodeAscii(text, n) : $decodeUtf16(text >> 1, n);
       if (repeated) (decoded ??= new Map()).set(p, s);
       return s;
     }

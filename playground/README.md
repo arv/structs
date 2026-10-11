@@ -98,10 +98,13 @@ copying objects), Mandelbrot on channels, JSON parsed on threads, the nearest-ce
 channels cost, reference counting under a race, a growable `SharedVector` written in user space on
 the API above, and the mistakes the checker catches. Each exports `main(threadCounts)`.
 
-Parsed JSON moves between threads faster than its text: an object's keys cross as the addresses of
-their interned copies, the receiver makes every object with the same keys with one constructor, and
-a string repeated in a value is copied once. 200,000 log requests (23 MB of JSON) arrive in about
-25 ms as objects, against about 55 ms to receive the text and 33 ms more to parse it again.
+Parsed JSON crosses threads about as fast as `JSON.parse` makes it: an object's keys cross as the
+addresses of their interned copies, the receiver makes every object with the same keys with one
+constructor, and a string repeated in a value is copied once. 200,000 log requests arrive in about
+25 ms. Their text, 23 MB of JSON, arrives in about 7 ms (and takes about 30 ms more to parse): an
+ASCII string is stored a byte per char, a long one written with `TextEncoder.encodeInto` and read
+with `TextDecoder`. Those take no views of shared memory, so the bytes go through a thread's own
+buffer, which costs less than decoding UTF-16 a char at a time did (about 55 ms).
 
 Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
