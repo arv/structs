@@ -277,3 +277,7 @@ neither `A` nor `i` assigned anywhere else, as in N-body's inner loop.
 - **Only part of the language.** Shared `Map` and `Set` are missing. Typed arrays are limited to
   `Int32Array` over a shared buffer. `own.mjs` cannot send cycles, and shared struct fields are
   numbers only.
+
+## License
+
+Copyright 2026 Erik Arvidsson. Licensed under the [Apache License 2.0](LICENSE).
