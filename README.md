@@ -20,8 +20,8 @@ cross workers, so the question is what to do with objects. Two designs are here:
 Measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and Chrome 154.
 
 This started in Porffor's repository, as `threads/escape-proto` on top of its threads work. The own
-and shared design grew into [threads-playground](https://github.com/arv/threads-playground): its
-runtime, checker and playground carry on from [app/](app) and the files here.
+and shared design grew into [playground/](playground): its runtime, the threads-check checker and
+the playground carry on from [app/](app) and the files here, and are where the work goes on.
 
 [porffor-threads]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads
 [porffor-playground]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads/playground
@@ -74,6 +74,7 @@ TSGO=<tsgo-fork>/built/local/tsgo npx vite --config app/vite.config.js
 
 | File | What it is |
 |---|---|
+| [`playground/`](playground) | the own and shared design as it goes on: runtime, checker, playground ([its README](playground/README.md)) |
 | `runtime.js` | the shared heap: allocator, value words, strings, shapes, handles, ownership and handover, Lock, Condition, the worker pool |
 | `expand.js` | turns the access macros of a hand translation into what a transform would emit |
 | `nbody.js`, `mandelbrot.js`, `basic.js` | the playground's presets, and a small example, translated by hand for publish on escape |

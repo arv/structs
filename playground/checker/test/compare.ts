@@ -2,18 +2,18 @@
 // their diagnostics (file, line, column, code and message).
 //
 // The projects: the cases in test/cases, the playground (with and without programs/mistakes.ts),
-// the fork's marker-mode compiler tests, the prototype's programs (arv/threads) and the scratchpad's
-// mistakes. Projects
-// outside this repository are skipped when they are not there. Without the fork (TSGO_FORK, by
-// default ~/src/arv/TypeScript), a case of test/cases is compared with its expected output in
-// test/expected, which `npm test -- --update` writes from the fork's output.
+// the fork's marker-mode compiler tests, the prototype's programs (at the repository's root) and the
+// scratchpad's mistakes. Projects outside this repository are skipped when they are not there.
+// Without the fork (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is compared
+// with its expected output in test/expected, which `npm test -- --update` writes from the fork's
+// output.
 //
 // Only test/cases have stored expectations: the other projects change on their own, and the fork's
 // tests come with the fork.
 //
-// Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (arv/threads, the prototype this
-// grew out of), MISTAKES (directories, separated by colons, each with a tsconfig.json of programs that
-// import the runtime as ./threads.js).
+// Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (the prototype this grew out of,
+// by default the repository's root, above the playground), MISTAKES (directories, separated by
+// colons, each with a tsconfig.json of programs that import the runtime as ./threads.js).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -27,7 +27,7 @@ const playground = resolve(checkerDir, "..");
 const forkRoot = process.env.TSGO_FORK ?? join(homedir(), "src/arv/TypeScript");
 const tsgo = join(forkRoot, "tsc/built/local/tsgo");
 const forkTests = join(forkRoot, "tsc/testdata/tests/cases/compiler");
-const prototype = process.env.THREADS_PROTOTYPE ?? join(homedir(), "src/arv/threads");
+const prototype = process.env.THREADS_PROTOTYPE ?? resolve(playground, "..");
 const mistakes = (process.env.MISTAKES ?? "").split(":").filter((dir) => dir !== "");
 const update = process.argv.includes("--update");
 const haveFork = existsSync(tsgo);

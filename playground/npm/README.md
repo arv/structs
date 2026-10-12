@@ -28,7 +28,7 @@ export function main(threads: number) {
 > published yet. See [Status](#status).
 
 Try it in the browser, with the compiled JavaScript side by side:
-[arv/threads-playground](https://github.com/arv/threads-playground).
+[arv/threads](https://github.com/arv/threads/tree/main/playground).
 
 ## The model
 

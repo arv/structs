@@ -161,7 +161,8 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
   up the others on its worker, and none moves to another worker once it has started.
 
 This grew out of an experiment in [Porffor](https://github.com/CanadaHonk/porffor)'s threads work,
-compiling JavaScript to JavaScript for threads instead of to C and WebAssembly.
+compiling JavaScript to JavaScript for threads instead of to C and WebAssembly: the prototypes at
+[the root of this repository](../README.md).
 
 ## License
 
