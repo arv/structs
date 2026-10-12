@@ -4,7 +4,15 @@
 // its own slice. Channels take the barriers' place: after each phase a
 // goroutine reports on `done` and waits for main on its `next` , which is Go's
 // way (share memory, and order it with channels). Nothing is copied.
-import {Channel, f64, go, log, SharedArray, struct, type Struct} from 'threads';
+import {
+  Channel,
+  f64,
+  go,
+  log,
+  SharedArray,
+  struct,
+  type Struct,
+} from '@arv/threads';
 
 const Body = struct({
   x: f64,

@@ -14,7 +14,7 @@ import {
   Slots,
   take,
   type Thread,
-} from 'threads';
+} from '@arv/threads';
 
 type Body = {
   x: number;

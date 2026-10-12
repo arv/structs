@@ -14,7 +14,7 @@
 // counter into the shared heap and forwards the local object to it. the
 // threads' writes then take counter over from main (blocked in join, so at
 // once) and lock it for each write
-import {$closure, $fns, $newThread, $newLock, $log} from 'threads/runtime';
+import {$closure, $fns, $newThread, $newLock, $log} from '@arv/threads/runtime';
 
 const FN = $fns({bump, bump_hold});
 

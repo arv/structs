@@ -1,6 +1,6 @@
 // `TSGO=<the tsgo fork>/built/local/tsgo vp dev` . The plugin compiles the page
 // and the programs with the fork, and the playground's programs on request;
-// "threads" is the runtime in ../src/runtime
+// "@arv/threads" is the runtime in ../src/runtime
 import {fileURLToPath} from 'node:url';
 import {lazyPlugins} from 'vite-plus';
 import threads from '../src/runtime/vite-plugin-threads.ts';
@@ -14,16 +14,15 @@ export default {
   plugins: lazyPlugins(() => [
     threads({
       tsgo: process.env.TSGO,
-      runtime: 'threads',
       playground: true,
       checker: here('../src/checker/index.ts'),
     }),
   ]),
   resolve: {
     alias: [
-      {find: /^threads$/, replacement: here('../src/runtime/threads.ts')},
+      {find: /^@arv\/threads$/, replacement: here('../src/runtime/threads.ts')},
       {
-        find: /^threads\/(heap|browser)$/,
+        find: /^@arv\/threads\/(heap|browser)$/,
         replacement: here('../src/runtime/$1.ts'),
       },
     ],

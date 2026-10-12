@@ -13,7 +13,7 @@ import {
   struct,
   type Struct,
   type Thread,
-} from 'threads';
+} from '@arv/threads';
 
 const Entry = struct({service: str, level: str, ms: f64});
 type Entry = Struct<typeof Entry>;

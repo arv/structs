@@ -213,12 +213,12 @@ export function expand(
     return out;
   };
 
-  // the runtime's modules by its location: threads, as the tsgo fork emits a
-  // program's import of the API, and threads/<module> (threads/own,
-  // threads/runtime) for a module of the runtime itself
+  // the runtime's modules by its location: @arv/threads, as the tsgo fork emits
+  // a program's import of the API, and @arv/threads/<module> (@arv/threads/own,
+  // @arv/threads/runtime) for a module of the runtime itself
   const dir = runtime.replace(/runtime\.ts$/, '');
   const body = walk(src).replace(
-    /\bfrom\s*(['"])threads(?:\/([\w-]+))?\1/g,
+    /\bfrom\s*(['"])@arv\/threads(?:\/([\w-]+))?\1/g,
     (_: string, _q: string, module = 'threads') => `from '${dir}${module}.ts'`,
   );
   const head = [

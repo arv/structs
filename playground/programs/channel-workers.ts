@@ -1,7 +1,7 @@
 // A pool of workers: jobs go into one channel, whichever worker is free takes
 // the next, and results come back on another channel, in the order the workers
 // finish them.
-import {Channel, go, log} from 'threads';
+import {Channel, go, log} from '@arv/threads';
 
 type Result = {job: number; worker: number; value: number};
 

@@ -2,7 +2,7 @@
 // number of threads read. Each thread gets its own copy, once. Nobody can
 // change it: TypeScript already rejects a write (uncomment the line in
 // convert).
-import {log, scope, share, type Shared, type Thread} from 'threads';
+import {log, scope, share, type Shared, type Thread} from '@arv/threads';
 
 type Rates = {[currency: string]: number};
 

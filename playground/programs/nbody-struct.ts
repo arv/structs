@@ -12,7 +12,7 @@ import {
   SharedArray,
   struct,
   type Struct,
-} from 'threads';
+} from '@arv/threads';
 
 const Body = struct({
   x: f64,

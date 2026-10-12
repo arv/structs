@@ -9,7 +9,7 @@ import {
   $iter,
   $eq,
   $log,
-} from 'threads/runtime';
+} from '@arv/threads/runtime';
 
 const FN = $fns({worker});
 

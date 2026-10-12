@@ -3,7 +3,7 @@
 // crosses out the multiples of the small primes in its own part of the array,
 // so no two threads write the same element, and main counts what is left once
 // scope has joined them.
-import {log, scope, share, type Shared, SharedArray} from 'threads';
+import {log, scope, share, type Shared, SharedArray} from '@arv/threads';
 
 const N = 10_000_000;
 

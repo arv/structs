@@ -2,7 +2,7 @@
 // channels (chan.ts): a job channel of rows to draw, and a result channel of
 // drawn rows. The workers share nothing but the two channels; a drawn row moves
 // back to main.
-import {Channel, go, log} from 'threads';
+import {Channel, go, log} from '@arv/threads';
 
 const W = 80,
   H = 32,

@@ -11,9 +11,9 @@
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
     "paths": {
-      "threads": ["../src/runtime/threads.d.ts"],
-      "threads/heap": ["../src/runtime/heap.d.ts"],
-      "threads/browser": ["../src/runtime/browser.d.ts"]
+      "@arv/threads": ["../src/runtime/threads.d.ts"],
+      "@arv/threads/heap": ["../src/runtime/heap.d.ts"],
+      "@arv/threads/browser": ["../src/runtime/browser.d.ts"]
     }
   },
   "include": ["*.ts", "programs/*.ts"],

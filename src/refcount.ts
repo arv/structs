@@ -1,7 +1,7 @@
 // Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler
 // counts the references to shared structs, so a block is freed (and its memory
 // reused) when nothing refers to it any more.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 //   node src/run.ts build/ts/refcount.js
 // churn: builds and drops a 1000-node list 200 times on one thread; the heap
 // stops growing once the free lists hold a list's worth of blocks. race: one
@@ -18,7 +18,7 @@ import {
   struct,
   type Struct,
   type Thread,
-} from 'threads';
+} from '@arv/threads';
 
 interface Node {
   value: number;

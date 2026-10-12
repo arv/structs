@@ -5,11 +5,11 @@
 // /__threads/compile); the page imports the result as a module, and so do the
 // workers.
 // first: the shared memory, before anything that uses it loads
-import 'threads/heap';
+import '@arv/threads/heap';
+import {run, start} from '@arv/threads/browser';
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
-import {run, start} from 'threads/browser';
 import threadsTypes from '../src/runtime/threads.d.ts?raw';
 import asyncGoroutines from './programs/async-goroutines.ts?raw';
 import atomics from './programs/atomics.ts?raw';
@@ -99,8 +99,14 @@ const storage = {
 const PROGRAM_KEY = 'threads-playground:program';
 const textKey = (index: number) =>
   `threads-playground:text:${PRESETS[index][1]}`;
+// text saved before the API was the package @arv/threads imports it as threads
 const programText = (index: number) =>
-  storage.get(textKey(index)) ?? PRESETS[index][2];
+  storage
+    .get(textKey(index))
+    ?.replace(
+      /(\bfrom\s*)(['"])threads(\/[\w-]+)?\2/g,
+      '$1$2@arv/threads$3$2',
+    ) ?? PRESETS[index][2];
 const initial = Math.max(
   0,
   PRESETS.findIndex(([, name]) => name === storage.get(PROGRAM_KEY)),
@@ -135,8 +141,8 @@ self.MonacoEnvironment = {
       ? new TsWorker()
       : new EditorWorker(),
 };
-// the editor's TypeScript sees the threads API as the module "threads", as tsc
-// does
+// the editor's TypeScript sees the threads API as the module "@arv/threads", as
+// tsc does
 const ts = monaco.typescript;
 ts.typescriptDefaults.setCompilerOptions({
   target: ts.ScriptTarget.ESNext,
@@ -149,7 +155,7 @@ ts.typescriptDefaults.setCompilerOptions({
 });
 ts.typescriptDefaults.addExtraLib(
   threadsTypes,
-  'file:///node_modules/threads/index.d.ts',
+  'file:///node_modules/@arv/threads/index.d.ts',
 );
 // the compiled JavaScript is for reading: no diagnostics on it
 ts.javascriptDefaults.setDiagnosticsOptions({

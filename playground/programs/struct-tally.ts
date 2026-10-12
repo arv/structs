@@ -3,7 +3,7 @@
 // its own tally, one of a SharedArray of them, and main adds the tallies up
 // once scope has joined the threads (joining orders the threads' writes before
 // main's reads).
-import {f64, log, scope, SharedArray, struct, type Struct} from 'threads';
+import {f64, log, scope, SharedArray, struct, type Struct} from '@arv/threads';
 
 const Tally = struct({primes: f64, largest: f64});
 type Tally = Struct<typeof Tally>;

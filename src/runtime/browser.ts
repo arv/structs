@@ -26,7 +26,7 @@ export function start({
   if (started) return started;
   if (!sab)
     throw new Error(
-      'threads: import "threads/heap" first in the page\'s entry module',
+      'threads: import "@arv/threads/heap" first in the page\'s entry module',
     );
   const onMessage: (m: Message) => void = m => {
     if (m.type === 'out') onLog(m.text);

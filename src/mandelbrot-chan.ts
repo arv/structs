@@ -1,9 +1,9 @@
 // presets/mandelbrot.js with goroutines and channels (chan.ts): a job channel
 // of rows to draw, and a result channel of drawn rows. The workers share
 // nothing but the two channels; a drawn row moves back to main.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 //   node src/run.ts build/ts/mandelbrot-chan.js
-import {Channel, go, log} from 'threads';
+import {Channel, go, log} from '@arv/threads';
 
 const W = 80,
   H = 32,

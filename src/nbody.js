@@ -11,7 +11,7 @@ import {
   $iter,
   $eq,
   $log,
-} from 'threads/runtime';
+} from '@arv/threads/runtime';
 
 const FN = $fns({Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body});
 

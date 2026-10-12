@@ -11,7 +11,7 @@ import {
   type Sending,
   type Shared,
   u8,
-} from 'threads';
+} from '@arv/threads';
 
 type Point = {x: number; y: number};
 const Pixel = struct({brightness: f64, gray: u8});

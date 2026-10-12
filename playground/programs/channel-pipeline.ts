@@ -1,7 +1,7 @@
 // Channels, Go's way: goroutines connected by channels. numbers sends 1, 2,
 // ..., n; squares squares what comes in; main adds up what comes out. Closing a
 // channel ends the loops that read it.
-import {Channel, go, log} from 'threads';
+import {Channel, go, log} from '@arv/threads';
 
 function numbers(n: number, out: Channel<number>) {
   for (let i = 1; i <= n; i++) out.send(i);

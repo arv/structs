@@ -14,7 +14,7 @@ import {
   type Struct,
   type Thread,
   u8,
-} from 'threads';
+} from '@arv/threads';
 
 const Work = struct({next: i32}); // the next row to claim
 type Work = Struct<typeof Work>;

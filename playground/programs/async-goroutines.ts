@@ -8,7 +8,16 @@
 // Here ten thousand requests wait for a database replica to reach the position
 // each needs, as the request handlers of a Go server do, and then a pipeline of
 // async goroutines squares numbers.
-import {atomic, Channel, go, i32, log, ref, selectAsync, struct} from 'threads';
+import {
+  atomic,
+  Channel,
+  go,
+  i32,
+  log,
+  ref,
+  selectAsync,
+  struct,
+} from '@arv/threads';
 
 interface Db {
   done: Channel<void> | null;

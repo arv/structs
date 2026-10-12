@@ -1,6 +1,6 @@
 // presets/nbody.js in plain TypeScript on threads.ts. The tsgo fork checks it
 // (no ownership errors) and emits plain JavaScript for the runtime:
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 //   node src/run.ts build/ts/nbody-ts.js
 // Each thread owns its slice of the bodies; every step it shares a snapshot of
 // its positions, and the others read their own copies. The hot loops are plain
@@ -16,7 +16,7 @@ import {
   Slots,
   take,
   type Thread,
-} from 'threads';
+} from '@arv/threads';
 
 type Body = {
   x: number;

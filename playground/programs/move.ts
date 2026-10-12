@@ -2,7 +2,7 @@
 // sender gives it up. Uncomment the last line of main: the ownership checker
 // reports the use after the move, and with the types erased, the runtime throws
 // when it happens.
-import {log, spawn, type Sending} from 'threads';
+import {log, spawn, type Sending} from '@arv/threads';
 
 type Order = {id: number; items: number[]};
 

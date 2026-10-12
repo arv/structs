@@ -46,16 +46,19 @@ describe('expand', () => {
 
   it("points the runtime's imports at its modules", () => {
     // as the tsgo fork emits a program's import of the API
-    expect(body("import {go} from 'threads';")).toBe(
+    expect(body("import {go} from '@arv/threads';")).toBe(
       "import {go} from '/rt/threads.ts';",
     );
-    expect(body("import {$closure} from 'threads/runtime';")).toBe(
+    expect(body("import {$closure} from '@arv/threads/runtime';")).toBe(
       "import {$closure} from '/rt/runtime.ts';",
     );
-    expect(body('import {spawn} from "threads/own";')).toBe(
+    expect(body('import {spawn} from "@arv/threads/own";')).toBe(
       "import {spawn} from '/rt/own.ts';",
     );
-    expect(body("log('threads');")).toBe("log('threads');");
+    expect(body("log('@arv/threads');")).toBe("log('@arv/threads');");
+    expect(body("import {go} from 'threads';")).toBe(
+      "import {go} from 'threads';",
+    );
     expect(body("import {x} from './threads.ts';")).toBe(
       "import {x} from './threads.ts';",
     );

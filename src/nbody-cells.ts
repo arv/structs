@@ -3,7 +3,7 @@
 // translation. each thread owns its slice of the bodies (moved in, moved back
 // by join). every step it writes its bodies' positions into the cell, and after
 // a barrier everyone reads all of them in place: nothing is copied per step
-import {fns, spawn, Barrier, sharedFloat64Array, log} from 'threads/own';
+import {fns, spawn, Barrier, sharedFloat64Array, log} from '@arv/threads/own';
 
 interface Body {
   x: number;

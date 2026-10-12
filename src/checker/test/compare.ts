@@ -102,7 +102,7 @@ for (const name of readdirSync(join(checkerDir, 'test/cases')).sort()) {
 cases.push({
   name: 'playground',
   tsconfig: join(playground, 'tsconfig.json'),
-  runtime: 'threads',
+  runtime: '@arv/threads',
   cwd: playground,
 });
 const withMistakes = join(scratch, 'playground-mistakes');
@@ -122,7 +122,7 @@ writeFileSync(
 cases.push({
   name: 'playground-mistakes',
   tsconfig: join(withMistakes, 'tsconfig.json'),
-  runtime: 'threads',
+  runtime: '@arv/threads',
   cwd: playground,
 });
 
@@ -161,7 +161,7 @@ if (existsSync(join(prototype, 'tsconfig.programs.json'))) {
   cases.push({
     name: 'prototype',
     tsconfig: join(prototype, 'tsconfig.programs.json'),
-    runtime: 'threads',
+    runtime: '@arv/threads',
     cwd: prototype,
   });
 }

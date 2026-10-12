@@ -11,7 +11,7 @@
     "build": "vp build",
     "preview": "vp preview",
     "typecheck": "tsc --noEmit",
-    "own-check": "threads-check -p tsconfig.json --runtime threads"
+    "own-check": "threads-check -p tsconfig.json --runtime @arv/threads"
   },
   "dependencies": {
     "monaco-editor": "^0.57.0"

@@ -8,7 +8,7 @@
 // makes every object with the same keys with one constructor, and a string that
 // occurs more than once in a thread's result (a service, a method, a user) is
 // copied once.
-import {log, scope, type Sending, type Thread} from 'threads';
+import {log, scope, type Sending, type Thread} from '@arv/threads';
 
 type Request = {
   time: number;

@@ -67,8 +67,8 @@ checker, and compiled by the tsgo fork (branch `own-shared`, built with
 
 ```sh
 vp run typecheck                                               # types: stock TypeScript
-<tsgo-fork>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime threads   # ownership, for CI
-<tsgo-fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads            # emit build/ts
+<tsgo-fork>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads   # ownership, for CI
+<tsgo-fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads            # emit build/ts
 node src/run.ts build/ts/nbody-struct.js
 ```
 
@@ -161,7 +161,7 @@ emits the function table `spawn` needs (`__register`) and lowers shared structs
 ## Plain TypeScript, a bundler plugin and a checker
 
 ```ts
-import { Barrier, f64, scope, SharedArray, struct, type Struct, type Sending, type Shared } from "threads";
+import { Barrier, f64, scope, SharedArray, struct, type Struct, type Sending, type Shared } from "@arv/threads";
 
 const Body = struct({ x: f64, y: f64, vx: f64, vy: f64, m: f64 });   // a shared struct
 type Body = Struct<typeof Body>;

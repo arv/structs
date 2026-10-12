@@ -82,8 +82,8 @@ const totals = scope(s => {
 
 ```sh
 tsc -p tsconfig.json --noEmit                                       # types
-/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime threads
-/path/to/tsgo-own/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads
+/path/to/tsgo-own/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 ```
 
 The first is stock TypeScript. The second is the ownership checker, which runs
@@ -120,8 +120,8 @@ import of its helpers, and a table of the module's functions so a thread can
 find the one it should run:
 
 ```js
-import { __register } from "threads";
-import { log, partition, scope, share, take } from "threads";
+import { __register } from "@arv/threads";
+import { log, partition, scope, share, take } from "@arv/threads";
 function countNearest(points, centers) {
     const counts = centers.map(() => 0);
     ...

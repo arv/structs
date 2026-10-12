@@ -26,8 +26,8 @@ import {
   __register,
   log,
   scope,
-} from 'threads/own';
-import {K_FREE, POISON} from 'threads/runtime';
+} from '@arv/threads/own';
+import {K_FREE, POISON} from '@arv/threads/runtime';
 
 const Node = __sharedStruct('Node', ['value', 'check', 'next'], [2]);
 const Box = __sharedStruct('Box', ['item'], [0]);

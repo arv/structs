@@ -3,7 +3,7 @@
 // as 7 numbers in the shared heap and compiles `bodies[i].x` to a typed-array
 // read, so threads share the bodies with no copying: each thread writes only
 // its own slice, and the barriers order the reads and the writes.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 //   node src/run.ts build/ts/nbody-struct.js
 import {
   Barrier,
@@ -13,7 +13,7 @@ import {
   SharedArray,
   struct,
   type Struct,
-} from 'threads';
+} from '@arv/threads';
 
 const Body = struct({
   x: f64,

@@ -19,9 +19,9 @@
     // the runtime's API, and its modules, which the hand-written programs
     // import (expand.ts points them at the runtime's directory)
     "paths": {
-      "threads": ["./src/runtime/threads.d.ts"],
-      "threads/own": ["./src/runtime/own.ts"],
-      "threads/runtime": ["./src/runtime/runtime.ts"]
+      "@arv/threads": ["./src/runtime/threads.d.ts"],
+      "@arv/threads/own": ["./src/runtime/own.ts"],
+      "@arv/threads/runtime": ["./src/runtime/runtime.ts"]
     }
   },
   "include": ["src/**/*.ts", "playground/vite.config.ts"],

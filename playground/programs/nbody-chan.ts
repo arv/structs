@@ -13,7 +13,7 @@ import {
   share,
   type Shared,
   take,
-} from 'threads';
+} from '@arv/threads';
 
 type Body = {
   x: number;

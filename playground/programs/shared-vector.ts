@@ -21,7 +21,7 @@ import {
   struct,
   type Struct,
   type Thread,
-} from 'threads';
+} from '@arv/threads';
 
 interface SharedVector {
   length: number;

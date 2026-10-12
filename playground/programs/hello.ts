@@ -1,5 +1,5 @@
 // Hello, threads: run a function on another thread and get its result back.
-import {log, scope, spawn, type Thread} from 'threads';
+import {log, scope, spawn, type Thread} from '@arv/threads';
 
 // runs on a thread. A thread runs a top-level function; its arguments and its
 // result are copied across.

@@ -3,7 +3,7 @@
 // by join). every step each thread shares a frozen snapshot of its positions;
 // the others read their own copies of it. the board of snapshots and the
 // barrier are the only shared mutable state
-import {fns, spawn, share, Barrier, Slots, log} from 'threads/own';
+import {fns, spawn, share, Barrier, Slots, log} from '@arv/threads/own';
 
 interface Body {
   x: number;
