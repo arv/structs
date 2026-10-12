@@ -1,33 +1,11 @@
 # Threads playground
 
-Threads for JavaScript, in plain TypeScript, on Web Workers and a
-SharedArrayBuffer, and a playground that shows what they compile to.
+A page to write threads programs in, and see what they compile to and how they
+run: the playground of [own-threads](../README.md), threads for JavaScript in
+plain TypeScript on Web Workers and a SharedArrayBuffer. The model, the API and
+the limits are in [the README](../README.md).
 
 > Written iterating with Claude Code (Claude Opus 5.5).
-
-```ts
-import {Barrier, f64, scope, SharedArray, struct, type Struct} from 'threads';
-
-const Body = struct({x: f64, y: f64, vx: f64, vy: f64, m: f64}); // in shared memory
-type Body = Struct<typeof Body>;
-
-function worker(
-  lo: number,
-  hi: number,
-  bodies: SharedArray<Body>,
-  barrier: Barrier,
-) {
-  for (let i = lo; i < hi; i++) bodies[i].vx += bodies[i].x; // every thread, the same memory
-  barrier.wait();
-}
-
-const bodies = new SharedArray(Body, 800),
-  barrier = new Barrier(8);
-scope(s => {
-  for (let t = 0; t < 8; t++)
-    s.spawn(worker, t * 100, t * 100 + 100, bodies, barrier);
-});
-```
 
 ## Try it
 
@@ -36,9 +14,9 @@ another browser with SharedArrayBuffer), and, for the compiled JavaScript, a
 fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`,
 branch `own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in
 its `tsc/` directory. The fork is not published yet. The ownership checker needs
-no fork: it is [src/checker/](../src/checker), on stock TypeScript 7.1, a
-package of the repository's pnpm workspace, on [Vite+](https://viteplus.dev)
-(see [its README](../README.md#setup)).
+no fork: it is [src/checker/](../src/checker), on stock TypeScript 7.1. The
+repository is a pnpm workspace on [Vite+](https://viteplus.dev) (see
+[its README](../README.md#development)).
 
 ```sh
 pnpm install                                               # at the repository's root
@@ -56,82 +34,12 @@ TypeScript's hover types, completions and errors from the threads API, and see:
   started like any other thread, so it may block (`join`, `recv`, a barrier);
   the page itself never blocks, it only awaits `main`'s result.
 
+`vp run typecheck` checks the programs' types, and `vp run own-check` runs the
+ownership checker on them, as CI would.
+
 The dev server compiles, so a production build (`vp build`) shows the page but
-cannot compile.
-
-## The model
-
-Each thread is a worker with its own JavaScript heap, and objects cannot cross
-between heaps. So every value is one of three kinds:
-
-| Kind   | In types                                                                         | Crosses threads by                       | For                                                    |
-| ------ | -------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------ |
-| Owned  | ordinary types; `Sending<T>` where it moves                                      | moving: copied once, the sender loses it | work a thread does alone, and its result               |
-| Shared | `Shared<T>`, deeply readonly                                                     | copied once per reader; never changes    | tables, settings                                       |
-| Cell   | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory    | data many threads read and write, and what orders them |
-
-A struct's fields are numbers (`f64`), 32-bit integers (`i32`), bytes (`u8`),
-booleans (`bool`), strings (`str`) and references to other structs, SharedArrays
-and Channels (`ref<T>()`); a SharedArray holds any of these but references, or
-structs, inline. A channel in a struct lets any thread that can reach the struct
-wait on it, as Go code waits on a channel kept in a struct.
-`atomic.add(work, "next", 1)` and the other operations of `Atomics` act on an
-`i32` field (or an element of a `SharedArray<i32>`), so threads can share a
-counter, claim work or wait for each other with no lock. What is stored into an
-`i32` or a `u8` must be an integer: integer arithmetic, which wraps, or an
-explicit conversion (`Math.round(x)`, `x | 0`), as asm.js required, but not a
-number that may have a fraction, which the store would truncate with no sign.
-Strings in shared memory are interned: each distinct string is stored once, a
-field holds its address, and each thread decodes it once. A string that occurs
-more than once in a moved or shared value is copied once, and one a thread has
-read from a `str` field crosses as its address.
-
-Code inside a thread is plain JavaScript on plain objects. The cost is at the
-crossings. Threads can also talk Go's way: `go(f, ...args)`,
-`new Channel<T>(n)`, `send`, `recv`, `for (const v of ch)`, `select`. A value
-sent on a channel moves; a struct or SharedArray goes as its address.
-
-A goroutine of a plain function is a whole worker. A goroutine of an async
-function is light, as Go's are: a worker runs any number of them, and one that
-waits is a suspended async function, a few hundred bytes where a worker is
-megabytes. They wait without blocking the worker they share:
-`await ch.sendAsync(v)`, `await ch.recvAsync()`, `for await (const v of ch)`,
-`await selectAsync(...)`, `await thread.joinAsync()`,
-`await barrier.waitAsync()`. Idle workers take them up to one per core, and a
-worker that runs them takes no blocking threads until they are done. A blocking
-call in an async function would stop every one on its worker, so the checker
-reports it and the runtime throws. In Node on an M5 Pro, a goroutine on a worker
-of its own takes 3.2 ms to start and 8.6 MB; an async one takes 0.2 µs and about
-350 bytes, and two on one worker hand a value over in a microtask.
-
-The whole API, with doc comments, is
-[threads.d.ts](../src/runtime/threads.d.ts).
-
-## Three tools
-
-- **tsc** (`vp run typecheck`) checks the types. `Shared<T>` is deeply readonly,
-  so it already rejects most writes to shared values.
-- **The ownership checker**, `threads-check` ([src/checker/](../src/checker),
-  `vp run own-check`), runs in CI like a linter. It reports what tsc cannot see:
-  a use after a value was sent, an alias of something sent, sending what the
-  caller still holds, writing to a shared value through a cast, a number that
-  may not be an integer stored into an `i32` or a `u8`, a blocking call in an
-  async function. It is built on stock TypeScript 7.1's public API, so it needs
-  no fork; its tests compare it with the fork's `tsgo own check`, which it
-  replaces. The playground's dev server runs it too, with one TypeScript session
-  kept open.
-- **The compile** (the fork, through the Vite plugin,
-  [vite-plugin-threads.ts](../src/runtime/vite-plugin-threads.ts)) erases the
-  types and leaves the code alone, except that struct fields become typed-array
-  reads (`b.x` is `__F64[(b >> 3) + 1]`), references to structs are counted so
-  shared memory is freed ([REFCOUNT.md](../REFCOUNT.md)), and top-level
-  functions are registered so a worker can find the one a thread runs.
-
-With the types only erased, a program still runs, given that one registration
-line, and the runtime's own checks stand in for the checker: using a moved value
-throws (and with `start({ check: true })`, so does using anything that was in
-it). Plain objects are as fast as compiled; shared structs are about 50 times
-slower, since each is then a handle behind accessors.
+cannot compile. It needs cross-origin isolation for SharedArrayBuffer: the dev
+server sends the COOP and COEP headers, and a production server must too.
 
 ## Programs
 
@@ -144,22 +52,11 @@ examples: N-body four ways (shared structs with a barrier, shared structs with
 channels, moving and sharing objects, channels copying objects), Mandelbrot on
 channels, JSON parsed on threads, the nearest-centers example, what channels
 cost, reference counting under a race, a growable `SharedVector` written in user
-space on the API above, and the mistakes the checker catches. Each exports
-`main`, which the page calls with the thread counts to run with.
+space on the API, and the mistakes the checker catches. Each exports `main`,
+which the page calls with the thread counts to run with.
 
-Values cross threads about as fast as JSON would carry them, and are read back
-faster. On one thread (Node 24), 50,000 log requests, each with a nested object
-and an array, are written as a message in about 1.1 times as long as
-`JSON.stringify` takes, and read back in about a third of the time `JSON.parse`
-takes (a shared value, whose objects are frozen: 1.5 and a half). A message
-names each distinct set of keys once (a shape: the keys' interned addresses),
-the reader makes all of a shape's objects with one constructor, and a string
-repeated in a value is written once and decoded once. An ASCII string is stored
-a byte per char, a long one written with `TextEncoder.encodeInto` and read with
-`TextDecoder` (they take no views of shared memory, so the bytes go through a
-thread's own buffer): 23 MB of JSON text crosses in about 7 ms.
-
-Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
+Compiled, and with the types only erased, on an Apple M5 Pro, ms on 1/2/4/8
+threads:
 
 |                                                 | Compiled             | Types erased           |
 | ----------------------------------------------- | -------------------- | ---------------------- |
@@ -168,36 +65,14 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
 ## Layout
 
-| Path                                                        | What                                                                                                                                            |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.html`, `main.ts`                                     | the playground, on [Monaco](https://github.com/microsoft/monaco-editor)                                                                         |
-| `programs/`                                                 | its programs                                                                                                                                    |
-| `vite.config.ts`                                            | the dev server, with the runtime's bundler plugin                                                                                               |
-| `../src/runtime/threads.ts`, `threads.d.ts`                 | the API                                                                                                                                         |
-| `../src/runtime/own.ts`, `chan.ts`, `runtime.ts`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
-| `../src/runtime/heap.ts`, `browser.ts`, `threads-worker.ts` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
-| `../src/runtime/vite-plugin-threads.ts`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
-| `../src/checker/`                                           | threads-check, the ownership checker, on TypeScript 7.1's API                                                                                   |
+| Path                    | What                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| `index.html`, `main.ts` | the page, on [Monaco](https://github.com/microsoft/monaco-editor)                            |
+| `programs/`             | its programs                                                                                 |
+| `vite.config.ts`        | the dev server: the runtime's Vite plugin, which compiles with the fork and runs the checker |
+| `assets.d.ts`           | the types of what Vite imports besides modules                                               |
 
-## Limits
-
-- A page needs cross-origin isolation (the COOP and COEP headers) for
-  SharedArrayBuffer. The dev server sends them; a production server must too.
-- Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
-  counted, but cycles of them leak. Channels are never freed. A moved value (a
-  thread's arguments and result, a channel's message) is freed once it is read,
-  but shared values are never freed, and neither are interned strings: a `str`
-  field suits labels and names better than an endless stream of distinct text.
-- A thread runs a top-level function; closures do not cross threads.
-- A goroutine of a plain function is a whole worker: one per core is fine,
-  thousands are not. Async goroutines are cooperative, as any async functions
-  are: one that computes without awaiting holds up the others on its worker, and
-  none moves to another worker once it has started.
-
-This grew out of an experiment in
-[Porffor](https://github.com/CanadaHonk/porffor)'s threads work, compiling
-JavaScript to JavaScript for threads instead of to C and WebAssembly: the
-prototypes at [the root of this repository](../README.md).
+The runtime and the checker are in [src/](../src).
 
 ## License
 

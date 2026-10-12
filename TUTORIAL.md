@@ -179,9 +179,9 @@ share(centers) -- write once ---->  shared values      -- first use ->  frozen c
 
 So the cost is copying at the crossings, proportional to what crosses, and
 nothing per property access. In this example each point is copied once, into its
-thread. In [README.md](README.md)'s N-body, positions are shared every step, so
-every thread copies all of them every step, and that copying is what stops it
-scaling past a few threads.
+thread. In [the prototype](docs/prototype.md)'s N-body, positions are shared
+every step, so every thread copies all of them every step, and that copying is
+what stops it scaling past a few threads.
 
 ## Limits
 

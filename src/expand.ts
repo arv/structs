@@ -1,5 +1,5 @@
 // expands the access macros in a hand-translated program into the code a
-// publish-on-escape transform would emit at each site (see README.md):
+// publish-on-escape transform would emit at each site (see docs/prototype.md):
 //   $G(o, key)          o.key
 //   $S(o, key, v)       o.key = v
 //   $GI(o, i)           o[i]

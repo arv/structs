@@ -1,4 +1,4 @@
-// the smallest example, translated by hand by the rules in README.md:
+// the smallest example, translated by hand by the rules in docs/prototype.md:
 //
 //   const counter = { n: 0 };
 //   const lock = new Lock();

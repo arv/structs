@@ -1,5 +1,5 @@
-// presets/mandelbrot.js, translated by hand by the rules in README.md. the
-// original is quoted above each function
+// presets/mandelbrot.js, translated by hand by the rules in docs/prototype.md.
+// the original is quoted above each function
 import {
   $closure,
   $fns,

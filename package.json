@@ -1,7 +1,7 @@
 {
   "name": "threads",
   "private": true,
-  "description": "JS-to-JS threads on workers: see README.md",
+  "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
   "type": "module",
