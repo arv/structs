@@ -5,15 +5,15 @@ import "threads/heap"; // first: the shared memory, before anything that uses it
 import { run, start } from "threads/browser";
 import "microlighter/themes/github.css";
 import { highlightAll } from "microlighter";
-import mandelbrotChan from "../mandelbrot-chan.mts?raw";
-import nbodyChan from "../nbody-chan.mts?raw";
-import nbodyChanStruct from "../nbody-chan-struct.mts?raw";
-import nbodyStruct from "../nbody-struct.mts?raw";
-import nbodyTs from "../nbody-ts.mts?raw";
-import pipeline from "../pipeline.mts?raw";
-import refcount from "../refcount.mts?raw";
-import tutorial from "../tutorial.mts?raw";
-import mistakes from "./presets/mistakes.mts?raw";
+import mandelbrotChan from "../mandelbrot-chan.ts?raw";
+import nbodyChan from "../nbody-chan.ts?raw";
+import nbodyChanStruct from "../nbody-chan-struct.ts?raw";
+import nbodyStruct from "../nbody-struct.ts?raw";
+import nbodyTs from "../nbody-ts.ts?raw";
+import pipeline from "../pipeline.ts?raw";
+import refcount from "../refcount.ts?raw";
+import tutorial from "../tutorial.ts?raw";
+import mistakes from "./presets/mistakes.ts?raw";
 
 type Diagnostic = { line: number; col: number; code: string; message: string };
 type Result = {
@@ -48,7 +48,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>]/g, c => c === "&" ? "&amp;" :
 // a program as the playground runs it: it imports the runtime as "threads", and the build commands
 // in its header are for the repository
 const normalize = (text: string) =>
-  text.replace(/from "\.\/threads\.mjs"/g, 'from "threads"')
+  text.replace(/from "\.\/threads\.js"/g, 'from "threads"')
     .split("\n").filter(line => !/^\/\/\s+(<fork>|node threads\/)/.test(line)).join("\n");
 
 // the program's text, and a range of it: the editor holds plain text, which editing may split

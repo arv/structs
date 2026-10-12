@@ -1,8 +1,8 @@
 {
-  // programs in plain TypeScript on threads.mjs: stock tsc type-checks them, and the tsgo fork checks
-  // ownership and emits build/ts/*.mjs for the runtime (run them with run.mjs or chrome.mjs):
-  //   <fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.mjs
-  //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+  // programs in plain TypeScript on threads.js: stock tsc type-checks them, and the tsgo fork checks
+  // ownership and emits build/ts/*.js for the runtime (run them with run.js or chrome.js):
+  //   <fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js
+  //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
   "compilerOptions": {
     "target": "es2022",
     "module": "esnext",
@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "outDir": "build/ts"
   },
-  "files": ["nbody-ts.mts", "nbody-struct.mts", "tutorial.mts", "refcount.mts", "mandelbrot-chan.mts", "pipeline.mts", "nbody-chan.mts", "nbody-chan-struct.mts"]
+  "files": ["nbody-ts.ts", "nbody-struct.ts", "tutorial.ts", "refcount.ts", "mandelbrot-chan.ts", "pipeline.ts", "nbody-chan.ts", "nbody-chan-struct.ts"]
 }

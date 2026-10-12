@@ -1,9 +1,9 @@
 # Tutorial: threads with own and shared values
 
-This walks through [tutorial.mts](tutorial.mts): a program that splits 200,000 random points across
+This walks through [tutorial.ts](tutorial.ts): a program that splits 200,000 random points across
 threads and counts which of three centers each point is nearest to. It is plain TypeScript against
-[threads.d.mts](threads.d.mts): stock tsc checks its types, the ownership checker its ownership, and
-the tsgo fork (branch `own-shared`) compiles it to run on [threads.mjs](threads.mjs). The ideas
+[threads.d.ts](threads.d.ts): stock tsc checks its types, the ownership checker its ownership, and
+the tsgo fork (branch `own-shared`) compiles it to run on [threads.js](threads.js). The ideas
 behind it are in [README.md](README.md).
 
 You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it), TypeScript, and node 22 or
@@ -58,8 +58,8 @@ const totals = scope(s => {
 
 ```sh
 tsc -p tsconfig.json --noEmit                                       # types
-/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.mjs
-/path/to/tsgo-own/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js
+/path/to/tsgo-own/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
 ```
 
 The first is stock TypeScript. The second is the ownership checker, which runs in CI like a linter:
@@ -78,9 +78,9 @@ s.spawn(countNearest, mine, centers);  // 3. mine belongs to the caller
 ```
 
 ```
-mistakes.mts(12,17): error TS96001: 'points' cannot be used here: it was sent to 'spawn' on line 11.
-mistakes.mts(13,5): error TS96010: Cannot change 'centers[0] as Point': it is a shared value, which is immutable.
-mistakes.mts(14,27): error TS96008: 'mine' cannot be sent: it is captured from an outer scope.
+mistakes.ts(12,17): error TS96001: 'points' cannot be used here: it was sent to 'spawn' on line 11.
+mistakes.ts(13,5): error TS96010: Cannot change 'centers[0] as Point': it is a shared value, which is immutable.
+mistakes.ts(14,27): error TS96008: 'mine' cannot be sent: it is captured from an outer scope.
 ```
 
 Without the cast, `centers[0].x = 0.5` is already a tsc error, since a `Shared<T>` is readonly. The
@@ -93,8 +93,8 @@ The types are erased, and the compiler adds two things for the runtime: an impor
 a table of the module's functions so a thread can find the one it should run:
 
 ```js
-import { __register } from "./threads.mjs";
-import { log, partition, scope, share, take } from "./threads.mjs";
+import { __register } from "./threads.js";
+import { log, partition, scope, share, take } from "./threads.js";
 function countNearest(points, centers) {
     const counts = centers.map(() => 0);
     ...
@@ -108,7 +108,7 @@ The loops are untouched: the compiled `countNearest` is the plain JavaScript you
 ## 4. Run it
 
 ```sh
-node run.mjs build/ts/tutorial.mjs --threads=1,2,4
+node run.js build/ts/tutorial.js --threads=1,2,4
 ```
 ```
 1 threads: 56336 56064 87600
@@ -116,11 +116,11 @@ node run.mjs build/ts/tutorial.mjs --threads=1,2,4
 4 threads: 56336 56064 87600
 ```
 
-The same counts on every thread count. `chrome.mjs` runs the same module in Chrome, on real Web
+The same counts on every thread count. `chrome.js` runs the same module in Chrome, on real Web
 Workers:
 
 ```sh
-node chrome.mjs build/ts/tutorial.mjs --threads=1,2,4
+node chrome.js build/ts/tutorial.js --threads=1,2,4
 ```
 
 ## How it works
@@ -136,7 +136,7 @@ share(centers) -- write once ---->  shared values      -- first use ->  frozen c
   objects in its own heap. That is why the inner loops run at full speed.
 - **Moving copies.** `spawn` writes its arguments into the SharedArrayBuffer in a compact binary form,
   once. The thread reads them back as plain objects of its own. `join` does the same in the other
-  direction. `own.mjs` also revokes the sender's moved objects (any use throws), as a safety net for
+  direction. `own.js` also revokes the sender's moved objects (any use throws), as a safety net for
   code the checker did not see.
 - **Sharing copies once per reader.** `share` writes a value once; each thread that reads it makes
   one frozen copy on first use and keeps it.

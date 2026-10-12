@@ -1,0 +1,8 @@
+{
+  "name": "threads",
+  "private": true,
+  "type": "module",
+  "description": "JS-to-JS threads on workers: see README.md",
+  "license": "Apache-2.0",
+  "author": "Erik Arvidsson"
+}

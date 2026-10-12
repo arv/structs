@@ -1,7 +1,7 @@
 # Reference counting for shared structs
 
-> Status: a prototype, in the runtime (own.mjs, runtime.mjs) and the tsgo fork's emit;
-> [refcount.mts](refcount.mts) tests it, and [refcount-hand.mjs](refcount-hand.mjs) is the same test
+> Status: a prototype, in the runtime (own.js, runtime.js) and the tsgo fork's emit;
+> [refcount.ts](refcount.ts) tests it, and [refcount-hand.js](refcount-hand.js) is the same test
 > written by hand. Shared structs and SharedArrays are freed when nothing refers to them; other cells
 > (`Barrier`, `Slots`) and moved or shared values are still never freed.
 
@@ -43,7 +43,7 @@ runs long without one delays reclaiming (memory grows), never correctness.
 This is quiescent-state-based reclamation: a global epoch, and a word per thread with the epoch
 it last saw at a quiescent point.
 
-## Runtime (own.mjs)
+## Runtime (own.js)
 
 | Function | Does |
 |---|---|
