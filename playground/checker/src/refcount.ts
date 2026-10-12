@@ -17,7 +17,7 @@ import type { CaptureInfo, Own } from "./context.ts";
 import { ObjectFlags, TypeFlags } from "./host.ts";
 import type { NodeHandle, TsSymbol, Type } from "./host.ts";
 import { getAssignmentTargetType, getConversion, isCellExpression, isCellType, isNarrowedReference, nonNullishMembers } from "./layout.ts";
-import { checkStructCall, getCallMarker, isAtomicCallValid, isConsumeCall } from "./markers.ts";
+import { checkStructCall, getBlockingCall, getCallMarker, isAtomicCallValid, isConsumeCall } from "./markers.ts";
 import { Messages } from "./messages.ts";
 import {
   FunctionFlags, forEachChild, getAssignmentTarget, getContainingFunction, getFunctionFlags, isAccessExpression, isAssignmentTarget,
@@ -93,6 +93,12 @@ function isAmbientDeclaration(decl: Node): boolean {
 
 // The same for a declaration's handle (without fetching a declaration file, whose declarations all
 // are).
+// Reports a blocking call in an async function: it would stop every async function on its worker.
+function reportBlocking(c: Own, node: Node, name: string, instead: string): void {
+  if (instead) c.error(node, Messages.BlockingCall, name, instead);
+  else c.error(node, Messages.BlockingCallNoAlternative, name);
+}
+
 function isAmbientHandle(c: Own, handle: NodeHandle | undefined): boolean {
   if (!handle) return false;
   if (/\.d\.([^./]+\.)?[cm]?ts$/i.test(handle.path)) return true;
@@ -319,6 +325,10 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
         }
         break;
       case K.ForOfStatement: case K.ForInStatement: {
+        if (node.kind === K.ForOfStatement && !node.awaitModifier && getChannelElementType(c, host.typeOf(node.expression)) &&
+          getFunctionFlags(getContainingFunction(node)) & FunctionFlags.Async) {
+          reportBlocking(c, node.expression, "for...of", "for await");
+        }
         let init = node.initializer as Node;
         let t: Type | undefined;
         if (init.kind === K.VariableDeclarationList) {
@@ -339,10 +349,12 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
       case K.CallExpression: {
         if (getCallMarker(c, node) === "struct") checkStructCall(c, node);
         if (isAtomicCallValid(c, node) === false) c.error(node, Messages.AtomicTarget);
+        const blocking = getBlockingCall(c, node);
+        if (blocking && getFunctionFlags(getContainingFunction(node)) & FunctionFlags.Async) reportBlocking(c, node, blocking.name, blocking.instead);
         // A runtime function that returns addresses in an ordinary array or tuple (`select` on
-        // channels of counted values): nothing could count them.
+        // channels of counted values, and `selectAsync`'s promise of one): nothing could count them.
         if (isAmbientHandle(c, host.signatureOf(node).declaration)) {
-          const element = getCountedElementType(c, host.typeOf(node));
+          const element = getCountedElementType(c, host.awaitedType(host.typeOf(node)));
           if (element) c.error(node, Messages.StoredInOrdinary, host.typeToString(element));
         }
         break;

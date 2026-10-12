@@ -180,7 +180,7 @@ export interface Atomic {
   readonly compareExchange: AtomicOperation<[expected: i32, replacement: i32], i32>;
   /**
    * Waits while the i32 is `value`, until notify() wakes the thread or `timeout` ms pass. Not on a
-   * page's main thread, which must not block.
+   * page's main thread, which must not block, nor in an async function, which shares its worker.
    */
   readonly wait: AtomicOperation<[value: i32, timeout?: number], "ok" | "not-equal" | "timed-out">;
   /** Wakes up to `count` threads waiting on the i32 (all of them by default); returns how many it woke. */
@@ -194,15 +194,20 @@ export declare const atomic: Atomic;
 export interface Thread<R> extends Cell {
   /** Waits for the thread, from a thread that may block (not a page's main thread). */
   join(): Sending<R>;
-  /** Waits for the thread without blocking: for a page's main thread. */
+  /** Waits for the thread without blocking: for a page's main thread, or an async function. */
   joinAsync(): Promise<Sending<R>>;
 }
 
-/** Starts `f` on a thread. Every argument is sent: owned values move, shared values and cells are shared. */
+/**
+ * Starts `f` on a thread. Every argument is sent: owned values move, shared values and cells are shared.
+ * An async function's thread is light: a worker runs it among many others (see `go`).
+ */
+export declare function spawn<A extends unknown[], R>(f: (...args: A) => Promise<Sending<R>>, ...args: Sending<A>): Thread<R>;
 export declare function spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
 
 /** Spawns threads that cannot outlive the scope. */
 export interface Scope extends Cell {
+  spawn<A extends unknown[], R>(f: (...args: A) => Promise<Sending<R>>, ...args: Sending<A>): Thread<R>;
   spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
 }
 /** Runs `body` and joins every thread it spawned before returning. */
@@ -219,6 +224,8 @@ export declare class Barrier implements Cell {
   constructor(threads: number);
   /** Blocks until all threads have called `wait`. */
   wait(): void;
+  /** Waits, without blocking, until all threads have called `wait` or `waitAsync`: for an async function. */
+  waitAsync(): Promise<void>;
 }
 
 /** One slot per thread: a thread publishes a shared value into its slot, and everyone reads every slot. */
@@ -234,23 +241,40 @@ export declare class Slots<T> implements Cell {
 
 // ---- goroutines and channels ----
 
-/** A channel: values move through it from thread to thread, in order. */
+/**
+ * A channel: values move through it from thread to thread, in order. A thread that may block uses
+ * `send`, `recv`, `for...of` and `select`; an async function uses `sendAsync`, `recvAsync`, `for await`
+ * and `selectAsync`, which wait without blocking the worker it shares with others.
+ */
 export declare class Channel<T> implements Cell {
   readonly [cellBrand]: true;
   /** Holds up to `capacity` values; 0, the default, is unbuffered. */
   constructor(capacity?: number);
   /** Moves `value` in: waits while the channel is full, or, unbuffered, until a receiver takes it. */
   send(value: Sending<T>): void;
+  /** `send`, without blocking: the value moves now, and the promise resolves once it is in (or taken). */
+  sendAsync(value: Sending<T>): Promise<void>;
   /** The next value, which the caller now owns; waits while empty. Undefined once closed and empty. */
   recv(): Sending<T> | undefined;
+  /** `recv`, without blocking. */
+  recvAsync(): Promise<Sending<T> | undefined>;
   /** No more sends. Receivers still get what is left. */
   close(): void;
   [Symbol.iterator](): Iterator<T>;
+  [Symbol.asyncIterator](): AsyncIterator<T>;
 }
-/** Starts `f` on a thread of its own, a goroutine. Nothing waits for it. */
-export declare function go<A extends unknown[]>(f: (...args: A) => void, ...args: Sending<A>): void;
+/**
+ * Starts `f` as a goroutine. Nothing waits for it. A plain function's goroutine is a thread of its
+ * own, a whole worker, which may block. An async function's goroutine is light: a worker runs any
+ * number of them, each a suspended async function while it waits (`await channel.recvAsync()`). It
+ * must not block, which would stop every goroutine on its worker: the ownership checker reports a
+ * blocking call in an async function, and the call throws on such a worker.
+ */
+export declare function go<A extends unknown[]>(f: (...args: A) => void | Promise<void>, ...args: Sending<A>): void;
 /** Waits until one of the channels has a value or is closed: its index and the value (undefined if closed). */
 export declare function select<T>(...channels: Channel<T>[]): [index: number, value: T | undefined];
+/** `select`, without blocking: for an async function. */
+export declare function selectAsync<T>(...channels: Channel<T>[]): Promise<[index: number, value: T | undefined]>;
 
 /** Prints a line, synchronously, from any thread. */
 export declare function log(...args: unknown[]): void;

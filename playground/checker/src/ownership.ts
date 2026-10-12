@@ -635,7 +635,7 @@ class Analyzer {
 
   returnKind(decl: Node | undefined): ReturnKind {
     if (!decl || !isFunctionLike(decl)) return ReturnKind.Ordinary;
-    const t = decl.type as Node | undefined;
+    const t = this.unwrapPromiseTypeNode(decl.type as Node | undefined);
     if (!t) return ReturnKind.Ordinary;
     if (this.isSendingTypeNode(t)) return ReturnKind.Sending;
     const resolved = this.resolveTypeNode(t);
@@ -647,8 +647,19 @@ class Analyzer {
     return ReturnKind.Ordinary;
   }
 
+  // The X of a result type `Promise<X>`, which an async function's returns resolve; any other type
+  // itself. A result `Promise<Sending<T>>` hands over ownership as `Sending<T>` does (`recvAsync()`,
+  // `joinAsync()`).
+  unwrapPromiseTypeNode(t: Node | undefined): Node | undefined {
+    const r = this.resolveTypeNode(t);
+    if (r?.kind === K.TypeReference && r.typeArguments?.length === 1 && r.typeName.kind === K.Identifier && r.typeName.text === "Promise") {
+      return r.typeArguments[0];
+    }
+    return t;
+  }
+
   returnsSending(fn: Node): boolean {
-    if (fn.type) return this.isSendingTypeNode(fn.type);
+    if (fn.type) return this.isSendingTypeNode(this.unwrapPromiseTypeNode(fn.type));
     if (isFunctionExpressionOrArrowFunction(fn) || isObjectLiteralMethod(fn)) {
       const signature: Signature | undefined = this.c.host.contextualSignature(fn);
       if (signature) return this.returnKind(this.declarationOutsideLibrary(signature.declaration)) === ReturnKind.Sending;
@@ -1141,8 +1152,13 @@ class FunctionAnalysis {
       case K.RegularExpressionLiteral:
         return regionValue(a.newRegion());
       case K.ParenthesizedExpression: case K.NonNullExpression: case K.AsExpression: case K.SatisfiesExpression:
-      case K.TypeAssertionExpression: case K.PartiallyEmittedExpression: case K.AwaitExpression:
+      case K.TypeAssertionExpression: case K.PartiallyEmittedExpression:
         return this.eval(node.expression, s);
+      case K.AwaitExpression: {
+        // What a promise resolves to is in the promise's region, unless it is a primitive.
+        const v = this.eval(node.expression, s);
+        return a.isPrimitiveOrSharedStructType(a.typeOf(node)) ? sharedValue : v;
+      }
       case K.TemplateExpression:
         for (const span of node.templateSpans as Node[]) this.eval(span.expression, s);
         return sharedValue;

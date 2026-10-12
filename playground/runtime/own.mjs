@@ -9,7 +9,7 @@
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
 import { $alloc, $checking, $decodeAscii, $decodeUtf16, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
-  $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
+  $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats, spawnAsync, $mustNotBlock, $resumed } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
 const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB), U8 = SAB && new Uint8Array(SAB);
@@ -360,6 +360,7 @@ const SPINS = 20000;
 export class Barrier {
   constructor(n) { const a = newCell(K_BARRIER, 16, this); I32[(a >> 2) + 1] = n; }
   wait() {
+    $mustNotBlock('Barrier.wait()', 'await waitAsync()');
     const i = this.$cell >> 2, gen = Atomics.load(I32, i + 3);
     $waitBegin(); // a quiescent point (REFCOUNT.md), and quiescent while it waits
     if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
@@ -372,6 +373,21 @@ export class Barrier {
       while (Atomics.load(I32, i + 3) === gen) Atomics.wait(I32, i + 3, gen);
     }
     $waitEnd();
+  }
+  // the same in an async function: waits without blocking its worker
+  async waitAsync() {
+    const i = this.$cell >> 2, gen = Atomics.load(I32, i + 3);
+    if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
+      Atomics.store(I32, i + 2, 0);
+      Atomics.add(I32, i + 3, 1);
+      Atomics.notify(I32, i + 3);
+      return;
+    }
+    while (Atomics.load(I32, i + 3) === gen) {
+      const w = Atomics.waitAsync(I32, i + 3, gen);
+      if (w.async) await w.value;
+    }
+    $resumed();
   }
 }
 cellKinds.set(K_BARRIER, Barrier);
@@ -696,18 +712,28 @@ setThreadEntry(t => {
   const mine = countedInto = [];
   const [ key, ...args ] = __unmessage(I32[(t + 16) >> 2], I32[(t + 20) >> 2]); // frees the arguments
   countedInto = null;
+  let pending = false;
   try {
     const f = byKey.get(key);
     if (f === undefined) throw new Error(`own: no function ${key} in this worker`);
     const r = f(...args);
-    if (I32[(t + 4) >> 2] === 1) return 0; // detached: nothing reads a result
-    const [ a, bytes ] = __message(r);
-    I32[(t + 20) >> 2] = bytes;
-    return a;
+    if (r instanceof Promise) {
+      // an async function: its arguments are counted until it ends, and its result is sent then
+      pending = true;
+      return r.then(v => resultOf(t, v)).finally(() => { for (const p of mine) __release(p); });
+    }
+    return resultOf(t, r);
   } finally {
-    for (const p of mine) __release(p);
+    if (!pending) for (const p of mine) __release(p);
   }
 });
+function resultOf(t, r) {
+  if (I32[(t + 4) >> 2] === 1) return 0; // detached: nothing reads a result
+  const [ a, bytes ] = __message(r);
+  I32[(t + 20) >> 2] = bytes;
+  return a;
+}
+const AsyncFunction = (async () => {}).constructor;
 // between threads, a worker yields to its event loop when handles or closures wait to be finalized
 setAfterTask(() => finalizable > 0);
 // in a page's worker pool (threads-worker.mjs), a worker loads a thread's module the first time a
@@ -732,13 +758,15 @@ class Thread {
       $freeBlock(this.t, 32);
     }
   }
-  // for a page's main thread, which must not block
+  // for a page's main thread, and an async function, which must not block
   async joinAsync() {
     if (this.joined) throw new TypeError('own: a thread is joined once (its result moves out)');
     this.joined = true;
     $quiescent();
     try {
-      return __unmessage(await threadJoinAsync(this.t), I32[(this.t + 20) >> 2]);
+      const a = await threadJoinAsync(this.t);
+      $resumed();
+      return __unmessage(a, I32[(this.t + 20) >> 2]);
     } finally {
       $freeBlock(this.t, 32);
     }
@@ -749,7 +777,8 @@ export const spawn = (fn, ...args) => new Thread(__start(fn, args, false));
 // bytes][result]. the arguments, and then the result, are messages: the thread frees its arguments
 // once it has read them, and whoever joins it frees the result and the block. a detached thread
 // (chan.mjs go) is never joined: it has no result, the runtime frees its block and prints its error
-// if it throws
+// if it throws. an async function's thread is an async thread: a host runs it with others, and it
+// ends when its promise settles (runtime.mjs spawnAsync)
 export function __start(fn, args, detached) {
   const key = keyOf.get(fn);
   if (key === undefined) throw new TypeError('own: spawn a top-level function of a module the compiler registered (or fns())');
@@ -759,7 +788,8 @@ export function __start(fn, args, detached) {
   const [ a, bytes ] = __message([ key, ...args ], 1);
   I32[(t + 16) >> 2] = a; I32[(t + 20) >> 2] = bytes;
   $quiescent();
-  spawnThread(t);
+  // an async function runs on a host, among other async threads: it waits without blocking
+  if (fn instanceof AsyncFunction) spawnAsync(t); else spawnThread(t);
   return t;
 }
 

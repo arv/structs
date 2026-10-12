@@ -85,7 +85,7 @@ cases.push({ name: "playground-mistakes", tsconfig: join(withMistakes, "tsconfig
 for (const test of [
   "ownMarkers", "ownMarkersAwait", "ownMarkersErrors", "ownLayoutStructUnions", "ownLayoutStructUnionsErrors", "ownLayoutBooleans", "ownLayoutBooleansErrors",
   "ownLayoutStrings", "ownLayoutStringsErrors", "ownLayoutIntegers", "ownLayoutIntegersErrors", "ownLayoutIntegerStores",
-  "ownLayoutChannelFields", "ownLayoutChannelFieldsErrors",
+  "ownLayoutChannelFields", "ownLayoutChannelFieldsErrors", "ownAsyncGoroutines", "ownAsyncGoroutinesErrors",
 ]) {
   const file = join(forkTests, `${test}.ts`);
   if (!existsSync(file)) continue;

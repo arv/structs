@@ -96,10 +96,24 @@ export default function threads(options = {}) {
     }
   }
 
+  // what a compiled program depends on besides its source: the runtime's types, the fork's binary and
+  // threads-check's sources (a changed runtime file restarts the server, and with it this)
+  let fingerprint = null;
+  const fingerprintOf = () => {
+    const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(RUNTIME_DIR, 'threads.d.mts')));
+    const checkerDir = checker && path.dirname(checker);
+    for (const file of [ tsgo, ...(checkerDir ? fs.readdirSync(checkerDir).map(name => path.join(checkerDir, name)) : []) ]) {
+      try { const stat = fs.statSync(file); hash.update(`${file}\0${stat.size}\0${stat.mtimeMs}\0`); } catch {}
+    }
+    return hash.digest('hex');
+  };
+
   // a playground program, compiled with the fork and with its types only erased; cached by content
-  // (and by which checker reports its ownership errors, and the version of what a result holds)
+  // (and by which checker reports its ownership errors, the version of what a result holds, and the
+  // fingerprint of what compiles it)
   async function compile(source) {
-    const key = `p${crypto.createHash('sha1').update(`3\0${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
+    fingerprint ??= fingerprintOf();
+    const key = `p${crypto.createHash('sha1').update(`3\0${checker ? 'threads-check' : 'fork'}\0${fingerprint}\0${source}`).digest('hex').slice(0, 12)}`;
     const dir = path.join(playgroundDir, key), cached = path.join(dir, 'result.json');
     if (fs.existsSync(cached)) return JSON.parse(fs.readFileSync(cached, 'utf8'));
     fs.mkdirSync(dir, { recursive: true });

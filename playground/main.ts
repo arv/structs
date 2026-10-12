@@ -17,6 +17,7 @@ import structTally from "./programs/struct-tally.ts?raw";
 import sieve from "./programs/sieve.ts?raw";
 import strings from "./programs/strings.ts?raw";
 import atomics from "./programs/atomics.ts?raw";
+import asyncGoroutines from "./programs/async-goroutines.ts?raw";
 import json from "./programs/json.ts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
@@ -47,6 +48,7 @@ const PRESETS: [string, string, string][] = [
   ["Basics", "Atomics: claiming work, counting together", atomics],
   ["Basics", "Channels: a pipeline", channelPipeline],
   ["Basics", "Channels: a pool of workers", channelWorkers],
+  ["Basics", "Async goroutines: ten thousand waiting", asyncGoroutines],
   ["Examples", "N-body: shared structs and a barrier", nbodyStruct],
   ["Examples", "N-body: shared structs and channels", nbodyChanStruct],
   ["Examples", "N-body: moving and sharing objects", nbodyTs],

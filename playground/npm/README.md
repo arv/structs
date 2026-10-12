@@ -69,7 +69,25 @@ export function main() {
 ```
 
 Threads can also talk the way Go does: `go(f, ...args)` starts a goroutine, and a `Channel<T>` moves
-values between threads in order (`send`, `recv`, `for (const v of channel)`, `select`).
+values between threads in order (`send`, `recv`, `for (const v of channel)`, `select`). A goroutine
+of an async function is light, as Go's are: a worker runs thousands of them, each waiting with
+`await` without blocking the others.
+
+```ts
+interface Replica { position: i32; changed: Channel<void> | null } // closed, and replaced, on every change
+const Replica = struct<Replica>({ position: i32, changed: ref<Channel<void>>() });
+
+async function request(replica: Replica, position: i32, answers: Channel<string>) {
+  for (;;) {
+    const changed = replica.changed!;
+    if (atomic.load(replica, "position") >= position) break;
+    await changed.recvAsync(); // one of thousands waiting on this worker
+  }
+  await answers.sendAsync("ready");
+}
+
+for (let k = 0; k < 10_000; k++) go(request, replica, k % 1000 + 1, answers); // 0.2 µs each
+```
 
 ## Install
 
@@ -110,7 +128,8 @@ console.log(await run(main, 8));
 
 **3. The checker** runs in CI like a linter. It reports what TypeScript's types cannot see: a value
 used after it was sent, an alias of something sent, sending what the caller still holds, a write to a
-shared value through a cast, a number that may not be an integer stored into an `i32` or a `u8`.
+shared value through a cast, a number that may not be an integer stored into an `i32` or a `u8`, a
+blocking call in an async function.
 
 ```sh
 npx own-threads-check -p tsconfig.json --runtime own-threads
@@ -144,16 +163,17 @@ All from `"own-threads"`, unless noted.
 | `thread.join()`, `thread.joinAsync()` | Waits for the thread; its result moves back. |
 | `scope(s => ...)` | Structured threads: joins every thread `s.spawn` started before it returns. |
 | `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out. |
-| `new Barrier(n)` | `wait()` blocks until `n` threads have called it. |
+| `new Barrier(n)` | `wait()` blocks until `n` threads have called it; `waitAsync()` waits without blocking. |
 | `new Slots<T>(n)` | One slot per thread to publish a shared value into; everyone reads all slots. |
 
 **Goroutines and channels**
 
 | | |
 |---|---|
-| `go(f, ...args)` | Starts `f` on a thread of its own. Nothing waits for it. |
+| `go(f, ...args)` | Starts `f` as a goroutine. Nothing waits for it. A plain function gets a thread of its own; an async function is light, one of many on a worker. |
 | `new Channel<T>(capacity = 0)` | `send(value)` moves a value in, `recv()` takes the next one out, `close()`; iterable. |
-| `select(...channels)` | Waits for the first channel with a value: `[index, value]`. |
+| `ch.sendAsync(v)`, `ch.recvAsync()`, `for await (const v of ch)` | The same in an async function: waits without blocking its worker. |
+| `select(...channels)`, `selectAsync(...channels)` | Waits for the first channel with a value: `[index, value]`. |
 
 **Shared memory**: data many threads read and write in place, with no copying. Reads and writes are
 not ordered between threads: a `Barrier`, a `Channel`, joining a thread or an atomic operation
@@ -220,7 +240,9 @@ once, and ASCII text is stored a byte per character.
   leak. Channels are never freed. A moved value (a thread's arguments and result, a channel's message) is freed once it is
   read; shared values and interned strings are never freed.
 - A thread runs a top-level function: closures do not cross threads.
-- A goroutine is a whole worker: one per core is fine, thousands are not.
+- A goroutine of a plain function is a whole worker: one per core is fine, thousands are not. Async
+  goroutines are light but cooperative: one that computes without awaiting holds up the others on its
+  worker, and none moves to another worker once it has started.
 - Moving revokes the values moved, so using them throws; `start({ check: true })` revokes everything
   inside them too.
 

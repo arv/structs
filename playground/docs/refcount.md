@@ -40,6 +40,14 @@ end, and `__quiescent()`, which the compiler puts at the end of each iteration o
 reads or stores a reference field (an atomic load and store; numeric loops get none). A thread blocked in a wait counts as quiescent throughout. A thread that
 runs long without one delays reclaiming (memory grows), never correctness.
 
+Async functions share a thread: a worker that hosts async goroutines runs one at a time, each until
+its next `await`. The compiler holds no uncounted address across an `await` (an `await` counts as a
+call, and an async function's counted parameters are owned), so when one of them resumes from the
+runtime's waits (`recvAsync`, `sendAsync`, `selectAsync`, `joinAsync`, `Barrier.waitAsync`), every
+other one is suspended with nothing uncounted, and that is a quiescent point for the thread; so is
+each turn of the host's loop. A host whose async functions all wait passes none, so a thread with
+many decrements queued rings the bells of the hosts behind it, and each passes one.
+
 This is quiescent-state-based reclamation: a global epoch, and a word per thread with the epoch
 it last saw at a quiescent point.
 

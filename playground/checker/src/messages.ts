@@ -30,6 +30,8 @@ export const Messages = {
   StringTarget: { code: 96027, text: "A string or a channel in a shared struct or SharedArray cannot be assigned by destructuring or as a loop variable." },
   NotAnInteger: { code: 96029, text: "This value may not be an integer, which {0} would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0." },
   AtomicTarget: { code: 96028, text: "An atomic operation takes an i32 field of a shared struct, named by a string literal, or an element of a SharedArray<i32>." },
+  BlockingCall: { code: 96030, text: "'{0}' blocks its thread, and with it every async function waiting on the same worker: in an async function, use '{1}'." },
+  BlockingCallNoAlternative: { code: 96031, text: "'{0}' blocks its thread, and with it every async function waiting on the same worker, which an async function must not do." },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

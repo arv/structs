@@ -74,6 +74,31 @@ export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
   return cell.kinds[cell.fields.indexOf(key.text)] === "i";
 }
 
+// The runtime's calls that block their thread, by declaring class and name, and what an async
+// function calls instead ("" for none).
+const blockingCalls = new Map([
+  ["Channel.send", "sendAsync"], ["Channel.recv", "recvAsync"], ["ChannelCell.send", "sendAsync"], ["ChannelCell.recv", "recvAsync"],
+  ["Thread.join", "joinAsync"], ["Barrier.wait", "waitAsync"], ["select", "selectAsync"], ["scope", ""],
+]);
+
+// A call of the runtime's that blocks its thread (getOwnBlockingCall): its name, and what an async
+// function calls instead ("" for none).
+export function getBlockingCall(c: Own, call: Node): { name: string; instead: string } | undefined {
+  if (isAtomicCallValid(c, call) !== undefined) {
+    const op = skipParentheses(call.expression).name.text as string;
+    return op === "wait" ? { name: `atomic.${op}`, instead: "" } : undefined;
+  }
+  const handle = c.host.signatureOf(call).declaration;
+  if (!handle || !c.isRuntimePath(handle.path)) return undefined;
+  const decl = c.host.declarationOf(handle);
+  if (!decl || decl.name?.kind !== K.Identifier) return undefined;
+  let key = decl.name.text as string;
+  const owner = decl.parent as Node | undefined;
+  if ((decl.kind === K.MethodDeclaration || decl.kind === K.MethodSignature) && owner?.name) key = `${owner.name.text}.${key}`;
+  const instead = blockingCalls.get(key);
+  return instead === undefined ? undefined : { name: decl.name.text, instead };
+}
+
 // Reports whether an expression is `consume(x)`.
 export function isConsumeCall(c: Own, expr: Node): boolean {
   return expr.kind === K.CallExpression && expr.arguments.length === 1 && getCallMarker(c, expr) === "consume";

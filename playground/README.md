@@ -59,9 +59,10 @@ value is one of three kinds:
 A struct's fields are numbers (`f64`), 32-bit integers (`i32`), bytes (`u8`), booleans (`bool`),
 strings (`str`) and references to other structs, SharedArrays and Channels (`ref<T>()`); a
 SharedArray holds any of these but references, or structs, inline. A channel in a struct lets any
-thread that can reach the struct wait on it, as Go code waits on a channel kept in a struct. `atomic.add(work, "next", 1)` and the other
-operations of `Atomics` act on an `i32` field (or an element of a `SharedArray<i32>`), so threads can
-share a counter, claim work or wait for each other with no lock. What is stored into an `i32` or a `u8`
+thread that can reach the struct wait on it, as Go code waits on a channel kept in a struct.
+`atomic.add(work, "next", 1)` and the other operations of `Atomics` act on an `i32` field (or an
+element of a `SharedArray<i32>`), so threads can share a counter, claim work or wait for each other
+with no lock. What is stored into an `i32` or a `u8`
 must be an integer: integer arithmetic, which wraps, or an explicit conversion (`Math.round(x)`,
 `x | 0`), as asm.js required, but not a number that may have a fraction, which the store would
 truncate with no sign. Strings in shared memory are interned: each distinct string is stored once, a field
@@ -72,6 +73,17 @@ Code inside a thread is plain JavaScript on plain objects. The cost is at the cr
 also talk Go's way: `go(f, ...args)`, `new Channel<T>(n)`, `send`, `recv`, `for (const v of ch)`,
 `select`. A value sent on a channel moves; a struct or SharedArray goes as its address.
 
+A goroutine of a plain function is a whole worker. A goroutine of an async function is light, as
+Go's are: a worker runs any number of them, and one that waits is a suspended async function, a few
+hundred bytes where a worker is megabytes. They wait without blocking the worker they share:
+`await ch.sendAsync(v)`, `await ch.recvAsync()`, `for await (const v of ch)`, `await
+selectAsync(...)`, `await thread.joinAsync()`, `await barrier.waitAsync()`. Idle workers take them
+up to one per core, and a worker that runs them takes no blocking threads until they are done. A
+blocking call in an async function would stop every one on its worker, so the checker reports it
+and the runtime throws. In Node on an M5 Pro, a goroutine on a worker of its own takes 3.2 ms to
+start and 8.6 MB; an async one takes 0.2 µs and about 350 bytes, and two on one worker hand a value
+over in a microtask.
+
 The whole API, with doc comments, is [runtime/threads.d.mts](runtime/threads.d.mts).
 
 ## Three tools
@@ -81,7 +93,7 @@ The whole API, with doc comments, is [runtime/threads.d.mts](runtime/threads.d.m
 - **The ownership checker**, `threads-check` ([checker/](checker), `npm run own-check`), runs in CI like
   a linter. It reports what tsc cannot see: a use after a value was sent, an alias of something sent,
   sending what the caller still holds, writing to a shared value through a cast, a number that may
-  not be an integer stored into an `i32` or a `u8`. It is built on stock
+  not be an integer stored into an `i32` or a `u8`, a blocking call in an async function. It is built on stock
   TypeScript 7.1's public API, so it needs no fork; its tests compare it with the fork's `tsgo own
   check`, which it replaces. The playground's dev server runs it too, with one TypeScript session kept
   open.
@@ -101,7 +113,7 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 [programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
 thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); strings in shared
 memory; atomics (claiming work, and counting together); a channel pipeline; a pool of workers on
-channels. Then the bigger examples: N-body four ways
+channels; ten thousand async goroutines waiting for a database replica. Then the bigger examples: N-body four ways
 (shared structs with a barrier, shared structs with channels, moving and sharing objects, channels
 copying objects), Mandelbrot on channels, JSON parsed on threads, the nearest-centers example, what
 channels cost, reference counting under a race, a growable `SharedVector` written in user space on
@@ -144,7 +156,9 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
   but shared values are never freed, and neither are interned strings: a `str` field suits labels and
   names better than an endless stream of distinct text.
 - A thread runs a top-level function; closures do not cross threads.
-- A goroutine is a whole worker: one per core is fine, thousands are not.
+- A goroutine of a plain function is a whole worker: one per core is fine, thousands are not. Async
+  goroutines are cooperative, as any async functions are: one that computes without awaiting holds
+  up the others on its worker, and none moves to another worker once it has started.
 
 This grew out of an experiment in [Porffor](https://github.com/CanadaHonk/porffor)'s threads work,
 compiling JavaScript to JavaScript for threads instead of to C and WebAssembly.

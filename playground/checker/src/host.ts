@@ -25,6 +25,7 @@ export class Host {
   private readonly declaredTypes = new Map<TsSymbol, Type>();
   private readonly aliases = new Map<TsSymbol, TsSymbol | undefined>();
   private readonly typeArgs = new Map<Type, readonly Type[]>();
+  private readonly awaited = new Map<Type, Type>();
   private readonly typeStrings = new Map<Type, string>();
   private readonly libraryPaths = new Map<string, boolean>();
   private readonly symbolIds = new Map<TsSymbol, number>();
@@ -196,6 +197,16 @@ export class Host {
       this.libraryPaths.set(path, result);
     }
     return result;
+  }
+
+  // The type an `await` of a value of type t gives: t itself unless it is a promise.
+  awaitedType(t: Type): Type {
+    let awaited = this.awaited.get(t);
+    if (!awaited) {
+      awaited = this.checker.getAwaitedType(t as any) ?? t;
+      this.awaited.set(t, awaited);
+    }
+    return awaited;
   }
 
   typeArguments(t: Type): readonly Type[] {

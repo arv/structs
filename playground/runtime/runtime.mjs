@@ -28,11 +28,13 @@ const C_EPOCH = 17;      // reclamation's global epoch (see $defer)
 const C_FREE_LOCK = 18;  // guards the free lists
 const C_PEND = 19, C_PEND_LEN = 20, C_PEND_CAP = 21, C_PEND_LOCK = 22; // decrements left by threads that ended
 export const C_ACTIVITY = 23, C_SELECTING = 24; // bumped on every channel change; threads waiting in select (chan.mjs)
+const C_AQ_LOCK = 25, C_AQ_HEAD = 26, C_AQ_TAIL = 27, C_AQ_LEN = 28; // async threads waiting for a host (see spawnAsync)
+const C_HOSTS = 29, C_DRAFTS = 30; // workers that host async threads, and idle workers asked to
 const C_FREE = 1100;     // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for larger
 const C_CNT = 32;        // counters, see COUNTERS
 const C_RING = 64, RING = 1024;
 const C_THREADS = 2048, T_ENTRY = 8, MAX_THREADS = 4096;
-const T_ALIVE = 0, T_CLEAN = 1, T_LEN = 2, T_CAP = 3, T_LIST = 4, T_QS = 5;
+const T_ALIVE = 0, T_CLEAN = 1, T_LEN = 2, T_CAP = 3, T_LIST = 4, T_QS = 5, T_HOST = 6, T_BELL = 7;
 const CTRL_BYTES = 1 << 20;
 
 export const COUNTERS = [ 'publishes', 'takeovers', 'directTakeovers', 'handoverRequests', 'handedOver', 'lockedWrites', 'slowPolls', 'threads', 'slowGets', 'slowSets', 'blocksAllocated', 'blocksFreed', 'deferred' ];
@@ -70,6 +72,8 @@ let ROOT, post, write;
 let FNS = [];
 let MY_TID = 0, MY_ID = 0, MY_TAG = 0, ME = 0;
 const PRIV = new Int32Array(new SharedArrayBuffer(4)); // to sleep on
+// whether this thread may block (a page's main thread may not: a lock spins there instead)
+export const CAN_BLOCK = (() => { try { Atomics.wait(PRIV, 0, 1, 0); return true; } catch { return false; } })();
 
 // a handle's (and a forwarded local object's) own fields: its block's address and kind. $fwd
 // is the handle itself, or for a local object that moved to the shared heap, its handle
@@ -267,7 +271,7 @@ export function $alloc(bytes) {
 // ---- locks on control words: futex style, 0 free, 1 held, 2 held with waiters ----
 const mlock = i => {
   if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
-  while (Atomics.exchange(I32, i, 2) !== 0) Atomics.wait(I32, i, 2);
+  while (Atomics.exchange(I32, i, 2) !== 0) if (CAN_BLOCK) Atomics.wait(I32, i, 2);
 };
 const munlock = i => {
   if (Atomics.sub(I32, i, 1) !== 1) { Atomics.store(I32, i, 0); Atomics.notify(I32, i, 1); }
@@ -436,6 +440,16 @@ function reclaim() {
   for (let k = 0; k < list.length; k += 2) {
     if (list[k] < min) deferHandler(list[k + 1]); // may queue more, in pend
     else pend.push(list[k], list[k + 1]);
+  }
+  if (pend.length >= 4096) nudgeHosts();
+}
+// a host whose async threads all wait passes no quiescent point until one resumes: ring the bells of
+// those behind, so that each passes one (see hostTurn)
+function nudgeHosts() {
+  const n = Atomics.load(I32, C_NEXT_TID), epoch = Atomics.load(I32, C_EPOCH);
+  for (let t = 1; t < n; t++) {
+    const e = C_THREADS + t * T_ENTRY;
+    if (e !== ME && Atomics.load(I32, e + T_HOST) === 1 && Atomics.load(I32, e + T_QS) < epoch) ring(e);
   }
 }
 // at a thread's end: hand the queued decrements to the shared list
@@ -960,6 +974,10 @@ export function $newThread(fn) {
 // queue a thread block for the pool (own.mjs makes its own blocks)
 export function spawnThread(t) {
   Atomics.add(I32, C_LIVE, 1);
+  enqueue(t);
+}
+// queue a thread block, or a DRAFT, for an idle worker; with none idle, ask the page for one more
+function enqueue(t) {
   const tail = Atomics.add(I32, C_RING_TAIL, 1);
   if (tail - Atomics.load(I32, C_RING_HEAD) >= RING) throw new RangeError('threads: too many threads waiting to start');
   Atomics.store(I32, C_RING + (tail % RING), t);
@@ -968,6 +986,7 @@ export function spawnThread(t) {
   if (Atomics.load(I32, C_IDLE) < pending) post({ type: 'grow' });
 }
 export function threadJoin(a) {
+  $mustNotBlock('join()', 'await joinAsync()');
   const di = (a + 8) >> 2;
   if (Atomics.load(I32, di) === 0) {
     cleanEnter();
@@ -1086,8 +1105,11 @@ const eventLoopTurn = () => new Promise(resolve => {
   ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
   ch.port2.postMessage(0);
 });
+// a worker's thread id, the same for every thread it runs: the thread table has MAX_THREADS entries
+let myTid = 0;
+const workerTid = () => myTid || (myTid = Atomics.add(I32, C_NEXT_TID, 1));
 function runThread(t) {
-  threadBegin(Atomics.add(I32, C_NEXT_TID, 1));
+  if (!hosting) threadBegin(workerTid());
   count(N_THREADS);
   let r, threw = 0;
   try {
@@ -1096,6 +1118,16 @@ function runThread(t) {
     r = e instanceof Error ? String(e) : e;
     threw = 1;
   }
+  // an async function's thread ends when its promise settles; meanwhile its worker hosts it
+  if (threw === 0 && r !== null && typeof r === 'object' && typeof r.then === 'function') {
+    if (!hosting) host();
+    live++;
+    r.then(v => endThread(t, v, 0, true), e => endThread(t, e instanceof Error ? String(e) : e, 1, true));
+    return;
+  }
+  endThread(t, r, threw, false);
+}
+function endThread(t, r, threw, async) {
   // the result, or what went wrong storing it. a full heap is reported with a message interned when
   // the worker attached, which needs no memory: whoever joins the thread must hear that it ended
   try {
@@ -1108,7 +1140,8 @@ function runThread(t) {
   const detached = I32[(t + 4) >> 2] === 1; // only own.mjs's threads are: nothing joins them
   try {
     if (threw && detached) $log(`a detached thread threw: ${r}`);
-    threadEnd();
+    if (async) { if (--live === 0 && kick !== null) kick(); }
+    else if (!hosting) threadEnd();
   } finally {
     Atomics.store(I32, (t + 8) >> 2, 1);
     Atomics.notify(I32, (t + 8) >> 2);
@@ -1116,10 +1149,114 @@ function runThread(t) {
     if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
   }
 }
-// a pool worker: take threads off the queue until shutdown
+
+// ---- async threads: many on one worker ----
+// a thread whose function is async runs on a host: a pool worker that keeps its event loop free, so
+// that any number of async threads wait on it at once, each on a promise, and their channels wake
+// them (chan.mjs). async threads wait in one queue for a host to take them. an idle worker becomes a
+// host when it takes a DRAFT from the pool's ring, which spawnAsync queues while there are fewer hosts
+// than cores and a worker is idle, or there is no host at all; a worker whose thread returned a
+// promise becomes one too. a host takes no blocking threads, which would stop every async thread on
+// it (a blocking call there throws: $mustNotBlock), until it has had no async thread for LINGER ms
+const DRAFT = -1;
+const HOSTS = Math.max(1, globalThis.navigator?.hardwareConcurrency ?? 8);
+const LINGER = 10, WAKE = 50; // ms: how long a host with no async threads waits for more; between a waiting host's quiescent points
+let hosting = false, live = 0, kick = null, cursor = 0, started = 0;
+export const $hosting = () => hosting;
+// a blocking call on a host would stop every async thread on it, the one that would wake it perhaps
+export function $mustNotBlock(what, instead) {
+  if (hosting) throw new TypeError(`threads: ${what} would block a worker that runs async functions, and every one waiting on it: ${instead ? `use ${instead}` : 'an async function must not block'}`);
+}
+// after an async function's wait: with every other async thread of this worker suspended at an await
+// (where the compiler leaves no address uncounted), a quiescent point (REFCOUNT.md)
+export const $resumed = () => { if (hosting) $quiescent(); };
+// queue an async thread for a host
+export function spawnAsync(t) {
+  Atomics.add(I32, C_LIVE, 1);
+  mlock(C_AQ_LOCK);
+  I32[(t + 24) >> 2] = 0; // the queue links blocks through their result words
+  const tail = I32[C_AQ_TAIL];
+  if (tail === 0) I32[C_AQ_HEAD] = t; else I32[(tail + 24) >> 2] = t;
+  I32[C_AQ_TAIL] = t;
+  Atomics.add(I32, C_AQ_LEN, 1);
+  munlock(C_AQ_LOCK);
+  // after queueing: a host that leaves takes what it finds queued first (see hostTurn)
+  const hosts = Atomics.load(I32, C_HOSTS) + Atomics.load(I32, C_DRAFTS);
+  if (hosts === 0 || hosts < HOSTS && Atomics.load(I32, C_IDLE) > Atomics.load(I32, C_PENDING)) {
+    Atomics.add(I32, C_DRAFTS, 1);
+    enqueue(DRAFT);
+  } else ringHost();
+}
+function takeAsync() {
+  if (Atomics.load(I32, C_AQ_LEN) === 0) return 0;
+  mlock(C_AQ_LOCK);
+  const t = I32[C_AQ_HEAD];
+  if (t !== 0) {
+    const next = I32[(t + 24) >> 2];
+    I32[C_AQ_HEAD] = next;
+    if (next === 0) I32[C_AQ_TAIL] = 0;
+    Atomics.sub(I32, C_AQ_LEN, 1);
+  }
+  munlock(C_AQ_LOCK);
+  return t;
+}
+// a host's bell: rung when there is an async thread to take, or a quiescent point to pass
+const ring = e => { Atomics.add(I32, e + T_BELL, 1); Atomics.notify(I32, e + T_BELL); };
+// ring the next host's bell, in turn
+function ringHost() {
+  const n = Atomics.load(I32, C_NEXT_TID);
+  for (let k = 1; k < n; k++) {
+    cursor = cursor + 1 < n ? cursor + 1 : 1;
+    const e = C_THREADS + cursor * T_ENTRY;
+    if (Atomics.load(I32, e + T_HOST) === 1) { ring(e); return; }
+  }
+}
+// the worker becomes a host (its thread begun)
+function host() {
+  hosting = true;
+  Atomics.add(I32, C_HOSTS, 1);
+  Atomics.store(I32, ME + T_HOST, 1);
+}
+function unhost() {
+  Atomics.store(I32, ME + T_HOST, 0);
+  hosting = false;
+  ring(ME); // ends this worker's own wait on its bell, if one is left
+  threadEnd();
+}
+const keepAlive = ms => setTimeout(() => {}, ms); // node lets a worker exit on a bare waitAsync
+// one turn of a host: start the next queued async thread, or wait for one (or for one of its own to end)
+async function hostTurn() {
+  const bell = ME + T_BELL, b = Atomics.load(I32, bell);
+  const t = takeAsync();
+  if (t !== 0) {
+    if (beforeTask !== null) await beforeTask(t);
+    runThread(t);
+    $quiescent();
+    if ((++started & 31) === 0) await eventLoopTurn(); // resumed threads run between new ones
+    return;
+  }
+  if (Atomics.load(I32, C_SHUTDOWN)) { unhost(); return; }
+  const idle = live === 0, w = Atomics.waitAsync(I32, bell, b, idle ? LINGER : WAKE);
+  if (w.async) {
+    const alive = keepAlive((idle ? LINGER : WAKE) + 10);
+    await (idle ? w.value : Promise.race([ w.value, new Promise(resolve => { kick = resolve; }) ]));
+    kick = null;
+    clearTimeout(alive);
+  }
+  $quiescent();
+  if (idle && live === 0 && Atomics.load(I32, bell) === b) {
+    // no async thread for LINGER ms: back to blocking threads, unless one was queued meanwhile
+    Atomics.sub(I32, C_HOSTS, 1);
+    if (Atomics.load(I32, C_AQ_LEN) !== 0) Atomics.add(I32, C_HOSTS, 1);
+    else unhost();
+  }
+}
+// a pool worker: take threads off the queue until shutdown; a host takes async threads only
 // while it has handles to finalize it waits asynchronously, so its event loop runs the registry
 export async function poolLoop() {
   for (;;) {
+    if (hosting) { await hostTurn(); continue; }
+    if (Atomics.load(I32, C_SHUTDOWN)) return;
     if (afterTask()) { await eventLoopTurn(); flushCounts(); }
     Atomics.add(I32, C_IDLE, 1);
     let p;
@@ -1130,7 +1267,7 @@ export async function poolLoop() {
         if (afterTask()) {
           const w = Atomics.waitAsync(I32, C_PENDING, 0, 50);
           if (w.async) {
-            const alive = setTimeout(() => {}, 60); // node lets a worker exit on a bare waitAsync
+            const alive = keepAlive(60);
             await w.value;
             clearTimeout(alive);
           }
@@ -1145,6 +1282,12 @@ export async function poolLoop() {
     let t;
     while ((t = Atomics.load(I32, q)) === 0) Atomics.wait(PRIV, 0, 0, 0.01);
     Atomics.store(I32, q, 0);
+    if (t === DRAFT) {
+      threadBegin(workerTid());
+      host();
+      Atomics.sub(I32, C_DRAFTS, 1);
+      continue;
+    }
     if (beforeTask !== null) await beforeTask(t);
     runThread(t);
   }
