@@ -42,12 +42,14 @@ Node 24).
 pnpm install                # once, at the root
 vp dev                      # the playground; TSGO=<tsgo-fork>/built/local/tsgo for the compiled JavaScript
 vp build                    # the playground's production build
+vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace
+vp check                    # formatting, lint and types, as CI would
 vp run -r typecheck         # tsc in every package
 ```
 
 `vp` is the CLI of the `vite-plus` dev dependency: `pnpm vp <command>`, or plain `vp` with Vite+'s
-[global CLI](https://viteplus.dev/guide/). Formatting (`vp fmt`) is not set up.
+[global CLI](https://viteplus.dev/guide/).
 
 ## Running
 
