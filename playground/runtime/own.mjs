@@ -8,7 +8,7 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $decodeAscii, $decodeUtf16, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
+import { $alloc, $checking, $decodeAscii, $decodeUtf16, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
   $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.mjs';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -21,7 +21,9 @@ export { $log as log };
 // of strings, arrays and objects are the word offset of their body in the same blob
 //   string body: [length][flags] then its text: a byte per char if it is ASCII, else UTF-16 units
 //   array body: [length] then value words
-//   object body: [count] then count key words (interned key address) then count value words
+//   object body: [shape] then a value word per key           shape: [count] then a word per key
+// (an interned key's address). a shape is written once per blob, so the objects with the same keys
+// share it, and a reader finds the function that makes them (see maker) once per shape
 // a string that occurs more than once in a value is written once: its other occurrences point at the
 // same body, which is marked repeated, so that a reader decodes it once. a long ASCII string is
 // written by TextEncoder.encodeInto (into this thread's buffer: it takes no view of shared memory). a string this thread has
@@ -29,13 +31,42 @@ export { $log as log };
 // address of its one copy there (T_ISTR). nothing else is added to the string table, whose strings
 // are never freed: a channel message is freed whole once it is read
 const BOX = 0xFFF80000 | 0;
-const STR_REPEATED = 1, STR_ASCII = 2; // a string body's flags
+// a string body's flags: ASCII, and from the string's second occurrence on, 1 + its number among the
+// blob's repeated strings << 2, by which a reader keeps it once decoded
+const STR_ASCII = 2;
 const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_ARR = 6, T_OBJ = 7, T_SHARED = 8, T_CELL = 9, T_COUNTED = 10, T_ISTR = 11;
 
 // writing: into a growing private buffer, then copied into the heap in one piece
 let wf = new Float64Array(1024), wi = new Int32Array(wf.buffer), wb = new Uint8Array(wf.buffer), wu = new Uint16Array(wf.buffer), wn = 0;
 const encoder = new TextEncoder();
 const written = new Map(); // the strings in the blob being written -> their body
+let repeats = 0; // the blob's repeated strings so far
+// the shapes in the blob being written, by first key (or '' for none): [ keys, shape, ... ]; and the
+// last one used, since an array's objects usually have the same keys
+const shapes = new Map();
+let lastKeys = null, lastShape = 0;
+function shapeOf(keys) {
+  const n = keys.length;
+  if (lastKeys !== null && sameKeys(lastKeys, keys)) return lastShape;
+  const first = n === 0 ? '' : keys[0];
+  let list = shapes.get(first), shape = -1;
+  if (list === undefined) shapes.set(first, list = []);
+  for (let i = 0; i < list.length; i += 2) if (sameKeys(list[i], keys)) { shape = list[i + 1]; break; }
+  if (shape < 0) {
+    reserve(1 + n);
+    shape = wn; wn += 1 + n;
+    wi[shape * 2] = n;
+    for (let k = 0; k < n; k++) wi[(shape + 1 + k) * 2] = $intern(keys[k]);
+    list.push(keys, shape);
+  }
+  lastKeys = keys; lastShape = shape;
+  return shape;
+}
+function sameKeys(a, b) {
+  if (a.length !== b.length) return false;
+  for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
+  return true;
+}
 const reserve = words => {
   if (wn + words <= wf.length) return;
   const nf = new Float64Array(Math.max(wf.length * 2, wn + words));
@@ -53,19 +84,29 @@ const REVOKED = new Proxy(Object.create(null), {
   has: () => { throw new TypeError('own: used after move'); }
 });
 
-// write v into word `at`. moved: the own objects copied, to revoke once the whole blob is written
-function put(at, v, moved, seen) {
+// write v into word `at`. moved: the objects a move copied, to revoke once the whole blob is written
+// (those at most revokeDepth deep: the moved values, or with the runtime's check option, everything
+// in them). freeze: a share, which freezes each object it writes
+const MAX_DEPTH = 1000;
+let revokeDepth = 0;
+function put(at, v, moved, freeze, depth) {
   if (typeof v === 'number') { wf[at] = v === v ? v : NaN; if (v !== v) { wi[at * 2] = 0; wi[at * 2 + 1] = 0x7FF80000; } return; }
   if (v === undefined) return box(at, T_UNDEF, 0);
   if (v === null) return box(at, T_NULL, 0);
   if (v === true) return box(at, T_TRUE, 0);
   if (v === false) return box(at, T_FALSE, 0);
   if (typeof v === 'string') {
-    const interned = $internedHere(v);
-    if (interned !== 0) return box(at, T_ISTR, interned);
+    // written already (or -its address, when this thread interned or read it: it crosses as that)
     let body = written.get(v);
-    if (body !== undefined) {
-      wi[body * 2 + 1] |= STR_REPEATED;
+    if (body === undefined) {
+      const interned = $internedHere(v);
+      if (interned !== 0) {
+        written.set(v, -interned);
+        return box(at, T_ISTR, interned);
+      }
+    } else if (body < 0) return box(at, T_ISTR, -body);
+    else {
+      if (wi[body * 2 + 1] >>> 2 === 0) wi[body * 2 + 1] |= ++repeats << 2;
       return box(at, T_STR, body);
     }
     // a byte per char if it is ASCII (encodeInto writes ASCII as is, and anything else as more bytes
@@ -96,38 +137,46 @@ function put(at, v, moved, seen) {
     return box(at, T_STR, body);
   }
   if (typeof v !== 'object') throw new TypeError(`own: cannot send a ${typeof v}`);
-  if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
-  const shared = sharedAddr.get(v);
-  if (shared !== undefined) return box(at, T_SHARED, shared);
-  if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
-  if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]); // a runtime.mjs Lock or Condition
-  if (seen.has(v)) throw new TypeError('own: cycles cannot be sent yet');
-  seen.add(v);
-  if (moved) moved.push(v);
-  if (Array.isArray(v)) {
-    const n = v.length, body = wn;
-    reserve(1 + n); wn += 1 + n;
-    wi[body * 2] = n;
-    for (let i = 0; i < n; i++) put(body + 1 + i, v[i], moved, seen);
-    seen.delete(v);
-    return box(at, T_ARR, body);
-  }
   const proto = Object.getPrototypeOf(v);
-  if (proto !== Object.prototype && proto !== null) throw new TypeError('own: only plain objects and arrays can be sent');
-  const keys = Object.keys(v), n = keys.length, body = wn;
-  reserve(1 + 2 * n); wn += 1 + 2 * n;
-  wi[body * 2] = n;
-  for (let k = 0; k < n; k++) wi[(body + 1 + k) * 2] = $intern(keys[k]);
-  for (let k = 0; k < n; k++) put(body + 1 + n + k, v[keys[k]], moved, seen);
-  seen.delete(v);
-  return box(at, T_OBJ, body);
+  if (proto === Object.prototype || proto === Array.prototype || proto === null) {
+    // a plain object or array: shared already if it is frozen and in sharedAddr
+    if (Object.isFrozen(v)) {
+      const shared = sharedAddr.get(v);
+      if (shared !== undefined) return box(at, T_SHARED, shared);
+    }
+  } else {
+    if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
+    if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
+    if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]); // a runtime.mjs Lock or Condition
+    if (!Array.isArray(v)) throw new TypeError('own: only plain objects and arrays can be sent');
+  }
+  if (depth >= MAX_DEPTH) throw new TypeError(`own: a value nested ${MAX_DEPTH} deep (or with a cycle) cannot be sent`);
+  if (moved !== null && depth <= revokeDepth) moved.push(v);
+  let body;
+  if (Array.isArray(v)) {
+    const n = v.length;
+    reserve(1 + n);
+    body = wn; wn += 1 + n;
+    wi[body * 2] = n;
+    for (let i = 0; i < n; i++) put(body + 1 + i, v[i], moved, freeze, depth + 1);
+  } else {
+    const keys = Object.keys(v), values = Object.values(v), n = keys.length, shape = shapeOf(keys);
+    reserve(1 + n);
+    body = wn; wn += 1 + n;
+    wi[body * 2] = shape;
+    for (let k = 0; k < n; k++) put(body + 1 + k, values[k], moved, freeze, depth + 1);
+  }
+  if (freeze) Object.freeze(v);
+  return box(at, Array.isArray(v) ? T_ARR : T_OBJ, body);
 }
 // a blob of v in the shared heap; its address
-function write(v, moved, alloc = $alloc) {
+function write(v, moved, freeze, alloc = $alloc) {
   wn = 1;
-  written.clear();
-  put(0, v, moved, new Set());
-  written.clear();
+  try {
+    put(0, v, moved, freeze, 0);
+  } finally {
+    written.clear(); shapes.clear(); lastKeys = null; repeats = 0;
+  }
   const a = alloc(wn * 8);
   U8.set(new Uint8Array(wf.buffer, 0, wn * 8), a);
   return a;
@@ -145,15 +194,14 @@ function get(base, at, frozen) {
     case T_FALSE: return false;
     case T_TRUE: return true;
     case T_STR: {
-      const flags = I32[(base >> 2) + p * 2 + 1];
-      const repeated = decoded !== null && (flags & STR_REPEATED) !== 0; // cached within a read()
-      if (repeated) {
-        const s = decoded?.get(p);
+      const flags = I32[(base >> 2) + p * 2 + 1], repeat = decoded === null ? 0 : flags >>> 2; // kept within a read()
+      if (repeat !== 0) {
+        const s = decoded?.[repeat];
         if (s !== undefined) return s;
       }
       const n = I32[(base >> 2) + p * 2], text = base + (p + 1) * 8;
       const s = flags & STR_ASCII ? $decodeAscii(text, n) : $decodeUtf16(text >> 1, n);
-      if (repeated) (decoded ??= new Map()).set(p, s);
+      if (repeat !== 0) (decoded ??= [])[repeat] = s;
       return s;
     }
     case T_ISTR: return $str(p);
@@ -163,8 +211,18 @@ function get(base, at, frozen) {
       return frozen ? Object.freeze(a) : a;
     }
     case T_OBJ: {
-      const n = I32[(base >> 2) + p * 2];
-      return maker(base, p, n, frozen)(F64, get, base, p + 1 + n, frozen);
+      const shape = I32[(base >> 2) + p * 2];
+      let make;
+      if (shape === lastShapeRead) make = lastMakerRead;
+      else {
+        make = shapesRead?.get(shape);
+        if (make === undefined) {
+          make = maker(base, shape, frozen);
+          if (shapesRead !== null) (shapesRead ??= new Map()).set(shape, make);
+        }
+        if (shapesRead !== null) { lastShapeRead = shape; lastMakerRead = make; }
+      }
+      return make(F64, get, base, p + 1, frozen);
     }
     case T_SHARED: return materialize(p);
     case T_CELL: return cell(p);
@@ -172,29 +230,31 @@ function get(base, at, frozen) {
   }
   throw new Error('own: bad value word');
 }
-// the repeated strings of the blob being read, by body: decoded once per read. null outside a read
-// (a get() of one value of a blob caches nothing), undefined in one until a string repeats
-let decoded = null;
+// what a read() of a blob learns as it goes: its repeated strings, decoded once (by number), and the
+// functions that make its shapes' objects, looked up once (by offset; and the last one used).
+// null outside a read (a get() of one value of a blob caches nothing), undefined in one until used
+let decoded = null, shapesRead = null, lastShapeRead = -1, lastMakerRead = null;
 function read(a, frozen) {
-  const outer = decoded;
-  decoded = undefined;
+  const outer = [ decoded, shapesRead, lastShapeRead, lastMakerRead ];
+  decoded = undefined; shapesRead = undefined; lastShapeRead = -1; lastMakerRead = null;
   try {
     return get(a, 0, frozen);
   } finally {
-    decoded = outer;
+    [ decoded, shapesRead, lastShapeRead, lastMakerRead ] = outer;
   }
 }
 
 // objects with the same keys (in the same order) are made by one generated function, an object
 // literal: the engine gives them one hidden class, and making one is a single allocation
 const makers = new Map(); // hash of the key addresses -> [ { keys, frozen, make } ]
-function maker(base, p, n, frozen) {
-  const k0 = (base >> 2) + (p + 1) * 2;
+function maker(base, shape, frozen) {
+  const n = I32[(base >> 2) + shape * 2], k0 = (base >> 2) + (shape + 1) * 2;
   let h = n | (frozen ? 1 << 30 : 0);
   for (let k = 0; k < n; k++) h = Math.imul(h, 31) + I32[k0 + k * 2] | 0;
   let list = makers.get(h);
   if (list !== undefined) {
     outer: for (const m of list) {
+      if (m.frozen !== frozen || m.keys.length !== n) continue;
       for (let k = 0; k < n; k++) if (m.keys[k] !== I32[k0 + k * 2]) continue outer;
       return m.make;
     }
@@ -202,25 +262,32 @@ function maker(base, p, n, frozen) {
   const keys = Array.from({ length: n }, (_, k) => I32[k0 + k * 2]);
   const fields = keys.map((a, k) => `${JSON.stringify($str(a))}: (v = F64[(base >> 3) + at + ${k}]) === v ? v : get(base, at + ${k}, frozen)`);
   const make = new Function('F64', 'get', 'base', 'at', 'frozen', `let v; return ${frozen ? 'Object.freeze(' : ''}{ ${fields.join(', ')} }${frozen ? ')' : ''};`);
-  list.push({ keys, make });
+  list.push({ keys, frozen, make });
   return make;
 }
 
 // ---- moving ----
-// revoke what was moved: the sender keeps the objects, but any use of them throws
+// revoke what was moved: the sender keeps the objects, but any use of them throws. by default only
+// the values moved themselves: an alias of something inside one still reads the sender's old copy
+// (the ownership checker reports it), which the runtime's check option revokes as well
 function revoke(objs) {
   for (const o of objs) {
     if (Array.isArray(o)) o.length = 0;
-      else for (const k of Object.keys(o)) delete o[k];
+    else {
+      const keys = Object.keys(o);
+      for (let k = keys.length - 1; k >= 0; k--) delete o[keys[k]]; // last first: V8 undoes those quickly
+    }
     Object.setPrototypeOf(o, REVOKED);
   }
 }
 // a message (chan.mjs, and a thread's arguments and result): v moved into a block of its own, which
-// the receiver frees once it has read it. [address, bytes]
+// the receiver frees once it has read it. [address, bytes]. the moved values are v, or v's elements
+// (depth 1: a thread's arguments)
 const messageBlock = bytes => $allocBlock(bytes, false); // written whole
-export function __message(v) {
+export function __message(v, depth = 0) {
   const moved = [];
-  const a = write(v, moved, messageBlock), bytes = wn * 8;
+  revokeDepth = $checking() ? Infinity : depth;
+  const a = write(v, moved, false, messageBlock), bytes = wn * 8;
   revoke(moved);
   return [ a, bytes ];
 }
@@ -231,17 +298,11 @@ export function __unmessage(a, bytes) {
 }
 
 // ---- sharing ----
-const deepFreeze = v => {
-  if (v === null || typeof v !== 'object' || Object.isFrozen(v) || sharedAddr.has(v) || v.$cell !== undefined || v[ADDR] !== undefined) return v;
-  for (const k of Object.keys(v)) deepFreeze(v[k]);
-  return Object.freeze(v);
-};
-// freezes v (it is shared now, so nobody may change it) and writes it once
+// writes v once and freezes it as it goes (it is shared now, so nobody may change it)
 export function share(v) {
   if (v === null || typeof v !== 'object') return v;
   if (sharedAddr.has(v)) return v;
-  deepFreeze(v);
-  sharedAddr.set(v, write(v, null));
+  sharedAddr.set(v, write(v, null, true));
   return v;
 }
 // a shared blob, as this thread's own frozen copy (made once)
@@ -638,7 +699,7 @@ export function __start(fn, args, detached) {
   const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 4) >> 2] = detached ? 1 : 0;
-  const [ a, bytes ] = __message([ key, ...args ]);
+  const [ a, bytes ] = __message([ key, ...args ], 1);
   I32[(t + 16) >> 2] = a; I32[(t + 20) >> 2] = bytes;
   $quiescent();
   spawnThread(t);

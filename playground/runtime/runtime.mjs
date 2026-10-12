@@ -83,6 +83,7 @@ const BOX_HI = 0xFFF80000 | 0;
 const T_UNDEF = 1, T_NULL = 2, T_FALSE = 3, T_TRUE = 4, T_STR = 5, T_REF = 6;
 export const REF_HI = BOX_HI | (T_REF << 11);
 let CHECK = false;
+export const $checking = () => CHECK; // the runtime's check option: slower, stricter
 
 const storeBox = (a, tag, p) => {
   SI[0] = p; SI[1] = BOX_HI | (tag << 11);
