@@ -9,7 +9,9 @@ onmessage = async ({ data: { sab, opts } }) => {
     R.attach(sab, opts, m => postMessage(m), text => postMessage({ type: 'out', text }));
     const { setModuleLoader } = await import('./own.mjs');
     const { default: modules } = await import('virtual:threads/modules');
-    setModuleLoader(id => modules[id]?.());
+    // a playground program (the plugin's dev server compiles it on request) is not in the list
+    setModuleLoader(id => modules[id] ? modules[id]() : id.startsWith('playground/')
+      ? import(/* @vite-ignore */ `/@id/virtual:threads/playground/${id.slice('playground/'.length)}.js`) : undefined);
     postMessage({ type: 'ready' });
     await R.poolLoop();
   } catch (e) {

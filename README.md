@@ -48,12 +48,14 @@ tsc -p threads/escape-proto/tsconfig.json --noEmit                              
 node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-struct.mjs
 ```
 
-[app/](app) is the same in a web page, built with Vite and [vite-plugin-threads.mjs](vite-plugin-threads.mjs)
-(with Vite installed):
+[app/](app) is a playground in a web page, on Vite and [vite-plugin-threads.mjs](vite-plugin-threads.mjs):
+edit any of these programs, see the JavaScript it compiles to (or the same with its types only
+erased), the checker's errors, and run it on Web Workers. Vite's dev server does the compiling, and
+[microlighter](https://github.com/davatron5000/microlighter) colors the code:
 
 ```sh
-TSGO=<tsgo-fork>/built/local/tsgo vite threads/escape-proto/app       # dev server
-TSGO=<tsgo-fork>/built/local/tsgo vite build threads/escape-proto/app # then vite preview
+npm install --prefix threads/escape-proto/app
+TSGO=<tsgo-fork>/built/local/tsgo npx vite --config threads/escape-proto/app/vite.config.mjs
 ```
 
 ## Files
@@ -66,7 +68,7 @@ TSGO=<tsgo-fork>/built/local/tsgo vite build threads/escape-proto/app # then vit
 | `threads.mjs`, `threads.d.mts` | the API programs import: own and shared values, shared structs, channels, in plain TypeScript |
 | `vite-plugin-threads.mjs` | the bundler plugin: compiles with the tsgo fork, registers thread functions, sets cross-origin isolation |
 | `heap.mjs`, `browser.mjs`, `threads-worker.mjs` | a web page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers |
-| `app/` | a demo page: N-body on shared structs and Mandelbrot on channels, built with Vite |
+| `app/` | the playground: edit a program, see its compiled JavaScript and the checker's errors, run it on Web Workers |
 | `own.mjs`, `own.d.mts` | own and shared values on top of the runtime, and the types of the earlier syntax |
 | `nbody-own.mjs` | N-body written by hand for own and shared values |
 | `nbody-cells.mjs` | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step |
@@ -160,8 +162,15 @@ A page imports `threads/heap` first (the shared memory, which the runtime's view
 calls `await run(f, ...args)` ([browser.mjs](browser.mjs)): f runs on a pool of Web Workers and its
 result moves back, and the page's own thread, which may not block, waits asynchronously. A worker
 loads a thread's module the first time a thread needs it, so the page's own entry module never runs
-there. [app/](app) runs N-body and Mandelbrot this way, in Vite's dev server and in a production build
-(at the same speeds as `chrome.mjs`).
+there. The playground ([app/](app)) runs programs this way, at the same speeds as `chrome.mjs`.
+
+**With the types only erased** (node's type stripping, no compiler), a program still runs, given one
+added line that registers its top-level functions, which is how a thread finds the one it runs. The
+runtime's own checks stand in for the checker: a use after move throws. Code that moves and shares
+plain objects runs at the same speed (Mandelbrot: 713/349/180/99 ms against 712/341/180/97 compiled,
+node). Shared structs do not: each one is then a handle, its fields accessors, a SharedArray a Proxy,
+and N-body takes 1820/971/498/301 ms against 29/15/8/6. The compiler is what makes shared structs fast,
+and the checker what makes ownership safe before the program runs.
 
 ## Goroutines and channels
 
