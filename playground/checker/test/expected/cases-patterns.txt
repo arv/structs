@@ -1,0 +1,2 @@
+patterns.ts(11,6): error TS96024: 'a' cannot be bound by destructuring: its value is an address in the shared heap.
+patterns.ts(12,9): error TS96024: 'node' cannot be bound by destructuring: its value is an address in the shared heap.

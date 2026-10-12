@@ -1,0 +1,5 @@
+loops.ts(42,23): error TS96004: 'slots' cannot be used here: it shares objects with 'slots.flat()', which may have been sent to 'share' on line 42.
+loops.ts(50,19): error TS96004: 'outer' cannot be used here: it shares objects with 'inner', which may have been sent to 'send' on line 51.
+loops.ts(51,10): error TS96002: 'inner' cannot be used here: it may have been sent to 'send' on line 51.
+loops.ts(59,5): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 58.
+loops.ts(69,12): error TS96008: 'again' cannot be sent: it is captured from an outer scope.
