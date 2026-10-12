@@ -1,4 +1,3 @@
 # programs expanded for the browser (node chrome.js), and the tsgo fork's emit (build/ts)
 /build
-/app/.vite
 node_modules/

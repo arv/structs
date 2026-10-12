@@ -12,7 +12,7 @@ export default defineConfig({
       // the earlier syntax's types, which only the tsgo fork parses (`sending T`)
       "own.d.ts", "chan.d.ts",
       // programs wrong on purpose: the checker's cases, and the mistakes it catches
-      "playground/checker/test/cases/**", "playground/programs/mistakes.ts", "app/presets/mistakes.ts",
+      "playground/checker/test/cases/**", "playground/programs/mistakes.ts",
     ],
   },
 });

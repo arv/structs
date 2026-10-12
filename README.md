@@ -21,7 +21,8 @@ Measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and Chr
 
 This started in Porffor's repository, as `threads/escape-proto` on top of its threads work. The own
 and shared design grew into [playground/](playground): its runtime, the threads-check checker and
-the playground carry on from [app/](app) and the files here, and are where the work goes on.
+the playground carry on from the files here (and from `app/`, the playground's first page, in this
+repository's history), and are where the work goes on.
 
 [porffor-threads]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads
 [porffor-playground]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads/playground
@@ -33,9 +34,9 @@ step works.
 ## Setup
 
 The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`): the prototype here at the
-root, [playground/](playground) and its checker, and [app/](app). Vite+ brings Vite, Oxlint and a task
-runner, and runs pnpm at the version `packageManager` names. You need Node 22.18 or later (24.11 or
-later on Node 24).
+root, and [playground/](playground) and its checker. Vite+ brings Vite, Oxlint and a task runner,
+and runs pnpm at the version `packageManager` names. You need Node 22.18 or later (24.11 or later on
+Node 24).
 
 ```sh
 pnpm install                # once, at the root
@@ -78,15 +79,6 @@ vp run typecheck                                               # types: stock Ty
 node run.js build/ts/nbody-struct.js
 ```
 
-[app/](app) is a playground in a web page, on Vite and [vite-plugin-threads.js](vite-plugin-threads.js):
-edit any of these programs, see the JavaScript it compiles to (or the same with its types only
-erased), the checker's errors, and run it on Web Workers. Vite's dev server does the compiling, and
-[microlighter](https://github.com/davatron5000/microlighter) colors the code:
-
-```sh
-TSGO=<tsgo-fork>/built/local/tsgo vp -C app dev
-```
-
 ## Files
 
 | File | What it is |
@@ -98,7 +90,6 @@ TSGO=<tsgo-fork>/built/local/tsgo vp -C app dev
 | `threads.js`, `threads.d.ts` | the API programs import: own and shared values, shared structs, channels, in plain TypeScript |
 | `vite-plugin-threads.js` | the bundler plugin: compiles with the tsgo fork, registers thread functions, sets cross-origin isolation |
 | `heap.js`, `browser.js`, `threads-worker.js` | a web page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers |
-| `app/` | the playground: edit a program, see its compiled JavaScript and the checker's errors, run it on Web Workers |
 | `own.js`, `own.d.ts` | own and shared values on top of the runtime, and the types of the earlier syntax |
 | `nbody-own.js` | N-body written by hand for own and shared values |
 | `nbody-cells.js` | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step |
@@ -192,7 +183,8 @@ A page imports `threads/heap` first (the shared memory, which the runtime's view
 calls `await run(f, ...args)` ([browser.js](browser.js)): f runs on a pool of Web Workers and its
 result moves back, and the page's own thread, which may not block, waits asynchronously. A worker
 loads a thread's module the first time a thread needs it, so the page's own entry module never runs
-there. The playground ([app/](app)) runs programs this way, at the same speeds as `chrome.js`.
+there. The playground ([playground/](playground)) runs programs this way, on a runtime that grew out
+of these files.
 
 **With the types only erased** (node's type stripping, no compiler), a program still runs, given one
 added line that registers its top-level functions, which is how a thread finds the one it runs. The
