@@ -1,3 +1,5 @@
 # formatting only: git blame --ignore-revs-file .git-blame-ignore-revs (GitHub reads this file itself)
 # Format with vp fmt
 ba3127c8f9c53c065affd2bddf066c1d6175e947
+# Comments and Markdown at 80 columns
+8465b7bdf1f60e9a9458cd5ddb5f399c478bd1ce
