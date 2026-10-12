@@ -12,10 +12,11 @@
 //
 // A marker is recognized by its declaration: an export of the runtime module, by name.
 
+import { CellKind } from "./context.ts";
 import type { Own, StructInfo } from "./context.ts";
 import { ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
 import type { TsSymbol, Type } from "./host.ts";
-import { isBooleanType, isCellType, isFieldType, isStringType } from "./layout.ts";
+import { getCellType, getFieldKind, isFieldType } from "./layout.ts";
 import { Messages } from "./messages.ts";
 import { forEachChild, isPropertyNameLiteral, K, skipParentheses, walkUpParenthesizedExpressions } from "./syntax.ts";
 import type { Node } from "./syntax.ts";
@@ -54,6 +55,25 @@ export function getCallMarker(c: Own, call: Node | undefined): string {
   return declared === "consume" || declared === "struct" || declared === "ref" ? declared : "";
 }
 
+// The operations of the runtime's `atomic`, which are those of `Atomics` by the same names.
+const atomicOperations = new Set(["load", "store", "add", "sub", "and", "or", "xor", "exchange", "compareExchange", "wait", "notify"]);
+
+// Whether a call is an atomic operation (getOwnAtomicCall): undefined if it is not one, true if it
+// acts on an i32 field of a shared struct named by a string literal or on an element of a
+// SharedArray<i32>, and false if it acts on anything else, which is an error.
+export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
+  const callee = skipParentheses(call.expression);
+  if (callee.kind !== K.PropertyAccessExpression || !atomicOperations.has(callee.name.text) ||
+    getRuntimeExportName(c, c.host.symbolAt(callee.expression)) !== "atomic") return undefined;
+  if (call.arguments.length < 2) return false;
+  const cell = getCellType(c, c.host.typeOf(call.arguments[0]));
+  if (cell.kind === CellKind.ArrayOfI32) return true;
+  if (cell.kind !== CellKind.Struct) return false;
+  const key = skipParentheses(call.arguments[1]);
+  if (key.kind !== K.StringLiteral && key.kind !== K.NoSubstitutionTemplateLiteral) return false;
+  return cell.kinds[cell.fields.indexOf(key.text)] === "i";
+}
+
 // Reports whether an expression is `consume(x)`.
 export function isConsumeCall(c: Own, expr: Node): boolean {
   return expr.kind === K.CallExpression && expr.arguments.length === 1 && getCallMarker(c, expr) === "consume";
@@ -77,7 +97,7 @@ export function getRuntimeType(c: Own, name: string): Type | undefined {
 
 // Reports whether a type is a cell of the plain API: assignable to the runtime's `Cell` (Barrier,
 // Slots, Channel, Thread, Scope, SharedArray, a struct's values), or a struct type or a field marker
-// (immutable). Its values are shared, with no region.
+// (immutable, `IntegerField` included). Its values are shared, with no region.
 export function isCellBranded(c: Own, t: Type | undefined): boolean {
   if (!t || t.flags & (TypeFlags.AnyOrUnknown | TypeFlags.Never | TypeFlags.Primitive)) return false;
   let result = c.cellBranded.get(t);
@@ -86,7 +106,7 @@ export function isCellBranded(c: Own, t: Type | undefined): boolean {
   if (t.flags & TypeFlags.Object) {
     const target = c.host.typeTarget(t);
     const symbol = target && c.host.typeSymbol(target);
-    if (symbol && (symbol.name === "StructType" || symbol.name === "Field") && getRuntimeExportName(c, symbol) !== "") {
+    if (symbol && (symbol.name === "StructType" || symbol.name === "Field" || symbol.name === "IntegerField") && getRuntimeExportName(c, symbol) !== "") {
       result = true;
     }
   }
@@ -125,14 +145,13 @@ export function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
 }
 
 // The layout of the struct a `struct(...)` call declares: its fields in the order of the object
-// literal, numbers (`f64`), booleans (`bool`), strings (`str`) and references (`ref<T>()`) by their
-// type.
+// literal, and their kinds by their types (see getFieldKind).
 export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
   if (c.structCalls.has(call)) return c.structCalls.get(call);
   let info: StructInfo | undefined;
   const t = getStructTypeOfCall(c, call);
   if (t && call.arguments.length >= 1 && skipParentheses(call.arguments[0]).kind === K.ObjectLiteralExpression) {
-    info = { decl: call, name: "Struct", fields: [], refs: [], bools: [], strs: [] };
+    info = { decl: call, name: "Struct", fields: [], kinds: [] };
     c.structCalls.set(call, info); // before its fields: a field may refer to the struct itself
     const parent = walkUpParenthesizedExpressions(call.parent as Node);
     if (parent && parent.kind === K.VariableDeclaration && parent.name.kind === K.Identifier) info.name = parent.name.text;
@@ -142,18 +161,9 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
         continue; // reported by checkStructCall
       }
       const field = name.text as string;
-      let isRef = false, isBool = false, isStr = false;
       const symbol = c.host.checker.getPropertyOfType(t, field);
-      if (symbol) {
-        const ft = c.host.typeOfSymbol(symbol);
-        isRef = isCellType(c, ft);
-        isBool = isBooleanType(ft);
-        isStr = isStringType(c, ft);
-      }
       info.fields.push(field);
-      info.refs.push(isRef);
-      info.bools.push(isBool);
-      info.strs.push(isStr);
+      info.kinds.push(symbol ? getFieldKind(c, c.host.typeOfSymbol(symbol)) : "f");
     }
   }
   c.structCalls.set(call, info);

@@ -17,7 +17,7 @@ import type { CaptureInfo, Own } from "./context.ts";
 import { ObjectFlags, TypeFlags } from "./host.ts";
 import type { NodeHandle, TsSymbol, Type } from "./host.ts";
 import { getAssignmentTargetType, getConversion, isCellExpression, isCellType, isNarrowedReference, nonNullishMembers } from "./layout.ts";
-import { checkStructCall, getCallMarker, isConsumeCall } from "./markers.ts";
+import { checkStructCall, getCallMarker, isAtomicCallValid, isConsumeCall } from "./markers.ts";
 import { Messages } from "./messages.ts";
 import {
   FunctionFlags, forEachChild, getAssignmentTarget, getContainingFunction, getFunctionFlags, isAccessExpression, isAssignmentTarget,
@@ -338,6 +338,7 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
       }
       case K.CallExpression: {
         if (getCallMarker(c, node) === "struct") checkStructCall(c, node);
+        if (isAtomicCallValid(c, node) === false) c.error(node, Messages.AtomicTarget);
         // A runtime function that returns addresses in an ordinary array or tuple (`select` on
         // channels of counted values): nothing could count them.
         if (isAmbientHandle(c, host.signatureOf(node).declaration)) {

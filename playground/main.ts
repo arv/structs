@@ -16,6 +16,7 @@ import share from "./programs/share.ts?raw";
 import structTally from "./programs/struct-tally.ts?raw";
 import sieve from "./programs/sieve.ts?raw";
 import strings from "./programs/strings.ts?raw";
+import atomics from "./programs/atomics.ts?raw";
 import json from "./programs/json.ts?raw";
 import mandelbrotChan from "./programs/mandelbrot-chan.ts?raw";
 import mistakes from "./programs/mistakes.ts?raw";
@@ -43,6 +44,7 @@ const PRESETS: [string, string, string][] = [
   ["Basics", "A shared struct", structTally],
   ["Basics", "A SharedArray of booleans: a sieve", sieve],
   ["Basics", "Strings in shared memory", strings],
+  ["Basics", "Atomics: claiming work, counting together", atomics],
   ["Basics", "Channels: a pipeline", channelPipeline],
   ["Basics", "Channels: a pool of workers", channelWorkers],
   ["Examples", "N-body: shared structs and a barrier", nbodyStruct],

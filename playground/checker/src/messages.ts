@@ -28,6 +28,7 @@ export const Messages = {
   GeneratorParameter: { code: 96025, text: "A generator's parameter cannot have type '{0}': the generator runs after its caller's borrow ends." },
   UnionField: { code: 96026, text: "Field '{0}' is at different places in the shared structs of this union." },
   StringTarget: { code: 96027, text: "A string in a shared struct or SharedArray cannot be assigned by destructuring or as a loop variable." },
+  AtomicTarget: { code: 96028, text: "An atomic operation takes an i32 field of a shared struct, named by a string literal, or an element of a SharedArray<i32>." },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

@@ -84,7 +84,7 @@ cases.push({ name: "playground-mistakes", tsconfig: join(withMistakes, "tsconfig
 // The fork's marker-mode compiler tests, split into their files.
 for (const test of [
   "ownMarkers", "ownMarkersAwait", "ownMarkersErrors", "ownLayoutStructUnions", "ownLayoutStructUnionsErrors", "ownLayoutBooleans", "ownLayoutBooleansErrors",
-  "ownLayoutStrings", "ownLayoutStringsErrors",
+  "ownLayoutStrings", "ownLayoutStringsErrors", "ownLayoutIntegers", "ownLayoutIntegersErrors",
 ]) {
   const file = join(forkTests, `${test}.ts`);
   if (!existsSync(file)) continue;

@@ -56,9 +56,11 @@ value is one of three kinds:
 | Shared | `Shared<T>`, deeply readonly | copied once per reader; never changes | tables, settings |
 | Cell | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory | data many threads read and write, and what orders them |
 
-A struct's fields are numbers (`f64`), booleans (`bool`, a byte each), strings (`str`) and references
-to other structs and SharedArrays (`ref<T>()`); a SharedArray holds numbers, booleans, strings or
-structs, inline. Strings in shared memory are interned: each distinct string is stored once, a field
+A struct's fields are numbers (`f64`), 32-bit integers (`i32`), bytes (`u8`), booleans (`bool`),
+strings (`str`) and references to other structs and SharedArrays (`ref<T>()`); a SharedArray holds
+any of these but references, or structs, inline. `atomic.add(work, "next", 1)` and the other
+operations of `Atomics` act on an `i32` field (or an element of a `SharedArray<i32>`), so threads can
+share a counter, claim work or wait for each other with no lock. Strings in shared memory are interned: each distinct string is stored once, a field
 holds its address, and each thread decodes it once. A string that occurs more than once in a moved or
 shared value is copied once, and one a thread has read from a `str` field crosses as its address.
 
@@ -93,7 +95,8 @@ shared structs are about 50 times slower, since each is then a handle behind acc
 
 [programs/](programs) starts with the basics, one idea each: hello, threads; moving a value to a
 thread; sharing a value; a shared struct; a SharedArray of booleans (a sieve); strings in shared
-memory; a channel pipeline; a pool of workers on channels. Then the bigger examples: N-body four ways
+memory; atomics (claiming work, and counting together); a channel pipeline; a pool of workers on
+channels. Then the bigger examples: N-body four ways
 (shared structs with a barrier, shared structs with channels, moving and sharing objects, channels
 copying objects), Mandelbrot on channels, JSON parsed on threads, the nearest-centers example, what
 channels cost, reference counting under a race, a growable `SharedVector` written in user space on

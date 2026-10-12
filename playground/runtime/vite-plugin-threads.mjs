@@ -99,7 +99,7 @@ export default function threads(options = {}) {
   // a playground program, compiled with the fork and with its types only erased; cached by content
   // (and by which checker reports its ownership errors, and the version of what a result holds)
   async function compile(source) {
-    const key = `p${crypto.createHash('sha1').update(`2\0${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
+    const key = `p${crypto.createHash('sha1').update(`3\0${checker ? 'threads-check' : 'fork'}\0${source}`).digest('hex').slice(0, 12)}`;
     const dir = path.join(playgroundDir, key), cached = path.join(dir, 'result.json');
     if (fs.existsSync(cached)) return JSON.parse(fs.readFileSync(cached, 'utf8'));
     fs.mkdirSync(dir, { recursive: true });

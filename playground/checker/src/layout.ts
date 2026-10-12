@@ -8,10 +8,12 @@
 //   - no optional chaining on an address (96018), no destructuring of a parameter or a for-of variable
 //     that holds one (96019);
 //   - a field of a union of structs must be at the same place in all of them (96026);
-//   - a string field or element is not assigned by destructuring or as a loop variable (96027).
+//   - a string field or element is not assigned by destructuring or as a loop variable (96027);
+//   - an atomic operation acts on an i32 field named by a string literal, or on an element of a
+//     SharedArray<i32> (96028, reported with the struct calls, in refcount.ts).
 
 import { CellKind, Conversion, isArrayKind } from "./context.ts";
-import type { CellType, Own, StructInfo } from "./context.ts";
+import type { CellType, FieldKind, Own, StructInfo } from "./context.ts";
 import { IndexKind, ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
 import type { Type } from "./host.ts";
 import { getStructOfCall, getStructRegistry } from "./markers.ts";
@@ -23,9 +25,9 @@ import {
 import type { Node } from "./syntax.ts";
 import type { SourceFile } from "typescript/ast";
 
-const noCell: CellType = { kind: CellKind.None, fields: [], refs: [], bools: [], strs: [] };
-const arrayOf = (kind: CellKind): CellType => ({ kind, fields: [], refs: [], bools: [], strs: [] });
-const structCell = (kind: CellKind, s: StructInfo): CellType => ({ kind, fields: s.fields, refs: s.refs, bools: s.bools, strs: s.strs });
+const noCell: CellType = { kind: CellKind.None, fields: [], kinds: [] };
+const arrayOf = (kind: CellKind): CellType => ({ kind, fields: [], kinds: [] });
+const structCell = (kind: CellKind, s: StructInfo): CellType => ({ kind, fields: s.fields, kinds: s.kinds });
 
 // The shared struct whose instances have type t, if any: a `struct(...)` call (whose values' type
 // may be intersected with Cell).
@@ -84,16 +86,50 @@ export function isStringType(c: Own, t: Type): boolean {
   return !!(t.flags & TypeFlags.StringLike);
 }
 
-// Reports whether a shared struct may have a field of type t: a number, a boolean, a string, or a
-// reference (a shared struct or a SharedArray, possibly with null or undefined).
+// The runtime's integer type t is: "i" for `i32`, "u" for `u8`, or "". Each is a number with a
+// phantom brand, `number & { readonly [int32Brand]?: never }`, recognized by the brand's declaration
+// in the runtime module (getOwnIntegerKind).
+export function getIntegerKind(c: Own, t: Type): FieldKind {
+  if (!(t.flags & TypeFlags.Intersection)) return "";
+  let kind = c.integerKinds.get(t);
+  if (kind !== undefined) return kind;
+  kind = "";
+  search: for (const member of c.host.memberTypes(t)) {
+    if (!(member.flags & TypeFlags.Object)) continue;
+    for (const property of c.host.checker.getPropertiesOfType(member as any)) {
+      const handle = property.valueDeclaration;
+      if (!handle || !c.isRuntimePath(handle.path)) continue;
+      const name = c.host.declarationOf(handle)?.name as Node | undefined;
+      if (name?.kind !== K.ComputedPropertyName || name.expression.kind !== K.Identifier) continue;
+      if (name.expression.text === "int32Brand") { kind = "i"; break search; }
+      if (name.expression.text === "uint8Brand") { kind = "u"; break search; }
+    }
+  }
+  c.integerKinds.set(t, kind);
+  return kind;
+}
+
+// The kind of a field of type t: an f64 for a number (and for a type no field may have, which is
+// reported), an i32 or a u8, a boolean, a string, or a reference (getOwnFieldKind).
+export function getFieldKind(c: Own, t: Type): FieldKind {
+  const integer = getIntegerKind(c, t);
+  if (integer !== "") return integer;
+  if (isBooleanType(t)) return "b";
+  if (isStringType(c, t)) return "s";
+  if (isCellType(c, t)) return "r";
+  return "f";
+}
+
+// Reports whether a shared struct may have a field of type t: a number (or an i32 or a u8), a boolean,
+// a string, or a reference (a shared struct or a SharedArray, possibly with null or undefined).
 export function isFieldType(c: Own, t: Type): boolean {
-  return !!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union) || isBooleanType(t) || isStringType(c, t) ||
-    nonNullishMembers(c, t).length === 1 && isCellType(c, t);
+  return !!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union) || getIntegerKind(c, t) !== "" || isBooleanType(t) ||
+    isStringType(c, t) || nonNullishMembers(c, t).length === 1 && isCellType(c, t);
 }
 
 // Classifies a type for the layout emit: a shared struct (or a union of them), a SharedArray of
-// numbers, booleans or strings, or a SharedArray of a shared struct (looking through null and
-// undefined).
+// numbers, i32s, u8s, booleans or strings, or a SharedArray of a shared struct (looking through null
+// and undefined).
 export function getCellType(c: Own, t: Type | undefined): CellType {
   if (!t) return noCell;
   const members = nonNullishMembers(c, t);
@@ -107,6 +143,9 @@ export function getCellType(c: Own, t: Type | undefined): CellType {
   if (s) return structCell(CellKind.Struct, s);
   const element = getSharedArrayElementType(c, m);
   if (element) {
+    const integer = getIntegerKind(c, element);
+    if (integer === "i") return arrayOf(CellKind.ArrayOfI32);
+    if (integer === "u") return arrayOf(CellKind.ArrayOfU8);
     if (element.flags & TypeFlags.Number) return arrayOf(CellKind.ArrayOfNumber);
     if (isBooleanType(element)) return arrayOf(CellKind.ArrayOfBoolean);
     if (isStringType(c, element)) return arrayOf(CellKind.ArrayOfString);
@@ -137,7 +176,8 @@ export function isCellExpression(c: Own, expr: Node | undefined): boolean {
 export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   if (node.flags & NodeFlags.Ambient) return;
   const element = getSharedArrayElementType(c, t);
-  if (!element || element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union) || isBooleanType(element) || isStringType(c, element) ||
+  if (!element || element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union) || getIntegerKind(c, element) !== "" ||
+    isBooleanType(element) || isStringType(c, element) ||
     getStructOfType(c, element)) return;
   c.error(node, Messages.SharedArrayElement);
 }
@@ -159,16 +199,12 @@ function getStructOfUnion(c: Own, t: Type, members: Type[]): StructInfo | undefi
   let n = structs[0]!.fields.length;
   for (const s of structs.slice(1)) n = Math.min(n, s.fields.length);
   const first = structs[0]!;
-  const info: StructInfo = {
-    decl: undefined, name: "", fields: first.fields.slice(0, n), refs: first.refs.slice(0, n), bools: first.bools.slice(0, n), strs: first.strs.slice(0, n),
-  };
+  const info: StructInfo = { decl: undefined, name: "", fields: first.fields.slice(0, n), kinds: first.kinds.slice(0, n) };
   for (const s of structs.slice(1)) {
     for (let k = 0; k < n; k++) {
-      if (s.fields[k] !== info.fields[k] || s.refs[k] !== info.refs[k] || s.bools[k] !== info.bools[k] || s.strs[k] !== info.strs[k]) {
+      if (s.fields[k] !== info.fields[k] || s.kinds[k] !== info.kinds[k]) {
         info.fields[k] = "";
-        info.refs[k] = false;
-        info.bools[k] = false;
-        info.strs[k] = false;
+        info.kinds[k] = "";
       }
     }
   }
@@ -379,15 +415,12 @@ function computeConversion(c: Own, node: Node): void {
           // A field is read through the layout; anything else through the handle.
           const k = cell.fields.indexOf(name);
           if (k < 0) checkStructUnionField(c, node, t);
-          if (k >= 0 && cell.strs[k]) checkStringTarget(c, node);
+          if (cell.kinds[k] === "s") checkStringTarget(c, node);
           setTarget(c, object, k >= 0);
           break;
         }
-        case CellKind.ArrayOfNumber: case CellKind.ArrayOfStruct: case CellKind.ArrayOfBoolean: case CellKind.ArrayOfString:
-          setTarget(c, object, name === "length");
-          break;
         default:
-          setTarget(c, object, false);
+          setTarget(c, object, isArrayKind(cell.kind) && name === "length");
       }
       return;
     }

@@ -412,13 +412,13 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str })` (threads.mjs), or `shared struct
-// Name { a: number; b: Name | null; c: boolean; d: string }` in the syntax, compiles to
-// __sharedStruct('Name', ['a', 'b', 'c', 'd'], [1], [2], [3]). a struct's block is [kind][count] and
-// then its fields, 8 bytes each, in order: a number field is an f64, a reference field (refs: a struct
-// or a SharedArray) the address in its low half, 0 for null, a boolean field (bools) a byte, 0 or 1,
-// at the start of its slot, and a string field (strs) an interned string's address in its low half,
-// 0 for "" (see __intern).
+// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8 })` (threads.mjs), or
+// `shared struct Name { a: number; b: Name | null; ... }` in the syntax, compiles to
+// __sharedStruct('Name', ['a', 'b', 'c', 'd', 'e', 'f'], [1], 'frbsiu'): the reference fields'
+// indexes, and the fields' kinds, or '' if each is f or r. a struct's block is [kind][count] and then
+// its fields, 8 bytes each, in order, each as its kind says: f an f64; r a struct's or a SharedArray's
+// address in the slot's low half, 0 for null; b a byte, 0 or 1, and u a byte, at the slot's start; s
+// an interned string's address in the low half, 0 for "" (see __intern); i an i32 in the low half.
 // compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
 // `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
 // boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
@@ -426,9 +426,9 @@ cellKinds.set(K_SLOTS, Slots);
 // a struct's kind is the address of its name and layout in the shared string table, so every thread
 // agrees on it whatever order it loads modules in (a page's workers load them on demand), and two
 // structs with one layout may share it. it is at least CTRL_BYTES, so never a small cell kind
-export function __sharedStruct(name, fields, refs = [], bools = [], strs = []) {
-  const layout = `struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]` +
-    `${bools.length ? ` bools [${bools.join(', ')}]` : ''}${strs.length ? ` strs [${strs.join(', ')}]` : ''}`;
+export function __sharedStruct(name, fields, refs = [], kinds = '') {
+  const layout = `struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]${kinds ? ` kinds ${kinds}` : ''}`;
+  if (!kinds) kinds = fields.map((field, k) => refs.includes(k) ? 'r' : 'f').join('');
   const kind = $intern(layout), n = fields.length, size = 8 + n * 8;
   const Struct = { [name]: class {
     constructor() {
@@ -443,25 +443,19 @@ export function __sharedStruct(name, fields, refs = [], bools = [], strs = []) {
   Struct.size = size;
   Struct.fields = fields;
   Struct.refs = refs;
-  Struct.bools = bools;
-  Struct.strs = strs;
-  fields.forEach((field, k) => Object.defineProperty(Struct.prototype, field, refs.includes(k) ? {
-    get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
-    set(v) { __store((this.$cell >> 2) + 2 + 2 * k, v == null ? 0 : __retain(__unbox(v))); },
-    enumerable: true
-  } : bools.includes(k) ? {
-    get() { return U8[this.$cell + 8 + 8 * k] !== 0; },
-    set(v) { U8[this.$cell + 8 + 8 * k] = v ? 1 : 0; },
-    enumerable: true
-  } : strs.includes(k) ? {
-    get() { return __str(I32[(this.$cell >> 2) + 2 + 2 * k]); },
-    set(v) { I32[(this.$cell >> 2) + 2 + 2 * k] = __intern(v); },
-    enumerable: true
-  } : {
-    get() { return F64[(this.$cell >> 3) + 1 + k]; },
-    set(v) { F64[(this.$cell >> 3) + 1 + k] = +v; },
-    enumerable: true
-  }));
+  Struct.kinds = kinds;
+  const accessors = {
+    r: k => ({
+      get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
+      set(v) { __store((this.$cell >> 2) + 2 + 2 * k, v == null ? 0 : __retain(__unbox(v))); },
+    }),
+    b: k => ({ get() { return U8[this.$cell + 8 + 8 * k] !== 0; }, set(v) { U8[this.$cell + 8 + 8 * k] = v ? 1 : 0; } }),
+    u: k => ({ get() { return U8[this.$cell + 8 + 8 * k]; }, set(v) { U8[this.$cell + 8 + 8 * k] = v; } }),
+    i: k => ({ get() { return I32[(this.$cell >> 2) + 2 + 2 * k]; }, set(v) { I32[(this.$cell >> 2) + 2 + 2 * k] = v; } }),
+    s: k => ({ get() { return __str(I32[(this.$cell >> 2) + 2 + 2 * k]); }, set(v) { I32[(this.$cell >> 2) + 2 + 2 * k] = __intern(v); } }),
+    f: k => ({ get() { return F64[(this.$cell >> 3) + 1 + k]; }, set(v) { F64[(this.$cell >> 3) + 1 + k] = +v; } }),
+  };
+  fields.forEach((field, k) => Object.defineProperty(Struct.prototype, field, { ...accessors[kinds[k]](k), enumerable: true }));
   cellKinds.set(kind, Struct);
   return Struct;
 }
@@ -483,16 +477,22 @@ export function __newStruct(type) {
   I32[(a >> 2) + 1] = 1;
   return a;
 }
-// [kind][length][element size][count] then the elements from byte 16: numbers (type 8, their size),
-// booleans (type 1, a byte each, 0 or 1), strings (type 4, an interned string's address each) or whole
-// struct blocks, each with its own header so an element's address can be boxed like any struct.
-// an element's header is [kind][back], back the array's address minus its own: an element lives as
-// long as its array, and counting it counts the array
+// [kind][length][element][count] then the elements from byte 16. type, which the compiler emits, is a
+// struct type or the element's size in bytes, negative for an integer: numbers (8), i32s (-4), strings
+// (4, an interned string's address each), u8s (-1) and booleans (1, a byte each, 0 or 1). the element
+// word is the size, and the element's kind in its high half (E_*, 0 for a number or a struct). a
+// struct element is a whole struct block, with a header of its own so that its address can be boxed
+// like any struct's: [kind][back], back the array's address minus its own (an element lives as long
+// as its array, and counting it counts the array)
+const E_BOOL = 1, E_STR = 2, E_I32 = 3, E_U8 = 4;
+const elementCodes = new Map([ [ 8, 0 ], [ 1, E_BOOL ], [ 4, E_STR ], [ -4, E_I32 ], [ -1, E_U8 ] ]);
+const elementSize = a => I32[(a >> 2) + 2] & 0xffff, elementKind = a => I32[(a >> 2) + 2] >>> 16;
 export function __newSharedArray(type, length) {
-  const size = typeof type === 'number' ? type : type.size;
+  const struct = typeof type !== 'number', size = struct ? type.size : Math.abs(type);
   const a = $allocBlock(16 + length * size);
-  I32[a >> 2] = K_SHARED_ARRAY; I32[(a >> 2) + 1] = length; I32[(a >> 2) + 2] = size; I32[(a >> 2) + 3] = 1;
-  if (typeof type !== 'number') for (let e = a + 16, end = e + length * size; e < end; e += size) { I32[e >> 2] = type.kind; I32[(e >> 2) + 1] = a - e; }
+  I32[a >> 2] = K_SHARED_ARRAY; I32[(a >> 2) + 1] = length; I32[(a >> 2) + 3] = 1;
+  I32[(a >> 2) + 2] = size | (struct ? 0 : elementCodes.get(type)) << 16;
+  if (struct) for (let e = a + 16, end = e + length * size; e < end; e += size) { I32[e >> 2] = type.kind; I32[(e >> 2) + 1] = a - e; }
   return a;
 }
 
@@ -522,7 +522,7 @@ function destroy(o) {
   while (work.length !== 0) {
     const b = work.pop(), kind = I32[b >> 2];
     if (kind === K_SHARED_ARRAY) {
-      const n = I32[(b >> 2) + 1], size = I32[(b >> 2) + 2];
+      const n = I32[(b >> 2) + 1], size = elementSize(b);
       if (size > 8 && n !== 0) { // structs
         const refs = cellKinds.get(I32[(b + 16) >> 2]).refs;
         if (refs.length !== 0) for (let e = b + 16, end = e + n * size; e < end; e += size) for (const k of refs) drop(I32[(e >> 2) + 2 + 2 * k]);
@@ -571,7 +571,8 @@ export const __box = a => a ? cell(a) : null;
 // for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
 export class SharedArray {
   constructor(type, length) {
-    const a = __newSharedArray(type === Number ? 8 : type === Boolean ? 1 : type === String ? 4 : type, length), h = cell(a);
+    const code = type === Number ? 8 : type === Boolean ? 1 : type === String ? 4 : type?.kind === 'i32' ? -4 : type?.kind === 'u8' ? -1 : type;
+    const a = __newSharedArray(code, length), h = cell(a);
     __release(a); // the handle holds its own count
     return h;
   }
@@ -589,12 +590,18 @@ class SharedArrayHandle {
 const isIndex = key => typeof key === 'string' && key !== '' && String(key >>> 0) === key;
 function sharedArrayAddress(a, i) {
   if (!(i < I32[(a >> 2) + 1])) oob(a, i);
-  return a + 16 + i * I32[(a >> 2) + 2];
+  return a + 16 + i * elementSize(a);
 }
-// numbers, booleans and strings are read in place; a struct element is boxed in turn
+// numbers, integers, booleans and strings are read in place; a struct element is boxed in turn
 function sharedArrayGet(a, i) {
-  const size = I32[(a >> 2) + 2], e = sharedArrayAddress(a, i);
-  return size === 8 ? F64[e >> 3] : size === 1 ? U8[e] !== 0 : size === 4 ? __str(I32[e >> 2]) : cell(e);
+  const e = sharedArrayAddress(a, i);
+  switch (elementKind(a)) {
+    case E_BOOL: return U8[e] !== 0;
+    case E_STR: return __str(I32[e >> 2]);
+    case E_I32: return I32[e >> 2];
+    case E_U8: return U8[e];
+  }
+  return elementSize(a) === 8 ? F64[e >> 3] : cell(e);
 }
 function sharedArrayHandle(a) {
   const target = Object.assign(Object.create(SharedArrayHandle.prototype), { $cell: a });
@@ -602,11 +609,16 @@ function sharedArrayHandle(a) {
     get: (t, key, receiver) => isIndex(key) ? sharedArrayGet(a, Number(key)) : Reflect.get(t, key, receiver),
     set: (t, key, v, receiver) => {
       if (!isIndex(key)) return Reflect.set(t, key, v, receiver);
-      const size = I32[(a >> 2) + 2], e = sharedArrayAddress(a, Number(key));
-      if (size === 8) F64[e >> 3] = +v;
-      else if (size === 1) U8[e] = v ? 1 : 0;
-      else if (size === 4) I32[e >> 2] = __intern(v);
-      else throw new TypeError('own: a SharedArray of structs holds its structs in place');
+      const e = sharedArrayAddress(a, Number(key));
+      switch (elementKind(a)) {
+        case E_BOOL: U8[e] = v ? 1 : 0; break;
+        case E_STR: I32[e >> 2] = __intern(v); break;
+        case E_I32: I32[e >> 2] = v; break;
+        case E_U8: U8[e] = v; break;
+        default:
+          if (elementSize(a) !== 8) throw new TypeError('own: a SharedArray of structs holds its structs in place');
+          F64[e >> 3] = +v;
+      }
       return true;
     },
     has: (t, key) => isIndex(key) ? Number(key) < I32[(a >> 2) + 1] : Reflect.has(t, key)
@@ -615,6 +627,35 @@ function sharedArrayHandle(a) {
 function oob(a, i) {
   throw new RangeError(`index ${i} is out of range for a SharedArray of length ${I32[(a >> 2) + 1]}`);
 }
+// ---- atomic operations (threads.d.mts `atomic`) ----
+// on an i32 field of a struct, by name, or on an element of a SharedArray<i32>, by index. compiled, a
+// call is the Atomics call itself, on the i32's index; code the compiler did not lay out finds the
+// index here, through the handle
+function atomicIndex(target, key) {
+  const a = __unbox(target);
+  if (I32[a >> 2] === K_SHARED_ARRAY) {
+    if (elementKind(a) !== E_I32) throw new TypeError('own: an atomic operation acts on a SharedArray<i32>');
+    if (!((key >>> 0) === key && key < I32[(a >> 2) + 1])) oob(a, key);
+    return ((a + 16) >> 2) + key;
+  }
+  const T = cellKinds.get(I32[a >> 2]), k = T?.fields?.indexOf(key) ?? -1;
+  if (k < 0 || T.kinds[k] !== 'i') throw new TypeError(`own: an atomic operation acts on an i32 field, which ${String(key)} is not`);
+  return (a >> 2) + 2 + 2 * k;
+}
+export const atomic = Object.freeze({
+  load: (t, k) => Atomics.load(I32, atomicIndex(t, k)),
+  store: (t, k, v) => Atomics.store(I32, atomicIndex(t, k), v),
+  add: (t, k, v) => Atomics.add(I32, atomicIndex(t, k), v),
+  sub: (t, k, v) => Atomics.sub(I32, atomicIndex(t, k), v),
+  and: (t, k, v) => Atomics.and(I32, atomicIndex(t, k), v),
+  or: (t, k, v) => Atomics.or(I32, atomicIndex(t, k), v),
+  xor: (t, k, v) => Atomics.xor(I32, atomicIndex(t, k), v),
+  exchange: (t, k, v) => Atomics.exchange(I32, atomicIndex(t, k), v),
+  compareExchange: (t, k, expected, replacement) => Atomics.compareExchange(I32, atomicIndex(t, k), expected, replacement),
+  wait: (t, k, v, timeout) => Atomics.wait(I32, atomicIndex(t, k), v, timeout),
+  notify: (t, k, count) => Atomics.notify(I32, atomicIndex(t, k), count),
+});
+
 // what compiled code reads when an index is out of range, instead of calling a function: a read of
 // this Proxy throws. an optimized loop with a call in it (even one never taken) loses some of V8's loop
 // optimizations; a property read with no feedback costs nothing until it happens

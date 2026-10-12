@@ -156,13 +156,25 @@ All from `"own-threads"`, unless noted.
 | `select(...channels)` | Waits for the first channel with a value: `[index, value]`. |
 
 **Shared memory**: data many threads read and write in place, with no copying. Reads and writes are
-not ordered between threads: a `Barrier`, a `Channel` or joining a thread orders them.
+not ordered between threads: a `Barrier`, a `Channel`, joining a thread or an atomic operation
+orders them.
 
 | | |
 |---|---|
-| `struct({ x: f64, done: bool, name: str, next: ref<T>() })` | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type. |
-| `f64`, `bool`, `str`, `ref<T>()` | Field kinds: a number, a boolean (a byte), a string (interned), a reference to a struct or SharedArray (or null). |
-| `new SharedArray(Number \| Boolean \| String \| S, length)` | A fixed-length array of numbers, booleans, strings or structs, stored inline. |
+| `struct({ x: f64, n: i32, done: bool, name: str, next: ref<T>() })` | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type. |
+| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()` | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct or SharedArray (or null). |
+| `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline. |
+| `atomic.add(s, "field", v)`, `atomic.add(array, i, v)` | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
+
+`i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array` keeps them (3.7 as 3,
+and 256 as 0). Threads can claim work from one counter, with no lock:
+
+```ts
+const Work = struct({ next: i32 });
+function worker(work: Struct<typeof Work>, n: number) {
+  for (let i; (i = atomic.add(work, "next", 1)) < n; ) process(i); // each item once
+}
+```
 
 Structs and SharedArrays are reference counted and freed when no thread can reach them. A struct
 that refers to its own type is declared with an interface:

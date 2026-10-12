@@ -9,15 +9,16 @@ import type { Diagnostic, Message } from "./messages.ts";
 import { errorStart } from "./syntax.ts";
 import type { Node } from "./syntax.ts";
 
-// A shared struct: its name, fields in slot order, and which fields are references, which booleans
-// and which strings.
+// How a shared struct's field holds its value (printer.OwnFieldKind): f an f64, r a reference, b a
+// boolean, s a string, i an i32, u a u8; "" in a union of structs, where the fields differ.
+export type FieldKind = "f" | "r" | "b" | "s" | "i" | "u" | "";
+
+// A shared struct: its name, fields in slot order, and how each holds its value.
 export interface StructInfo {
   decl: Node | undefined;
   name: string;
   fields: string[];
-  refs: boolean[];
-  bools: boolean[];
-  strs: boolean[];
+  kinds: FieldKind[];
 }
 
 // How a value is converted where it flows (printer.OwnConversion).
@@ -25,19 +26,18 @@ export const Conversion = { None: 0, Box: 1, Unbox: 2, Zero: 3 } as const;
 export type Conversion = (typeof Conversion)[keyof typeof Conversion];
 
 // The layout kind of a type (printer.OwnCellType).
-export const CellKind = { None: 0, Struct: 1, ArrayOfNumber: 2, ArrayOfStruct: 3, ArrayOfBoolean: 4, ArrayOfString: 5 } as const;
+export const CellKind = {
+  None: 0, Struct: 1, ArrayOfNumber: 2, ArrayOfStruct: 3, ArrayOfBoolean: 4, ArrayOfString: 5, ArrayOfI32: 6, ArrayOfU8: 7,
+} as const;
 export type CellKind = (typeof CellKind)[keyof typeof CellKind];
 export interface CellType {
   kind: CellKind;
   fields: string[];
-  refs: boolean[];
-  bools: boolean[];
-  strs: boolean[];
+  kinds: FieldKind[];
 }
 
 // Reports whether a layout is a SharedArray's.
-export const isArrayKind = (kind: CellKind): boolean => kind === CellKind.ArrayOfNumber || kind === CellKind.ArrayOfStruct ||
-  kind === CellKind.ArrayOfBoolean || kind === CellKind.ArrayOfString;
+export const isArrayKind = (kind: CellKind): boolean => kind >= CellKind.ArrayOfNumber;
 
 // The counted variables that functions capture, for a file.
 export interface CaptureInfo {
@@ -64,6 +64,8 @@ export class Own {
   readonly sharedArrayElements = new Map<Type, Type | undefined>();
   readonly runtimeExportNames = new Map<unknown, string>();
   readonly cellBranded = new Map<Type, boolean>();
+  // the runtime's integer types, by type: "i" for i32, "u" for u8, "" for any other
+  readonly integerKinds = new Map<Type, FieldKind>();
 
   // files: the source files to check (not declaration files); runtimeFiles: the files that the
   // runtime specifier resolves to.

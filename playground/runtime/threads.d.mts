@@ -17,6 +17,9 @@
 
 declare const cellBrand: unique symbol;
 declare const fieldBrand: unique symbol;
+declare const int32Brand: unique symbol;
+declare const uint8Brand: unique symbol;
+declare const layoutBrand: unique symbol;
 
 /** A cell: shared and mutable. Any number of threads may hold the same one. */
 export interface Cell {
@@ -42,12 +45,29 @@ export declare function share<T>(value: Sending<T>): Shared<T>;
 
 // ---- shared structs ----
 
-/** A field of a shared struct, declared with `f64`, `bool`, `str` or `ref<T>()`. */
+/** A field of a shared struct, declared with `f64`, `i32`, `u8`, `bool`, `str` or `ref<T>()`. */
 export interface Field<T> {
   readonly [fieldBrand]: T;
 }
 /** A number field: an f64 in shared memory. */
 export declare const f64: Field<number>;
+
+/**
+ * A 32-bit integer: a number, which the field or element it is stored in keeps as an Int32Array would
+ * (3.7 as 3, and 2 ** 31 as -(2 ** 31)). Any number may be stored in one. Atomic operations act on
+ * i32s (see `atomic`).
+ */
+export type i32 = number & { readonly [int32Brand]?: never };
+/** An 8-bit unsigned integer: a number, kept as a Uint8Array would (256 as 0, and -1 as 255). */
+export type u8 = number & { readonly [uint8Brand]?: never };
+/** The field of an integer, which a SharedArray also takes as its element type. */
+export interface IntegerField<T, K extends "i32" | "u8"> extends Field<T> {
+  readonly kind: K;
+}
+/** An i32 field: a 32-bit integer in shared memory, which atomic operations act on. */
+export declare const i32: IntegerField<i32, "i32">;
+/** A u8 field: a byte in shared memory. */
+export declare const u8: IntegerField<u8, "u8">;
 /** A boolean field: a byte in shared memory, 0 or 1. */
 export declare const bool: Field<boolean>;
 /**
@@ -85,20 +105,79 @@ export declare function struct<F extends Record<string, Field<any>>>(
 export declare function struct<T>(fields: { [K in keyof T]-?: Field<T[K]> }): StructType<T>;
 
 /**
- * A fixed-length array in shared memory, of numbers, of booleans (a byte each), of strings (interned,
- * as `str` fields are) or of shared structs stored inline. Every thread reads and writes the same
- * elements, with no copying; a Barrier or a Channel orders them.
+ * A fixed-length array in shared memory: of numbers (`Number`), of i32s (`i32`), of bytes (`u8`), of
+ * booleans (`Boolean`, a byte each), of strings (`String`, interned as `str` fields are), or of shared
+ * structs stored inline. Every thread reads and writes the same elements, with no copying; a Barrier,
+ * a Channel or an atomic operation orders them.
  */
-export interface SharedArray<T> extends Cell {
+export interface SharedArray<T, L = ElementLayout<T>> extends Cell {
   readonly length: number;
   [index: number]: T;
+  /**
+   * Not there at run time: L keeps SharedArrays of numbers, i32s and u8s apart, whose elements
+   * TypeScript would otherwise let one stand for another, though they are stored differently. (A
+   * property of type ElementLayout<T> would not: TypeScript relates two SharedArrays by T alone.)
+   */
+  readonly [layoutBrand]?: L;
 }
+/** How a SharedArray of T stores its elements, as far as telling numbers, i32s and u8s apart goes. */
+type ElementLayout<T> = typeof int32Brand extends keyof T ? "i32" : typeof uint8Brand extends keyof T ? "u8" : "other";
 export declare const SharedArray: {
   new (type: NumberConstructor, length: number): SharedArray<number>;
   new (type: BooleanConstructor, length: number): SharedArray<boolean>;
   new (type: StringConstructor, length: number): SharedArray<string>;
+  new (type: IntegerField<i32, "i32">, length: number): SharedArray<i32>;
+  new (type: IntegerField<u8, "u8">, length: number): SharedArray<u8>;
   new <T>(type: StructType<T>, length: number): SharedArray<T & Cell>;
 };
+
+// ---- atomic operations ----
+
+/** The fields of a struct type S that are i32s. */
+export type I32Fields<S> = { [K in keyof S]-?: typeof int32Brand extends keyof S[K] ? K : never }[keyof S];
+
+/** An atomic operation on an element of a SharedArray<i32>, or on an i32 field of a shared struct. */
+export interface AtomicOperation<A extends unknown[], R> {
+  (array: SharedArray<i32>, index: number, ...args: A): R;
+  <S extends Cell>(struct: S, field: I32Fields<S>, ...args: A): R;
+}
+
+/**
+ * Atomic operations, which `Atomics` performs: on an element of a SharedArray<i32>, or on an i32 field
+ * of a shared struct, named by a string literal. Each is indivisible, and orders the reads and writes
+ * around it as a lock would. Compiled, a call is that `Atomics` call, on the i32 itself:
+ *
+ *     const Work = struct({ next: i32, done: i32 });
+ *     for (let i; (i = atomic.add(work, "next", 1)) < n; ) process(i);   // claims item i
+ */
+export interface Atomic {
+  /** The i32's value. */
+  readonly load: AtomicOperation<[], number>;
+  /** Stores `value` (as an i32), and returns it. */
+  readonly store: AtomicOperation<[value: number], number>;
+  /** Adds `value`, and returns the old value. */
+  readonly add: AtomicOperation<[value: number], number>;
+  /** Subtracts `value`, and returns the old value. */
+  readonly sub: AtomicOperation<[value: number], number>;
+  /** Stores the bitwise and of the i32 and `value`, and returns the old value. */
+  readonly and: AtomicOperation<[value: number], number>;
+  /** Stores the bitwise or of the i32 and `value`, and returns the old value. */
+  readonly or: AtomicOperation<[value: number], number>;
+  /** Stores the bitwise xor of the i32 and `value`, and returns the old value. */
+  readonly xor: AtomicOperation<[value: number], number>;
+  /** Stores `value`, and returns the old value. */
+  readonly exchange: AtomicOperation<[value: number], number>;
+  /** Stores `replacement` if the i32 is `expected`, and returns the old value either way. */
+  readonly compareExchange: AtomicOperation<[expected: number, replacement: number], number>;
+  /**
+   * Waits while the i32 is `value`, until notify() wakes the thread or `timeout` ms pass. Not on a
+   * page's main thread, which must not block.
+   */
+  readonly wait: AtomicOperation<[value: number, timeout?: number], "ok" | "not-equal" | "timed-out">;
+  /** Wakes up to `count` threads waiting on the i32 (all of them by default); returns how many it woke. */
+  readonly notify: AtomicOperation<[count?: number], number>;
+}
+export declare const atomic: Atomic;
 
 // ---- threads ----
 
