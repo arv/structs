@@ -1,4 +1,4 @@
-// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels (chan.mjs). Each goroutine owns
+// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels (chan.js). Each goroutine owns
 // its slice of the bodies. Every step it sends its positions to main, and main sends everyone's back,
 // shared once; at the end each slice moves back to main. No barrier and no shared mutable state:
 // the channels order everything. Messages are tagged with the sender, so the positions keep body

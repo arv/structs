@@ -16,7 +16,7 @@ import { K } from "./syntax.ts";
 import type { Node } from "./syntax.ts";
 
 export interface CheckOptions {
-  // The module specifier programs import the runtime from (`threads`, `./threads.mjs`): its exports
+  // The module specifier programs import the runtime from (`threads`, `./threads.js`): its exports
   // are the markers.
   runtime: string;
   // An API session to use (and leave open); by default one is started and closed.

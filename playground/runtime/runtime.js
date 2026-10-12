@@ -27,7 +27,7 @@ const C_HEAP_END = 16;
 const C_EPOCH = 17;      // reclamation's global epoch (see $defer)
 const C_FREE_LOCK = 18;  // guards the free lists
 const C_PEND = 19, C_PEND_LEN = 20, C_PEND_CAP = 21, C_PEND_LOCK = 22; // decrements left by threads that ended
-export const C_ACTIVITY = 23, C_SELECTING = 24; // bumped on every channel change; threads waiting in select (chan.mjs)
+export const C_ACTIVITY = 23, C_SELECTING = 24; // bumped on every channel change; threads waiting in select (chan.js)
 const C_AQ_LOCK = 25, C_AQ_HEAD = 26, C_AQ_TAIL = 27, C_AQ_LEN = 28; // async threads waiting for a host (see spawnAsync)
 const C_HOSTS = 29, C_DRAFTS = 30; // workers that host async threads, and idle workers asked to
 const C_FREE = 1100;     // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for larger
@@ -63,7 +63,7 @@ export const K_OBJ = 1, K_ARR = 2, K_FN = 3, K_LOCK = 4, K_COND = 5, K_THREAD = 
 const LOCAL = 0x800, PENDING = 0x400, DEPTH = 0x3ff;
 
 // in a worker the views are module constants, which the JIT can embed: the worker sets
-// globalThis.__escapeSab before importing this module. a coordinator (run.mjs, page.mjs) only
+// globalThis.__escapeSab before importing this module. a coordinator (run.js, page.js) only
 // sets the heap up, through initShared, and reads it through the functions that take the buffer
 const SAB = globalThis.__escapeSab ?? null;
 export const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB);
@@ -245,7 +245,7 @@ const newHandle = (a, kind) => {
   return h;
 };
 
-// ---- allocation: bump, per-thread chunks. only blocks own.mjs counts are freed ($freeBlock) ----
+// ---- allocation: bump, per-thread chunks. only blocks own.js counts are freed ($freeBlock) ----
 // the cursor never passes the end: an allocation that does not fit leaves what is left to smaller
 // ones, and the last chunk may be short
 const CHUNK = 64 << 10;
@@ -277,7 +277,7 @@ const munlock = i => {
   if (Atomics.sub(I32, i, 1) !== 1) { Atomics.store(I32, i, 0); Atomics.notify(I32, i, 1); }
 };
 
-// ---- free lists, for the blocks own.mjs frees ----
+// ---- free lists, for the blocks own.js frees ----
 // a block of up to 2 KiB goes on the list for its size, and each thread keeps a cache per size that
 // it trades with the global lists, under one lock, a batch at a time. a larger block goes on one list
 // of large blocks, in address order, from which an allocation takes the smallest that fits and puts
@@ -380,7 +380,7 @@ export function $freeBlock(p, bytes) {
 }
 
 // ---- deferred decrements: quiescent-state-based reclamation (see REFCOUNT.md) ----
-// a decrement that may race with a reader (own.mjs: a field's old value, when the field is
+// a decrement that may race with a reader (own.js: a field's old value, when the field is
 // overwritten) waits until every running thread has passed a quiescent point since: a point where
 // it holds no address it read from a field without counting it. each thread's T_QS word is the
 // epoch it saw at its last one, IDLE while it waits; a decrement queued in epoch g is safe once
@@ -744,7 +744,7 @@ function publish(v) {
   count(N_PUB);
   if (Array.isArray(v)) {
     // a local array keeps its elements but forwards: element reads and writes, and array
-    // methods and length, check $fwd (see expand.mjs) and go to the shared copy
+    // methods and length, check $fwd (see expand.js) and go to the shared copy
     const n = v.length, a = $alloc(16), blk = newSlots(n < 4 ? 4 : n);
     I32[a >> 2] = K_ARR; I32[(a + 4) >> 2] = MY_TAG;
     const h = newHandle(a, K_ARR);
@@ -841,7 +841,7 @@ function ssetBody(a, key, v) {
   }
   return v;
 }
-// what a forwarding array (or anything) reaches by a name an array also has: see expand.mjs
+// what a forwarding array (or anything) reaches by a name an array also has: see expand.js
 let K_length, K_push;
 export function $sget(h, key) {
   if (h[KIND] === K_ARR && key === K_length) return I32[(h[ADDR] + 12) >> 2];
@@ -971,7 +971,7 @@ export function $newThread(fn) {
   spawnThread(t);
   return newHandle(t, K_THREAD);
 }
-// queue a thread block for the pool (own.mjs makes its own blocks)
+// queue a thread block for the pool (own.js makes its own blocks)
 export function spawnThread(t) {
   Atomics.add(I32, C_LIVE, 1);
   enqueue(t);
@@ -1089,15 +1089,15 @@ export function threadEnd() {
   stwBroadcast();
   munlock(C_STW_LOCK);
 }
-// what a pool thread runs, given its block: by default the function stored in it (own.mjs
+// what a pool thread runs, given its block: by default the function stored in it (own.js
 // replaces this)
 let threadEntry = t => $dec(t + 16)();
 export const setThreadEntry = f => { threadEntry = f; };
-// whether a worker should give its event loop a turn after a thread (own.mjs: when V8 may have
+// whether a worker should give its event loop a turn after a thread (own.js: when V8 may have
 // handles to finalize, which a FinalizationRegistry does only between tasks)
 let afterTask = () => false;
 export const setAfterTask = f => { afterTask = f; };
-// what a worker does before it runs a thread, if anything (own.mjs: load the thread's module)
+// what a worker does before it runs a thread, if anything (own.js: load the thread's module)
 let beforeTask = null;
 export const setBeforeTask = f => { beforeTask = f; };
 const eventLoopTurn = () => new Promise(resolve => {
@@ -1137,7 +1137,7 @@ function endThread(t, r, threw, async) {
     try { $enc(t + 24, String(e)); } catch { $enc(t + 24, HEAP_FULL()); }
   }
   I32[(t + 12) >> 2] = threw;
-  const detached = I32[(t + 4) >> 2] === 1; // only own.mjs's threads are: nothing joins them
+  const detached = I32[(t + 4) >> 2] === 1; // only own.js's threads are: nothing joins them
   try {
     if (threw && detached) $log(`a detached thread threw: ${r}`);
     if (async) { if (--live === 0 && kick !== null) kick(); }
@@ -1153,7 +1153,7 @@ function endThread(t, r, threw, async) {
 // ---- async threads: many on one worker ----
 // a thread whose function is async runs on a host: a pool worker that keeps its event loop free, so
 // that any number of async threads wait on it at once, each on a promise, and their channels wake
-// them (chan.mjs). async threads wait in one queue for a host to take them. an idle worker becomes a
+// them (chan.js). async threads wait in one queue for a host to take them. an idle worker becomes a
 // host when it takes a DRAFT from the pool's ring, which spawnAsync queues while there are fewer hosts
 // than cores and a worker is idle, or there is no host at all; a worker whose thread returned a
 // promise becomes one too. a host takes no blocking threads, which would stop every async thread on
@@ -1312,6 +1312,6 @@ export function counters(sab) {
   return out;
 }
 
-// a page makes the heap itself (heap.mjs) and has no coordinator to set it up: the first runtime to
-// load on a fresh heap does. a coordinator (run.mjs, page.mjs) calls initShared before any worker starts
+// a page makes the heap itself (heap.js) and has no coordinator to set it up: the first runtime to
+// load on a fresh heap does. a coordinator (run.js, page.js) calls initShared before any worker starts
 if (SAB && Atomics.compareExchange(I32, C_ALLOC, 0, -1) === 0) initShared(SAB);

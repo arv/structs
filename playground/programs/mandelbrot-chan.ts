@@ -1,4 +1,4 @@
-// Porffor's threads/playground/presets/2-mandelbrot.js with goroutines and channels (chan.mjs): a job channel
+// Porffor's threads/playground/presets/2-mandelbrot.js with goroutines and channels (chan.js): a job channel
 // of rows to draw, and a result channel of drawn rows. The workers share nothing but the two
 // channels; a drawn row moves back to main.
 import { Channel, go, log } from "threads";

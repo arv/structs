@@ -10,9 +10,9 @@
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
     "paths": {
-      "threads": ["./runtime/threads.d.mts"],
-      "threads/heap": ["./runtime/heap.d.mts"],
-      "threads/browser": ["./runtime/browser.d.mts"]
+      "threads": ["./runtime/threads.d.ts"],
+      "threads/heap": ["./runtime/heap.d.ts"],
+      "threads/browser": ["./runtime/browser.d.ts"]
     }
   },
   "include": ["*.ts", "programs/*.ts"],

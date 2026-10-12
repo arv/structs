@@ -1,4 +1,4 @@
-// A Vite plugin (its hooks are Rollup's) for threads in plain TypeScript (threads.d.mts):
+// A Vite plugin (its hooks are Rollup's) for threads in plain TypeScript (threads.d.ts):
 //
 //   import threads from 'threads/vite-plugin';
 //   export default { plugins: [threads({ tsgo: '/path/to/tsgo-own/built/local/tsgo' })] };
@@ -8,7 +8,7 @@
 //   that output for each .ts module (type errors are left to tsc, ownership errors to `tsgo own check`);
 // - keys each module's registered functions by its path in the project rather than import.meta.url,
 //   so the page's bundle and the workers' agree on them;
-// - makes virtual:threads/modules, the modules a pool worker (threads-worker.mjs) loads on demand;
+// - makes virtual:threads/modules, the modules a pool worker (threads-worker.js) loads on demand;
 // - sets the headers that make a page cross-origin isolated, which SharedArrayBuffer needs, on the
 //   dev and preview servers. A production server must send them too;
 // - with `playground: true`, compiles programs the page sends it (POST /__threads/compile) two ways:
@@ -100,7 +100,7 @@ export default function threads(options = {}) {
   // threads-check's sources (a changed runtime file restarts the server, and with it this)
   let fingerprint = null;
   const fingerprintOf = () => {
-    const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(RUNTIME_DIR, 'threads.d.mts')));
+    const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(RUNTIME_DIR, 'threads.d.ts')));
     const checkerDir = checker && path.dirname(checker);
     for (const file of [ tsgo, ...(checkerDir ? fs.readdirSync(checkerDir).map(name => path.join(checkerDir, name)) : []) ]) {
       try { const stat = fs.statSync(file); hash.update(`${file}\0${stat.size}\0${stat.mtimeMs}\0`); } catch {}
@@ -121,7 +121,7 @@ export default function threads(options = {}) {
     const config = path.join(dir, 'tsconfig.json');
     fs.writeFileSync(config, JSON.stringify({
       compilerOptions: { target: 'es2022', module: 'esnext', moduleResolution: 'bundler', strict: true, lib: [ 'es2022', 'dom' ], skipLibCheck: true,
-        outDir: 'out', rootDir: '.', paths: { [runtime]: [ path.join(RUNTIME_DIR, 'threads.d.mts') ] } },
+        outDir: 'out', rootDir: '.', paths: { [runtime]: [ path.join(RUNTIME_DIR, 'threads.d.ts') ] } },
       files: [ 'program.ts' ],
     }));
     const t0 = performance.now();

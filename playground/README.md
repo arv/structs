@@ -84,7 +84,7 @@ and the runtime throws. In Node on an M5 Pro, a goroutine on a worker of its own
 start and 8.6 MB; an async one takes 0.2 µs and about 350 bytes, and two on one worker hand a value
 over in a microtask.
 
-The whole API, with doc comments, is [runtime/threads.d.mts](runtime/threads.d.mts).
+The whole API, with doc comments, is [runtime/threads.d.ts](runtime/threads.d.ts).
 
 ## Three tools
 
@@ -97,7 +97,7 @@ The whole API, with doc comments, is [runtime/threads.d.mts](runtime/threads.d.m
   TypeScript 7.1's public API, so it needs no fork; its tests compare it with the fork's `tsgo own
   check`, which it replaces. The playground's dev server runs it too, with one TypeScript session kept
   open.
-- **The compile** (the fork, through the Vite plugin, [runtime/vite-plugin-threads.mjs](runtime/vite-plugin-threads.mjs))
+- **The compile** (the fork, through the Vite plugin, [runtime/vite-plugin-threads.js](runtime/vite-plugin-threads.js))
   erases the types and leaves the code alone, except that struct fields become typed-array reads
   (`b.x` is `__F64[(b >> 3) + 1]`), references to structs are counted so shared memory is freed
   ([docs/refcount.md](docs/refcount.md)), and top-level functions are registered so a worker can find the
@@ -140,10 +140,10 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
 | Path | What |
 |---|---|
-| `runtime/threads.mjs`, `threads.d.mts` | the API |
-| `runtime/own.mjs`, `chan.mjs`, `runtime.mjs` | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool |
-| `runtime/heap.mjs`, `browser.mjs`, `threads-worker.mjs` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers |
-| `runtime/vite-plugin-threads.mjs` | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
+| `runtime/threads.js`, `threads.d.ts` | the API |
+| `runtime/own.js`, `chan.js`, `runtime.js` | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool |
+| `runtime/heap.js`, `browser.js`, `threads-worker.js` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers |
+| `runtime/vite-plugin-threads.js` | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
 | `checker/` | threads-check, the ownership checker, on TypeScript 7.1's API |
 | `index.html`, `main.ts` | the playground, on [Monaco](https://github.com/microsoft/monaco-editor) |
 

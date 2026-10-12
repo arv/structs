@@ -1,4 +1,4 @@
-// goroutines and channels (chan.mjs) in plain TypeScript on threads.mjs, and what they cost:
+// goroutines and channels (chan.js) in plain TypeScript on threads.js, and what they cost:
 // an unbuffered ping-pong, a buffered producer and consumer, two producers merged with select, and
 // big arrays sent as copies and as SharedArrays, which move by address.
 import { Channel, go, log, select, SharedArray } from "threads";

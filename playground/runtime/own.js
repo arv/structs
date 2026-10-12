@@ -5,11 +5,11 @@
 //            objects are revoked, so using them again throws
 //   shared   immutable: share(v) deep-freezes v and writes it into the shared heap once. a thread
 //            it reaches makes its own frozen copy on first use, then reads plain objects
-//   a cell   shared and mutable, explicitly: Lock, Condition (runtime.mjs), Barrier, Slots. their
+//   a cell   shared and mutable, explicitly: Lock, Condition (runtime.js), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
 import { $alloc, $checking, $decodeAscii, $decodeUtf16, $intern, $internedHere, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
-  $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats, spawnAsync, $mustNotBlock, $resumed } from './runtime.mjs';
+  $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats, spawnAsync, $mustNotBlock, $resumed } from './runtime.js';
 
 const SAB = globalThis.__escapeSab ?? null;
 const I32 = SAB && new Int32Array(SAB), F64 = SAB && new Float64Array(SAB), U8 = SAB && new Uint8Array(SAB);
@@ -147,7 +147,7 @@ function put(at, v, moved, freeze, depth) {
   } else {
     if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
     if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
-    if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]); // a runtime.mjs Lock or Condition
+    if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]); // a runtime.js Lock or Condition
     if (!Array.isArray(v)) throw new TypeError('own: only plain objects and arrays can be sent');
   }
   if (depth >= MAX_DEPTH) throw new TypeError(`own: a value nested ${MAX_DEPTH} deep (or with a cycle) cannot be sent`);
@@ -280,7 +280,7 @@ function revoke(objs) {
     Object.setPrototypeOf(o, REVOKED);
   }
 }
-// a message (chan.mjs, and a thread's arguments and result): v moved into a block of its own, which
+// a message (chan.js, and a thread's arguments and result): v moved into a block of its own, which
 // the receiver frees once it has read it. [address, bytes]. the moved values are v, or v's elements
 // (depth 1: a thread's arguments)
 const messageBlock = bytes => $allocBlock(bytes, false); // written whole
@@ -343,7 +343,7 @@ function cell(a) {
   }
   return c;
 }
-// for cells defined outside this module (chan.mjs): their kind's class, and a new one's block
+// for cells defined outside this module (chan.js): their kind's class, and a new one's block
 export const __cellKind = (kind, Cls) => { cellKinds.set(kind, Cls); };
 export const __newCell = (kind, bytes, self) => newCell(kind, bytes, self);
 const newCell = (kind, bytes, self) => {
@@ -428,7 +428,7 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8, g: ref<Channel>() })` (threads.mjs), or
+// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8, g: ref<Channel>() })` (threads.js), or
 // `shared struct Name { a: number; b: Name | null; ... }` in the syntax, compiles to
 // __sharedStruct('Name', ['a', 'b', 'c', 'd', 'e', 'f'], [1], 'frbsiu'): the reference fields'
 // indexes, and the fields' kinds, or '' if each is f or r. a struct's block is [kind][count] and then
@@ -487,7 +487,7 @@ export function __sharedStruct(name, fields, refs = [], kinds = '') {
 // it along as a number and all use the same memory: nothing is copied. the compiler reads and writes
 // fields and elements through these views
 export { I32 as __I32, F64 as __F64, U8 as __U8 };
-// strings in shared memory are interned (runtime.mjs $intern): one copy of each, which every thread
+// strings in shared memory are interned (runtime.js $intern): one copy of each, which every thread
 // decodes once and keeps. a string field or element holds its address, 0 for "": compiled, a read is
 // __str(__I32[i]) and a write __I32[i] = __intern(v). interned strings are never freed
 export const __intern = s => s === '' ? 0 : $intern(String(s));
@@ -659,7 +659,7 @@ function sharedArrayHandle(a) {
 function oob(a, i) {
   throw new RangeError(`index ${i} is out of range for a SharedArray of length ${I32[(a >> 2) + 1]}`);
 }
-// ---- atomic operations (threads.d.mts `atomic`) ----
+// ---- atomic operations (threads.d.ts `atomic`) ----
 // on an i32 field of a struct, by name, or on an element of a SharedArray<i32>, by index. compiled, a
 // call is the Atomics call itself, on the i32's index; code the compiler did not lay out finds the
 // index here, through the handle
@@ -736,7 +736,7 @@ function resultOf(t, r) {
 const AsyncFunction = (async () => {}).constructor;
 // between threads, a worker yields to its event loop when handles or closures wait to be finalized
 setAfterTask(() => finalizable > 0);
-// in a page's worker pool (threads-worker.mjs), a worker loads a thread's module the first time a
+// in a page's worker pool (threads-worker.js), a worker loads a thread's module the first time a
 // thread needs it: a key is `${module}#${name}`, and the loader maps a module to its import
 let moduleLoader = null;
 export function setModuleLoader(load) {
@@ -776,9 +776,9 @@ export const spawn = (fn, ...args) => new Thread(__start(fn, args, false));
 // a thread block for fn(...args), queued for the pool: [kind][detached][done][threw][arguments][their
 // bytes][result]. the arguments, and then the result, are messages: the thread frees its arguments
 // once it has read them, and whoever joins it frees the result and the block. a detached thread
-// (chan.mjs go) is never joined: it has no result, the runtime frees its block and prints its error
+// (chan.js go) is never joined: it has no result, the runtime frees its block and prints its error
 // if it throws. an async function's thread is an async thread: a host runs it with others, and it
-// ends when its promise settles (runtime.mjs spawnAsync)
+// ends when its promise settles (runtime.js spawnAsync)
 export function __start(fn, args, detached) {
   const key = keyOf.get(fn);
   if (key === undefined) throw new TypeError('own: spawn a top-level function of a module the compiler registered (or fns())');

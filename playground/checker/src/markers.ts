@@ -1,5 +1,5 @@
 // The plain TypeScript API of threads (ownmarkers.go): the module the runtime specifier names
-// (threads.d.mts) exports markers that stock TypeScript accepts, and the checker gives them their
+// (threads.d.ts) exports markers that stock TypeScript accepts, and the checker gives them their
 // meaning:
 //
 //	Sending<T>                  a value whose ownership moves (a parameter, a rest parameter, a result)

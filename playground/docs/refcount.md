@@ -1,9 +1,9 @@
 # Reference counting for shared structs
 
-> Status: a prototype, in the runtime (own.mjs, runtime.mjs) and the tsgo fork's emit;
-> [refcount.mts](refcount.mts) tests it, and [refcount-hand.mjs](refcount-hand.mjs) is the same test
-> written by hand. Shared structs and SharedArrays are freed when nothing refers to them; other cells
-> (`Barrier`, `Slots`) and moved or shared values are still never freed.
+> Status: a prototype, in the runtime (`runtime/own.js`, `runtime/runtime.js`) and the tsgo fork's
+> emit; the playground's "Reference counting under a race" tests it (`programs/refcount.ts`). Shared
+> structs and SharedArrays are freed when nothing refers to them; other cells (`Barrier`, `Slots`)
+> and moved or shared values are still never freed.
 
 A shared struct or SharedArray is an address in the shared heap, passed around as a plain number, so
 V8's collector cannot see who holds one. Each block counts its references instead: references
@@ -51,7 +51,7 @@ many decrements queued rings the bells of the hosts behind it, and each passes o
 This is quiescent-state-based reclamation: a global epoch, and a word per thread with the epoch
 it last saw at a quiescent point.
 
-## Runtime (own.mjs)
+## Runtime (own.js)
 
 | Function | Does |
 |---|---|

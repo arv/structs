@@ -1,19 +1,19 @@
-// Go-style concurrency on own.mjs: goroutines, channels, close, range over a channel, select.
+// Go-style concurrency on own.js: goroutines, channels, close, range over a channel, select.
 //   const ch = new Channel(16);  go(f, ch, ...);  ch.send(v);  ch.recv();  for (const v of ch) ...
 // a channel is a cell, and a value sent on it moves: it is copied into the shared heap and the
 // sender's objects are revoked (the checker proves the sender does not use them again); the receiver
 // reads its own copy and owns it. so threads share nothing but channels: no data races, and nothing
 // in the shared heap outlives the message that carried it (the receiver frees each one)
 //
-// a goroutine is a pool thread (own.mjs spawn, never joined): a real worker, so it is heavy, and a
+// a goroutine is a pool thread (own.js spawn, never joined): a real worker, so it is heavy, and a
 // goroutine blocked on a channel holds its worker (the pool grows to run the others). an async
-// function's goroutine is light: it runs on a host among others (runtime.mjs spawnAsync), and waits
+// function's goroutine is light: it runs on a host among others (runtime.js spawnAsync), and waits
 // with sendAsync, recvAsync, selectAsync and for await, without blocking the host. its blocking
 // calls throw instead: they would stop every goroutine on the host.
 // a shared struct or SharedArray is sent as its address, with no copy: the compiler passes it as
 // __ref(p), so the message carries a count, and the receiver owns what recv() returns
-import { I32, $waitBegin, $waitEnd, C_ACTIVITY, C_SELECTING, CAN_BLOCK, $mustNotBlock, $resumed } from './runtime.mjs';
-import { __message, __unmessage, __newCell, __cellKind, __start, __isCounted, __release } from './own.mjs';
+import { I32, $waitBegin, $waitEnd, C_ACTIVITY, C_SELECTING, CAN_BLOCK, $mustNotBlock, $resumed } from './runtime.js';
+import { __message, __unmessage, __newCell, __cellKind, __start, __isCounted, __release } from './own.js';
 
 // [0 kind][1 slots][2 lock][3 seq][4 head][5 tail][6 count][7 closed][8 sent][9 received][10 unbuffered][11 -]
 // then the ring from word 12: a slot is [message address][bytes]. seq changes with every change, and
@@ -92,7 +92,7 @@ const sleep = c => {
 
 const EMPTY = Symbol('empty'), DONE = Symbol('done');
 // holding the lock: the next message's value (unlocking), or EMPTY, or DONE when closed and empty.
-// functions, not private methods: another thread's handle for a channel is made by own.mjs, from
+// functions, not private methods: another thread's handle for a channel is made by own.js, from
 // the class's prototype
 function take(c) {
   if (I32[c + COUNT] === 0) return I32[c + CLOSED] !== 0 ? DONE : EMPTY;

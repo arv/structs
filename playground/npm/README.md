@@ -105,7 +105,7 @@ own-threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a browser
 cross-origin isolation headers that `SharedArrayBuffer` needs on the dev and preview servers.
 
 ```js
-// vite.config.mjs
+// vite.config.js
 import threads from "own-threads/vite";
 
 export default {

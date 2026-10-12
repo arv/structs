@@ -4,7 +4,7 @@
 // accept it as it is. Two tools add what the types cannot say:
 //   - the ownership checker (`tsgo own check`, from the tsgo fork) runs in CI like a linter and
 //     proves the rules below: nothing is used after it is sent, and shared values never change;
-//   - the bundler plugin (vite-plugin-threads.mjs) compiles shared structs and SharedArrays to
+//   - the bundler plugin (vite-plugin-threads.js) compiles shared structs and SharedArrays to
 //     typed-array accesses on shared memory, counts their references, and registers the functions
 //     threads run.
 //

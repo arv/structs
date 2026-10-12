@@ -2,7 +2,8 @@
 // their diagnostics (file, line, column, code and message).
 //
 // The projects: the cases in test/cases, the playground (with and without programs/mistakes.ts),
-// the fork's marker-mode compiler tests, porffor's programs and the scratchpad's mistakes. Projects
+// the fork's marker-mode compiler tests, the prototype's programs (arv/threads) and the scratchpad's
+// mistakes. Projects
 // outside this repository are skipped when they are not there. Without the fork (TSGO_FORK, by
 // default ~/src/arv/TypeScript), a case of test/cases is compared with its expected output in
 // test/expected, which `npm test -- --update` writes from the fork's output.
@@ -10,9 +11,9 @@
 // Only test/cases have stored expectations: the other projects change on their own, and the fork's
 // tests come with the fork.
 //
-// Environment: TSGO_FORK (the fork's repository), PORFFOR_THREADS (porffor's threads/escape-proto),
-// MISTAKES (directories, separated by colons, each with a tsconfig.json of programs that import the
-// runtime as ./threads.mjs).
+// Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (arv/threads, the prototype this
+// grew out of), MISTAKES (directories, separated by colons, each with a tsconfig.json of programs that
+// import the runtime as ./threads.js).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -26,8 +27,7 @@ const playground = resolve(checkerDir, "..");
 const forkRoot = process.env.TSGO_FORK ?? join(homedir(), "src/arv/TypeScript");
 const tsgo = join(forkRoot, "tsc/built/local/tsgo");
 const forkTests = join(forkRoot, "tsc/testdata/tests/cases/compiler");
-const porffor = process.env.PORFFOR_THREADS ??
-  join(homedir(), "src/arv/porffor/.claude/worktrees/js-js-sab-workers-atomics-8a7cd1/threads/escape-proto");
+const prototype = process.env.THREADS_PROTOTYPE ?? join(homedir(), "src/arv/threads");
 const mistakes = (process.env.MISTAKES ?? "").split(":").filter((dir) => dir !== "");
 const update = process.argv.includes("--update");
 const haveFork = existsSync(tsgo);
@@ -64,7 +64,7 @@ const knownDifferences: Record<string, { missing: string[]; reason: string }> = 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "threads-check-")));
 const cases: Case[] = [];
 
-// test/cases: marker-mode programs against the playground's runtime/threads.d.mts.
+// test/cases: marker-mode programs against the playground's runtime/threads.d.ts.
 for (const name of readdirSync(join(checkerDir, "test/cases")).sort()) {
   const dir = join(checkerDir, "test/cases", name);
   cases.push({ name: `cases/${name}`, tsconfig: join(dir, "tsconfig.json"), runtime: "threads", cwd: dir });
@@ -94,12 +94,12 @@ for (const test of [
   cases.push({ name: `fork/${test}`, tsconfig: join(dir, "tsconfig.json"), runtime, cwd: dir });
 }
 
-if (existsSync(join(porffor, "tsconfig.json"))) {
-  cases.push({ name: "porffor", tsconfig: join(porffor, "tsconfig.json"), runtime: "./threads.mjs", cwd: porffor });
+if (existsSync(join(prototype, "tsconfig.json"))) {
+  cases.push({ name: "prototype", tsconfig: join(prototype, "tsconfig.json"), runtime: "./threads.js", cwd: prototype });
 }
 for (const dir of mistakes) {
   if (existsSync(join(dir, "tsconfig.json"))) {
-    cases.push({ name: `mistakes/${basename(dir)}`, tsconfig: join(dir, "tsconfig.json"), runtime: "./threads.mjs", cwd: dir });
+    cases.push({ name: `mistakes/${basename(dir)}`, tsconfig: join(dir, "tsconfig.json"), runtime: "./threads.js", cwd: dir });
   }
 }
 

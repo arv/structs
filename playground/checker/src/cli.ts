@@ -12,7 +12,7 @@ import type { Diagnostic } from "./messages.ts";
 
 const usage = `Usage: threads-check [-p <tsconfig.json>] --runtime <module>
   Reports the ownership diagnostics of threads for JavaScript (TS96001-TS96026) for a project:
-  <module> is the specifier its programs import the runtime from (e.g. threads, ./threads.mjs).`;
+  <module> is the specifier its programs import the runtime from (e.g. threads, ./threads.js).`;
 
 function main(args: string[]): number {
   let project = ".";

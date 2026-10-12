@@ -1,8 +1,8 @@
 // a page's side of threads: start() makes the pool of Web Workers on the memory threads/heap made,
 // and run(f, ...args) runs f on a thread and resolves with its result. the page's own thread never
 // blocks (it cannot: Atomics.wait is not allowed there), so it waits for threads asynchronously
-import { attach, threadBegin, shutdown, $waitBegin } from './runtime.mjs';
-import { spawn } from './own.mjs';
+import { attach, threadBegin, shutdown, $waitBegin } from './runtime.js';
+import { spawn } from './own.js';
 
 const sab = globalThis.__escapeSab;
 const workers = [];
@@ -17,7 +17,7 @@ export function start({ workers: count = navigator.hardwareConcurrency ?? 8, che
     else if (m.type === 'crash') console.error(`threads: a worker crashed: ${m.message}`);
   };
   const add = () => new Promise((resolve, reject) => {
-    const w = new Worker(new URL('./threads-worker.mjs', import.meta.url), { type: 'module', name: 'threads' });
+    const w = new Worker(new URL('./threads-worker.js', import.meta.url), { type: 'module', name: 'threads' });
     workers.push(w);
     w.onmessage = ({ data: m }) => m.type === 'ready' ? resolve() : onMessage(m);
     w.onerror = e => reject(new Error(`threads: a worker failed to start: ${e.message}`));

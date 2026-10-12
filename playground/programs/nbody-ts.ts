@@ -1,4 +1,4 @@
-// Porffor's threads/playground/presets/3-nbody.js in plain TypeScript on threads.mjs. The tsgo fork checks it
+// Porffor's threads/playground/presets/3-nbody.js in plain TypeScript on threads.js. The tsgo fork checks it
 // (no ownership errors) and emits plain JavaScript for the runtime:
 // Each thread owns its slice of the bodies; every step it shares a snapshot of its positions, and the
 // others read their own copies. The hot loops are plain TypeScript on plain objects.

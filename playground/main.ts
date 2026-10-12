@@ -7,7 +7,7 @@ import { run, start } from "threads/browser";
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import TsWorker from "monaco-editor/language/typescript/ts.worker?worker";
-import threadsTypes from "./runtime/threads.d.mts?raw";
+import threadsTypes from "./runtime/threads.d.ts?raw";
 import channelPipeline from "./programs/channel-pipeline.ts?raw";
 import channelWorkers from "./programs/channel-workers.ts?raw";
 import hello from "./programs/hello.ts?raw";
