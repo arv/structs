@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "description": "Threads for JavaScript in plain TypeScript: own and shared values, shared structs and channels on Web Workers, with a playground that shows the compiled JavaScript.",
+  "license": "Apache-2.0",
+  "author": "Erik Arvidsson",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

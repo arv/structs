@@ -140,3 +140,7 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
 This grew out of an experiment in [Porffor](https://github.com/CanadaHonk/porffor)'s threads work,
 compiling JavaScript to JavaScript for threads instead of to C and WebAssembly.
+
+## License
+
+Copyright 2026 Erik Arvidsson. Licensed under the [Apache License 2.0](LICENSE).

@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "description": "The ownership checker of threads for JavaScript (plain TypeScript), on TypeScript 7.1's API: what `tsgo own check` reports, without the fork.",
+  "license": "Apache-2.0",
+  "author": "Erik Arvidsson",
   "bin": {
     "threads-check": "./src/cli.ts"
   },
