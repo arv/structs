@@ -110,7 +110,7 @@ console.log(await run(main, 8));
 
 **3. The checker** runs in CI like a linter. It reports what TypeScript's types cannot see: a value
 used after it was sent, an alias of something sent, sending what the caller still holds, a write to a
-shared value through a cast.
+shared value through a cast, a number that may not be an integer stored into an `i32` or a `u8`.
 
 ```sh
 npx own-threads-check -p tsconfig.json --runtime own-threads
@@ -162,12 +162,14 @@ orders them.
 | | |
 |---|---|
 | `struct({ x: f64, n: i32, done: bool, name: str, next: ref<T>() })` | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type. |
-| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()` | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct or SharedArray (or null). |
+| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()` | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct, a SharedArray or a Channel (or null). |
 | `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline. |
 | `atomic.add(s, "field", v)`, `atomic.add(array, i, v)` | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
 
-`i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array` keeps them (3.7 as 3,
-and 256 as 0). Threads can claim work from one counter, with no lock:
+`i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array` keeps them (2³¹ wraps,
+and 256 is 0). The checker requires an integer of what is stored into one: integer arithmetic, or an
+explicit conversion such as `Math.round(x)` or `x | 0`, never a number that may have a fraction, which
+the store would truncate silently. Threads can claim work from one counter, with no lock:
 
 ```ts
 const Work = struct({ next: i32 });
@@ -215,7 +217,7 @@ once, and ASCII text is stored a byte per character.
   handle behind accessors, about 50 times slower.
 - **The checker needs no fork.** own-threads-check runs on stock TypeScript 7.1's API.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference counted, but cycles of them
-  leak. A moved value (a thread's arguments and result, a channel's message) is freed once it is
+  leak. Channels are never freed. A moved value (a thread's arguments and result, a channel's message) is freed once it is
   read; shared values and interned strings are never freed.
 - A thread runs a top-level function: closures do not cross threads.
 - A goroutine is a whole worker: one per core is fine, thousands are not.

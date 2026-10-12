@@ -412,13 +412,15 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8 })` (threads.mjs), or
+// `const Name = struct({ a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8, g: ref<Channel>() })` (threads.mjs), or
 // `shared struct Name { a: number; b: Name | null; ... }` in the syntax, compiles to
 // __sharedStruct('Name', ['a', 'b', 'c', 'd', 'e', 'f'], [1], 'frbsiu'): the reference fields'
 // indexes, and the fields' kinds, or '' if each is f or r. a struct's block is [kind][count] and then
 // its fields, 8 bytes each, in order, each as its kind says: f an f64; r a struct's or a SharedArray's
 // address in the slot's low half, 0 for null; b a byte, 0 or 1, and u a byte, at the slot's start; s
-// an interned string's address in the low half, 0 for "" (see __intern); i an i32 in the low half.
+// an interned string's address in the low half, 0 for "" (see __intern); i an i32 in the low half; c
+// a channel's address in the low half, 0 for null, with no count (a channel is never freed). compiled
+// code has c where uncompiled code, which cannot tell a channel from a struct, has r.
 // compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
 // `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
 // boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
@@ -447,7 +449,11 @@ export function __sharedStruct(name, fields, refs = [], kinds = '') {
   const accessors = {
     r: k => ({
       get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
-      set(v) { __store((this.$cell >> 2) + 2 + 2 * k, v == null ? 0 : __retain(__unbox(v))); },
+      set(v) { __store((this.$cell >> 2) + 2 + 2 * k, __retain(__cellAddress(v))); },
+    }),
+    c: k => ({
+      get() { const q = I32[(this.$cell >> 2) + 2 + 2 * k]; return q === 0 ? null : cell(q); },
+      set(v) { I32[(this.$cell >> 2) + 2 + 2 * k] = __cellAddress(v); },
     }),
     b: k => ({ get() { return U8[this.$cell + 8 + 8 * k] !== 0; }, set(v) { U8[this.$cell + 8 + 8 * k] = v ? 1 : 0; } }),
     u: k => ({ get() { return U8[this.$cell + 8 + 8 * k]; }, set(v) { U8[this.$cell + 8 + 8 * k] = v; } }),
@@ -500,13 +506,15 @@ export function __newSharedArray(type, length) {
 // the block whose count an address's lifetime is, and where that count is
 const owner = p => { const w = I32[(p >> 2) + 1]; return w < 0 ? p + w : p; };
 const countAt = o => I32[o >> 2] === K_SHARED_ARRAY ? (o >> 2) + 3 : (o >> 2) + 1;
-// null is 0; a raw value can also be undefined at run time (a missing argument, `f?.()`)
+// null is 0; a raw value can also be undefined at run time (a missing argument, `f?.()`). a reference
+// field may also hold a channel (uncompiled code cannot tell), which lives as long as the program and
+// has no count
 export function __retain(p) {
-  if (p) Atomics.add(I32, countAt(owner(p)), 1);
+  if (p && counted(I32[p >> 2])) Atomics.add(I32, countAt(owner(p)), 1);
   return p;
 }
 export function __release(p) {
-  if (!p) return;
+  if (!p || !counted(I32[p >> 2])) return;
   const o = owner(p);
   if (Atomics.sub(I32, countAt(o), 1) === 1) destroy(o);
 }
@@ -515,7 +523,7 @@ export function __release(p) {
 function destroy(o) {
   const work = [ o ];
   const drop = p => {
-    if (p === 0) return;
+    if (p === 0 || !counted(I32[p >> 2])) return;
     const q = owner(p);
     if (Atomics.sub(I32, countAt(q), 1) === 1) work.push(q);
   };
@@ -568,6 +576,14 @@ export const __isCounted = v => v instanceof CountedArg;
 // still holds), and unwraps it on the way back. a struct's handle is an instance of its class; a
 // SharedArray's is an array-like Proxy over the same memory
 export const __box = a => a ? cell(a) : null;
+// the address of a cell's block (a struct's, a SharedArray's, a channel's...), 0 for null: what a
+// reference or channel field holds
+export function __cellAddress(v) {
+  if (v == null) return 0;
+  const a = typeof v === 'object' ? v.$cell : undefined;
+  if (a === undefined) throw new TypeError('own: not a cell (a shared struct, a SharedArray, a Channel)');
+  return a;
+}
 // for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
 export class SharedArray {
   constructor(type, length) {

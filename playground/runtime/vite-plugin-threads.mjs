@@ -33,7 +33,7 @@ const exec = promisify(execFile);
 
 // The runtime helpers the fork's emit imports. It imports them under other names (`__register as
 // __register_1`) where a module declares or uses the name itself, and so does the erased variant here.
-const HELPERS = new Set([ '__F64', '__I32', '__OOB', '__U8', '__box', '__hold', '__intern', '__newSharedArray', '__newStruct',
+const HELPERS = new Set([ '__F64', '__I32', '__OOB', '__U8', '__box', '__cellAddress', '__hold', '__intern', '__newSharedArray', '__newStruct',
   '__quiescent', '__ref', '__register', '__release', '__retain', '__sharedStruct', '__store', '__str', '__unbox' ]);
 
 // The local names of the helpers that compiled code imports from `runtime`: the specifiers of its

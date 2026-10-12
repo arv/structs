@@ -10,8 +10,8 @@ import { errorStart } from "./syntax.ts";
 import type { Node } from "./syntax.ts";
 
 // How a shared struct's field holds its value (printer.OwnFieldKind): f an f64, r a reference, b a
-// boolean, s a string, i an i32, u a u8; "" in a union of structs, where the fields differ.
-export type FieldKind = "f" | "r" | "b" | "s" | "i" | "u" | "";
+// boolean, s a string, i an i32, u a u8, c a channel; "" in a union of structs, where the fields differ.
+export type FieldKind = "f" | "r" | "b" | "s" | "i" | "u" | "c" | "";
 
 // A shared struct: its name, fields in slot order, and how each holds its value.
 export interface StructInfo {
@@ -66,6 +66,10 @@ export class Own {
   readonly cellBranded = new Map<Type, boolean>();
   // the runtime's integer types, by type: "i" for i32, "u" for u8, "" for any other
   readonly integerKinds = new Map<Type, FieldKind>();
+  // local variables (by symbolId), by whether every value assigned to them is an integer; and the
+  // files whose variables are computed (false while they are being computed)
+  readonly integerVariables = new Map<number, boolean>();
+  readonly integerFiles = new Map<SourceFile, boolean>();
 
   // files: the source files to check (not declaration files); runtimeFiles: the files that the
   // runtime specifier resolves to.

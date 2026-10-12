@@ -8,7 +8,8 @@
 //   - no optional chaining on an address (96018), no destructuring of a parameter or a for-of variable
 //     that holds one (96019);
 //   - a field of a union of structs must be at the same place in all of them (96026);
-//   - a string field or element is not assigned by destructuring or as a loop variable (96027);
+//   - a string or channel field, or a string element, is not assigned by destructuring or as a loop
+//     variable (96027);
 //   - an atomic operation acts on an i32 field named by a string literal, or on an element of a
 //     SharedArray<i32> (96028, reported with the struct calls, in refcount.ts).
 
@@ -16,7 +17,8 @@ import { CellKind, Conversion, isArrayKind } from "./context.ts";
 import type { CellType, FieldKind, Own, StructInfo } from "./context.ts";
 import { IndexKind, ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
 import type { Type } from "./host.ts";
-import { getStructOfCall, getStructRegistry } from "./markers.ts";
+import { checkIntegerCompoundAssignment, checkIntegerTarget } from "./integers.ts";
+import { getRuntimeExportName, getStructOfCall, getStructRegistry } from "./markers.ts";
 import { Messages } from "./messages.ts";
 import {
   FunctionFlags, forEachChild, getAssignmentTarget, getContainingFunction, getFunctionFlags, isAssignmentTarget, isBindingPattern, isExpression,
@@ -109,11 +111,22 @@ export function getIntegerKind(c: Own, t: Type): FieldKind {
   return kind;
 }
 
+// Reports whether a field of type t holds a channel: the runtime's Channel, possibly with null or
+// undefined (isOwnChannelFieldType).
+export function isChannelFieldType(c: Own, t: Type): boolean {
+  const members = nonNullishMembers(c, t);
+  if (members.length !== 1 || !(members[0]!.flags & TypeFlags.Object)) return false;
+  const target = c.host.typeTarget(members[0]!);
+  const symbol = target && c.host.typeSymbol(target);
+  return !!symbol && symbol.name === "Channel" && getRuntimeExportName(c, symbol) === "Channel";
+}
+
 // The kind of a field of type t: an f64 for a number (and for a type no field may have, which is
-// reported), an i32 or a u8, a boolean, a string, or a reference (getOwnFieldKind).
+// reported), an i32 or a u8, a boolean, a string, a reference, or a channel (getOwnFieldKind).
 export function getFieldKind(c: Own, t: Type): FieldKind {
   const integer = getIntegerKind(c, t);
   if (integer !== "") return integer;
+  if (isChannelFieldType(c, t)) return "c";
   if (isBooleanType(t)) return "b";
   if (isStringType(c, t)) return "s";
   if (isCellType(c, t)) return "r";
@@ -124,7 +137,7 @@ export function getFieldKind(c: Own, t: Type): FieldKind {
 // a string, or a reference (a shared struct or a SharedArray, possibly with null or undefined).
 export function isFieldType(c: Own, t: Type): boolean {
   return !!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union) || getIntegerKind(c, t) !== "" || isBooleanType(t) ||
-    isStringType(c, t) || nonNullishMembers(c, t).length === 1 && isCellType(c, t);
+    isStringType(c, t) || nonNullishMembers(c, t).length === 1 && isCellType(c, t) || isChannelFieldType(c, t);
 }
 
 // Classifies a type for the layout emit: a shared struct (or a union of them), a SharedArray of
@@ -279,6 +292,7 @@ type Target = Type | undefined | null;
 
 function setTargetType(c: Own, expr: Node | undefined, target: Target): void {
   if (!expr || target === undefined) return;
+  if (target !== null) checkIntegerTarget(c, expr, target);
   setTarget(c, expr, target !== null && isCellType(c, target));
 }
 
@@ -415,7 +429,7 @@ function computeConversion(c: Own, node: Node): void {
           // A field is read through the layout; anything else through the handle.
           const k = cell.fields.indexOf(name);
           if (k < 0) checkStructUnionField(c, node, t);
-          if (cell.kinds[k] === "s") checkStringTarget(c, node);
+          if (cell.kinds[k] === "s" || cell.kinds[k] === "c") checkConvertedTarget(c, node);
           setTarget(c, object, k >= 0);
           break;
         }
@@ -433,16 +447,17 @@ function computeConversion(c: Own, node: Node): void {
         return;
       }
       const kind = getCellType(c, t).kind;
-      if (kind === CellKind.ArrayOfString) checkStringTarget(c, node);
+      if (kind === CellKind.ArrayOfString) checkConvertedTarget(c, node);
       setTarget(c, object, isArrayKind(kind));
       return;
     }
   }
 }
 
-// Reports a string field or element that is assigned by destructuring or as a for-in or for-of
-// variable: the emit interns a string only where it is assigned on its own.
-function checkStringTarget(c: Own, access: Node): void {
+// Reports a string or channel field, or a string element, that is assigned by destructuring or as a
+// for-in or for-of variable: the emit converts the value (interns a string, takes a channel's address)
+// only where it is assigned on its own.
+function checkConvertedTarget(c: Own, access: Node): void {
   const target = getAssignmentTarget(access);
   if (!target || target.kind === K.PrefixUnaryExpression || target.kind === K.PostfixUnaryExpression) return; // `++` on a string is a type error already
   if (target.kind === K.BinaryExpression && skipParentheses(target.left) === access) return;
@@ -473,6 +488,10 @@ function computeBinaryConversion(c: Own, node: Node): void {
       // String concatenation (arithmetic on a struct is already a type error).
       if (isCellExpression(c, left) && op === K.PlusToken) setTarget(c, left, false);
       if (isCellExpression(c, right)) setTarget(c, right, false);
+      if (op === K.PlusEqualsToken) checkIntegerCompoundAssignment(c, node, getAssignmentTargetType(c, left));
+      return;
+    case K.MinusEqualsToken: case K.AsteriskEqualsToken: case K.SlashEqualsToken: case K.PercentEqualsToken: case K.AsteriskAsteriskEqualsToken:
+      checkIntegerCompoundAssignment(c, node, getAssignmentTargetType(c, left));
       return;
     case K.EqualsEqualsEqualsToken: case K.ExclamationEqualsEqualsToken: case K.EqualsEqualsToken: case K.ExclamationEqualsToken: {
       const leftType = host.typeOf(left);

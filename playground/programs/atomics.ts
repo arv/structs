@@ -10,8 +10,9 @@ type Work = Struct<typeof Work>;
 
 const W = 72, H = 32, LEVELS = 8;
 
-// the gray level, 0 to 255, of pixel x, y: how many steps the point takes to escape (Mandelbrot)
-function gray(x: number, y: number): number {
+// the gray level, 0 to 255, of pixel x, y: how many steps the point takes to escape (Mandelbrot). a
+// u8: the ownership checker requires an integer of what is stored into one, and the counter is
+function gray(x: number, y: number): u8 {
   const cr = x / W * 3 - 2.2, ci = y / H * 2.4 - 1.2;
   let zr = 0, zi = 0, i = 0;
   for (; i < 255 && zr * zr + zi * zi < 4; i++) {

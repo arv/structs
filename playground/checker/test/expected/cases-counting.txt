@@ -17,8 +17,8 @@ counting.ts(53,17): error TS96023: 'n' cannot be captured by a method or a class
 counting.ts(58,28): error TS96025: A generator's parameter cannot have type 'Node': the generator runs after its caller's borrow ends.
 counting.ts(62,25): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
 counting.ts(67,17): error TS96021: A value of type 'Node & Cell' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
-counting.ts(67,20): error TS96021: A value of type 'SharedArray<number>' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
+counting.ts(67,20): error TS96021: A value of type 'SharedArray<number, "other">' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
 counting.ts(68,23): error TS96021: A value of type 'Node & Cell' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
-counting.ts(76,3): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct or a SharedArray.
-counting.ts(77,3): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct or a SharedArray.
-counting.ts(79,27): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct or a SharedArray.
+counting.ts(76,3): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct, a SharedArray or a Channel.
+counting.ts(77,3): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct, a SharedArray or a Channel.
+counting.ts(79,27): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct, a SharedArray or a Channel.
