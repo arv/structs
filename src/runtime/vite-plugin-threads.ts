@@ -1,7 +1,7 @@
 // A Vite plugin (its hooks are Rollup's) for threads in plain TypeScript
 // (threads.d.ts):
 //
-//   import threads from 'threads/vite-plugin';
+//   import threads from '@arv/threads/vite';
 //   export default {
 //     plugins: [threads({tsgo: '/path/to/tsgo-own/built/local/tsgo'})],
 //   };
@@ -163,7 +163,7 @@ export default function threads(options: Options = {}): Plugin {
   const {
     tsgo,
     tsconfig = 'tsconfig.json',
-    runtime = 'threads',
+    runtime = '@arv/threads',
     args = [],
     playground = false,
     checker = null,

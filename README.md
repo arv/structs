@@ -1,4 +1,4 @@
-# own-threads
+# @arv/threads
 
 Threads for JavaScript, in plain TypeScript. Real parallelism on Web Workers and
 a `SharedArrayBuffer`, with a programming model you can reason about: every
@@ -13,7 +13,7 @@ import {
   SharedArray,
   struct,
   type Struct,
-} from 'own-threads';
+} from '@arv/threads';
 
 const Body = struct({x: f64, y: f64, vx: f64, vy: f64, m: f64}); // lives in shared memory
 type Body = Struct<typeof Body>;
@@ -69,7 +69,7 @@ Code inside a thread is plain JavaScript on plain objects, at full speed. The
 cost is at the crossings, and the types say where they are.
 
 ```ts
-import {log, share, spawn, type Sending, type Shared} from 'own-threads';
+import {log, share, spawn, type Sending, type Shared} from '@arv/threads';
 
 type Order = {id: number; items: number[]};
 
@@ -133,12 +133,12 @@ for (let k = 0; k < 10_000; k++) go(request, replica, (k % 1000) + 1, answers); 
 ## Install
 
 ```sh
-npm install own-threads
-npm install --save-dev own-threads-check   # the ownership checker
+npm install @arv/threads
+npm install --save-dev @arv/threads-check   # the ownership checker
 ```
 
-own-threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a browser
-with `SharedArrayBuffer`.
+@arv/threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a
+browser with `SharedArrayBuffer`.
 
 ## Set up
 
@@ -148,7 +148,7 @@ on the dev and preview servers.
 
 ```js
 // vite.config.ts
-import threads from 'own-threads/vite';
+import threads from '@arv/threads/vite';
 
 export default {
   plugins: [threads({tsgo: '/path/to/TypeScript/tsc/built/local/tsgo'})],
@@ -161,8 +161,8 @@ a barrier, receive from a channel); the page only awaits its result.
 
 ```ts
 // main.ts, the page's entry module
-import 'own-threads/heap'; // first: the shared memory, before anything uses it
-import {run} from 'own-threads/browser';
+import '@arv/threads/heap'; // first: the shared memory, before anything uses it
+import {run} from '@arv/threads/browser';
 import {main} from './app.ts';
 
 console.log(await run(main, 8));
@@ -175,7 +175,7 @@ that may not be an integer stored into an `i32` or a `u8`, a blocking call in an
 async function.
 
 ```sh
-npx own-threads-check -p tsconfig.json --runtime own-threads
+npx @arv/threads-check -p tsconfig.json --runtime @arv/threads
 ```
 
 ```
@@ -188,7 +188,7 @@ app.ts(23,16): error TS96007: 'order' cannot be sent: it may be referenced by th
 
 ## API
 
-All from `"own-threads"`, unless noted.
+All from `"@arv/threads"`, unless noted.
 
 **Owned and shared values**
 
@@ -255,7 +255,7 @@ interface Node {
 const Node = struct<Node>({value: f64, next: ref<Node>()});
 ```
 
-**The page** (`"own-threads/browser"`): `start({ workers, check, onLog })`
+**The page** (`"@arv/threads/browser"`): `start({ workers, check, onLog })`
 starts the pool (one worker per core by default; `run` starts it if needed),
 `run(f, ...args)` runs `f` on a thread and resolves with its result, `stop()`.
 
@@ -287,7 +287,7 @@ in about 7 ms.
   yet; the plugin's `tsgo` option names its binary. With types only erased,
   programs still run, and a use after move still throws, but each struct is a
   handle behind accessors, about 50 times slower.
-- **The checker needs no fork.** own-threads-check runs on stock TypeScript
+- **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
   7.1's API.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
   counted, but cycles of them leak. Channels are never freed. A moved value (a
@@ -304,12 +304,12 @@ in about 7 ms.
 
 ## This repository
 
-own-threads is developed in [arv/threads](https://github.com/arv/threads):
+@arv/threads is developed in [arv/threads](https://github.com/arv/threads):
 
 |                                        |                                                                                |
 | -------------------------------------- | ------------------------------------------------------------------------------ |
 | [src/runtime/](src/runtime)            | the runtime: the API, the shared heap, a page's side and the Vite plugin       |
-| [src/checker/](src/checker)            | the ownership checker (`threads-check` here, own-threads-check on npm)         |
+| [src/checker/](src/checker)            | the ownership checker (@arv/threads-check)                                     |
 | [playground/](playground)              | a page to write programs in, and see what they compile to and how they run     |
 | [TUTORIAL.md](TUTORIAL.md)             | writing, checking and running a small program, and how each step works         |
 | [REFCOUNT.md](REFCOUNT.md)             | how shared structs and SharedArrays are reference counted and freed            |

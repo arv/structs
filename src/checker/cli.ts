@@ -14,7 +14,7 @@ import type {Diagnostic} from './messages.ts';
 
 const usage = `Usage: threads-check [-p <tsconfig.json>] --runtime <module>
   Reports the ownership diagnostics of threads for JavaScript (TS96001-TS96026) for a project:
-  <module> is the specifier its programs import the runtime from (e.g. threads, ./threads.js).`;
+  <module> is the specifier its programs import the runtime from (e.g. @arv/threads).`;
 
 function main(args: string[]): number {
   let project = '.';
@@ -38,7 +38,7 @@ function main(args: string[]): number {
   }
   if (!runtime) {
     console.error(
-      `threads-check: no runtime. Give the module programs import the runtime from: --runtime threads\n${usage}`,
+      `threads-check: no runtime. Give the module programs import the runtime from: --runtime @arv/threads\n${usage}`,
     );
     return 3;
   }

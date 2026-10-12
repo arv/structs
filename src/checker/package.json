@@ -1,5 +1,5 @@
 {
-  "name": "threads-check",
+  "name": "@arv/threads-check",
   "version": "0.1.0",
   "private": true,
   "description": "The ownership checker of threads for JavaScript (plain TypeScript), on TypeScript 7.1's API: what `tsgo own check` reports, without the fork.",

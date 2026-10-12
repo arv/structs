@@ -1,7 +1,7 @@
 # Threads playground
 
 A page to write threads programs in, and see what they compile to and how they
-run: the playground of [own-threads](../README.md), threads for JavaScript in
+run: the playground of [@arv/threads](../README.md), threads for JavaScript in
 plain TypeScript on Web Workers and a SharedArrayBuffer. The model, the API and
 the limits are in [the README](../README.md).
 

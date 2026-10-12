@@ -1,5 +1,5 @@
 {
-  "name": "threads",
+  "name": "@arv/threads",
   "private": true,
   "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
   "license": "Apache-2.0",
