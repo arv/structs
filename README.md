@@ -255,6 +255,31 @@ interface Node {
 const Node = struct<Node>({value: f64, next: ref<Node>()});
 ```
 
+**Maps and sets**: `new SharedMap<K, V>(entries?)` and
+`new SharedSet<T>(values?)` are Map and Set in shared memory, with their methods
+and their semantics: keys compared as SameValueZero (a string by its text, a
+cell or a shared value by identity), iteration in insertion order, and a loop
+that sees what is added while it runs and skips what is deleted. Keys and values
+are numbers, strings, booleans, null, undefined, cells (structs, SharedArrays,
+channels, maps), shared values, or plain objects and arrays, which move in and
+are shared. Each call is atomic, and `getOrInsert(key, value)` and
+`getOrInsertComputed(key, f)` (Map's, from the upsert proposal) add a key only
+if it is missing, so threads adding one key get one value:
+
+```ts
+const Count = struct({n: i32});
+type Count = Struct<typeof Count>;
+
+function count(counts: SharedMap<string, Count>, words: Shared<string[]>) {
+  for (const w of words)
+    atomic.add(
+      counts.getOrInsertComputed(w, () => new Count()),
+      'n',
+      1,
+    );
+}
+```
+
 **The page** (`"@arv/threads/browser"`): `start({ workers, check, onLog })`
 starts the pool (one worker per core by default; `run` starts it if needed),
 `run(f, ...args)` runs `f` on a thread and resolves with its result, `stop()`.
@@ -295,6 +320,10 @@ in about 7 ms.
   shared values and interned strings are never freed, so a `str` field suits
   labels and names better than an endless stream of distinct text.
 - A thread runs a top-level function: closures do not cross threads.
+- A SharedMap or SharedSet has one lock, which every call takes for a moment:
+  threads that change one map all the time wait for each other, so a thread with
+  many changes makes them in a Map of its own and merges once. Its strings are
+  interned, as a `str` field's are.
 - A goroutine of a plain function is a whole worker: one per core is fine,
   thousands are not. Async goroutines are light but cooperative: one that
   computes without awaiting holds up the others on its worker, and none moves to

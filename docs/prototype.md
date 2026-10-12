@@ -315,6 +315,7 @@ neither `A` nor `i` assigned anywhere else, as in N-body's inner loop.
   no 8-byte release stores, and NaN payloads are kept intact when copied through
   typed arrays. All three hold in V8 today; the JS memory model does not promise
   any of them.
-- **Only part of the language.** Shared `Map` and `Set` are missing. Typed
-  arrays are limited to `Int32Array` over a shared buffer. `own.ts` cannot send
-  cycles, and shared struct fields are numbers only.
+- **Only part of the language.** Publish on escape has no shared `Map` and `Set`
+  (own and shared values have SharedMap and SharedSet). Typed arrays are limited
+  to `Int32Array` over a shared buffer. `own.ts` cannot send cycles, and shared
+  struct fields are numbers only.

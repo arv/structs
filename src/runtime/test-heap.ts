@@ -3,7 +3,7 @@
 // worker attaches, then what uses it.
 const g = globalThis as {__escapeSab?: SharedArrayBuffer};
 g.__escapeSab = new SharedArrayBuffer(64 << 20);
-const runtime = await import('./runtime.ts');
+export const runtime = await import('./runtime.ts');
 /** What `log` wrote, a line each. */
 export const logged: string[] = [];
 runtime.attach(

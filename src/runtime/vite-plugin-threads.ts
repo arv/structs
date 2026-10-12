@@ -58,6 +58,7 @@ const HELPERS = new Set([
   '__cellAddress',
   '__hold',
   '__intern',
+  '__moved',
   '__newSharedArray',
   '__newStruct',
   '__quiescent',

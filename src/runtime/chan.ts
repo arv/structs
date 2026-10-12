@@ -34,7 +34,8 @@ import {
   $waitEnd,
   C_ACTIVITY,
   C_SELECTING,
-  CAN_BLOCK,
+  $lock,
+  $unlock,
   $mustNotBlock,
   $resumed,
 } from './runtime.ts';
@@ -55,20 +56,10 @@ const LOCK = 2,
   RECEIVED = 9,
   UNBUFFERED = 10;
 
-// futex-style lock: 0 free, 1 held, 2 held with waiters. it is held only for a
-// few loads and stores, never across a wait, so a page's main thread, which may
-// not block, spins on it
-const lock: (i: number) => void = i => {
-  if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
-  while (Atomics.exchange(I32, i, 2) !== 0)
-    if (CAN_BLOCK) Atomics.wait(I32, i, 2);
-};
-const unlock: (i: number) => void = i => {
-  if (Atomics.sub(I32, i, 1) !== 1) {
-    Atomics.store(I32, i, 0);
-    Atomics.notify(I32, i, 1);
-  }
-};
+// the channel's lock (runtime.ts $lock): held only for a few loads and stores,
+// never across a wait
+const lock = $lock,
+  unlock = $unlock;
 // holding the lock: record a change and wake everyone waiting on this channel,
 // and any select; an async function on this thread waiting for it wakes at once
 const changed: (c: number) => void = c => {

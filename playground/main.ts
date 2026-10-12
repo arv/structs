@@ -27,6 +27,7 @@ import nbodyTs from './programs/nbody-ts.ts?raw';
 import pipeline from './programs/pipeline.ts?raw';
 import refcount from './programs/refcount.ts?raw';
 import share from './programs/share.ts?raw';
+import sharedMap from './programs/shared-map.ts?raw';
 import sharedVector from './programs/shared-vector.ts?raw';
 import sieve from './programs/sieve.ts?raw';
 import strings from './programs/strings.ts?raw';
@@ -61,6 +62,7 @@ const PRESETS: [string, string, string][] = [
   ['Basics', 'Channels: a pipeline', channelPipeline],
   ['Basics', 'Channels: a pool of workers', channelWorkers],
   ['Basics', 'Async goroutines: ten thousand waiting', asyncGoroutines],
+  ['Basics', 'SharedMap and SharedSet: counting words', sharedMap],
   ['Examples', 'N-body: shared structs and a barrier', nbodyStruct],
   ['Examples', 'N-body: shared structs and channels', nbodyChanStruct],
   ['Examples', 'N-body: moving and sharing objects', nbodyTs],

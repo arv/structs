@@ -554,6 +554,10 @@ const munlock: (i: number) => void = i => {
     Atomics.notify(I32, i, 1);
   }
 };
+// the same for a cell's lock word (a channel's, a map's): held only for a few
+// loads and stores, never across a wait or user code
+export const $lock = mlock,
+  $unlock = munlock;
 
 // ---- free lists, for the blocks own.ts frees ----
 // a block of up to 2 KiB goes on the list for its size, and each thread keeps a
@@ -939,6 +943,17 @@ export function $intern(s: string) {
 // the address of s if this thread has interned or read it already, else 0: a
 // lookup, no hashing
 export const $internedHere: (s: string) => number = s => strAddr.get(s) ?? 0;
+// the address of s if any thread has interned it, else 0: a lookup that adds
+// nothing to the table
+export function $internFind(s: string) {
+  let a = strAddr.get(s);
+  if (a !== undefined) return a;
+  a = strFind(Atomics.load(I32, C_STR_TABLE), s, strHash(s));
+  if (a < 0) return 0;
+  strAddr.set(s, a);
+  addrStr.set(a, s);
+  return a;
+}
 export function $str(a: number) {
   let s = addrStr.get(a);
   if (s !== undefined) return s;

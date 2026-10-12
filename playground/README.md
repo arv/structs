@@ -51,9 +51,10 @@ thousand async goroutines waiting for a database replica. Then the bigger
 examples: N-body four ways (shared structs with a barrier, shared structs with
 channels, moving and sharing objects, channels copying objects), Mandelbrot on
 channels, JSON parsed on threads, the nearest-centers example, what channels
-cost, reference counting under a race, a growable `SharedVector` written in user
-space on the API, and the mistakes the checker catches. Each exports `main`,
-which the page calls with the thread counts to run with.
+cost, reference counting under a race, a SharedMap and a SharedSet counting
+words, a growable `SharedVector` written in user space on the API, and the
+mistakes the checker catches. Each exports `main`, which the page calls with the
+thread counts to run with.
 
 Compiled, and with the types only erased, on an Apple M5 Pro, ms on 1/2/4/8
 threads:

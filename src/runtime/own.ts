@@ -87,7 +87,8 @@ const T_UNDEF = 1,
   T_SHARED = 8,
   T_CELL = 9,
   T_COUNTED = 10,
-  T_ISTR = 11;
+  T_ISTR = 11,
+  T_CELL_COUNTED = 12;
 
 // writing: into a growing private buffer, then copied into the heap in one
 // piece
@@ -274,7 +275,14 @@ function put(
     }
   } else {
     if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
-    if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
+    if (v.$cell !== undefined) {
+      // a struct, SharedArray or map: the value holds a count of it, so it
+      // outlives the sender's handle. a moved value's reader gives the count
+      // back once it has a handle of its own; a shared value keeps it
+      if (!counted(I32[v.$cell >> 2])) return box(at, T_CELL, v.$cell);
+      __retain(v.$cell);
+      return box(at, freeze ? T_CELL : T_CELL_COUNTED, v.$cell);
+    }
     // a runtime.ts Lock or Condition
     if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]);
     if (!Array.isArray(v))
@@ -386,6 +394,11 @@ function get(base: number, at: number, frozen: boolean): unknown {
       return materialize(p);
     case T_CELL:
       return cell(p);
+    case T_CELL_COUNTED: {
+      const c = cell(p);
+      __release(p);
+      return c;
+    }
     case T_COUNTED:
       if (countedInto !== null) countedInto.push(p);
       return p; // else the reader owns it
@@ -501,11 +514,17 @@ export function __unmessage<T = unknown>(a: number, bytes: number) {
 export function share<T>(v: T) {
   if (v === null || typeof v !== 'object') return v;
   if (sharedAddr.has(v)) return v;
-  sharedAddr.set(v, write(v as Sent, null, true));
+  const a = write(v as Sent, null, true);
+  sharedAddr.set(v, a);
+  copies.set(a, v); // this thread's copy is v itself
   return v;
 }
+// the blob of a shared value, if v is one (a map holds it by that)
+export const __sharedAddress: (v: object) => number | undefined = v =>
+  sharedAddr.get(v);
 // a shared blob, as this thread's own frozen copy (made once)
 const copies = new Map<number, unknown>();
+export const __materialize = (a: number) => materialize(a);
 function materialize(a: number) {
   let v = copies.get(a);
   if (v === undefined) {
@@ -521,9 +540,13 @@ const K_BARRIER = 20,
   K_SLOTS = 21,
   K_F64 = 22,
   K_SHARED_ARRAY = 23;
-// structs and SharedArrays (REFCOUNT.md)
+// counted cells defined outside this module (maps.ts): what freeing a block of
+// their kind releases and frees, given drop, which gives back a count it held
+type Destroy = (b: number, drop: (p: number) => void) => void;
+const destroys = new Map<number, Destroy>();
+// structs, SharedArrays and those (REFCOUNT.md)
 const counted: (kind: number) => boolean = kind =>
-  kind === K_SHARED_ARRAY || kind >= 100;
+  kind === K_SHARED_ARRAY || kind >= 100 || destroys.has(kind);
 // a cell's object in this thread; a Lock's or a Condition's is runtime.ts's
 // handle ($h)
 type CellValue = CellObject | Handle | Int32Array;
@@ -572,6 +595,16 @@ export const __cellKind = (kind: number, Cls: CellClass) => {
 };
 export const __newCell = (kind: number, bytes: number, self: CellObject) =>
   newCell(kind, bytes, self);
+// a counted kind's class, and how one of its blocks is freed. a block of it
+// starts [kind][count], and its handles hold counts as a struct's do
+export const __countedCellKind = (
+  kind: number,
+  Cls: CellClass,
+  destroy: Destroy,
+) => {
+  cellKinds.set(kind, Cls);
+  destroys.set(kind, destroy);
+};
 const newCell = (kind: number, bytes: number, self: CellObject) => {
   const a = $alloc(bytes);
   I32[a >> 2] = kind;
@@ -898,8 +931,10 @@ function destroy(o: number) {
   };
   while (work.length !== 0) {
     const b = work.pop()!,
-      kind = I32[b >> 2];
-    if (kind === K_SHARED_ARRAY) {
+      kind = I32[b >> 2],
+      d = destroys.get(kind);
+    if (d !== undefined) d(b, drop);
+    else if (kind === K_SHARED_ARRAY) {
       const n = I32[(b >> 2) + 1],
         size = elementSize(b);
       if (size > 8 && n !== 0) {
@@ -952,6 +987,10 @@ class CountedArg {
 }
 export const __ref: (a: number) => CountedArg = a =>
   new CountedArg(__retain(a));
+// a counted result the compiler returns to the runtime (a callback's of a
+// runtime function whose result is `Sending`, as a SharedMap's
+// getOrInsertComputed's): it carries its count already
+export const __moved: (a: number) => CountedArg = a => new CountedArg(a);
 // where get() records the counted values it reads: a thread's arguments,
 // released when its function returns, or null, when the reader owns them (a
 // channel message's receiver)

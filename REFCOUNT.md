@@ -73,6 +73,7 @@ with the epoch it last saw at a quiescent point.
 | `__release(p)`                             | −1, frees at 0 and releases its reference fields; nothing for 0                                                                                                              |
 | `__store(i, v)`                            | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v                                                                          |
 | `__ref(v)`                                 | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
+| `__moved(v)`                               | a counted result that a callback returns to the runtime (a SharedMap's getOrInsertComputed's): it carries its count already                                                  |
 | `__quiescent()`                            | a quiescent point                                                                                                                                                            |
 | `__box(p)`                                 | this thread's handle for p, which holds a count of its own; a FinalizationRegistry releases it when the handle is collected                                                  |
 | `__unbox(v)`                               | the handle's address, borrowed                                                                                                                                               |
@@ -121,14 +122,19 @@ Rules:
    E if owned, else `__retain(E)`. If `e` is an unstable borrow and E contains a
    call, `e` is retained first.
 6. **Field reads.** `e.f` is `__I32[(e >> 2) + 2 + 2k]`.
-7. **Threads and channels.** A counted argument to a `Sending<T>` parameter of a
-   declared function (`spawn`, `s.spawn`, `go`, a channel's `send`) is passed as
-   `__ref(E)`. A channel's `send` also moves it: using the variable, or a local
-   alias of it, afterwards is an error. A thread's arguments share it instead,
-   so one SharedArray can go to every thread. A `for...of` over a channel owns
-   each value and releases it at the end of the iteration. `select` over
-   channels of counted values is rejected: nothing could count the values in the
-   tuple it returns.
+7. **Threads, channels and maps.** A counted argument to a `Sending<T>`
+   parameter of a declared function (`spawn`, `s.spawn`, `go`, a channel's
+   `send`, a SharedMap's `set`) is passed as `__ref(E)`. A channel's `send` also
+   moves it: using the variable, or a local alias of it, afterwards is an error.
+   A rest parameter shares it instead: a thread's arguments, so one SharedArray
+   can go to every thread, and a SharedMap's or SharedSet's entry
+   (`set(...entry)`), so a struct stays the caller's. A callback whose type in
+   the runtime has a `Sending` result (getOrInsertComputed's) returns a counted
+   value as `__moved(E)`, with its count. A map or set holds a count on each
+   counted key and value, defers the decrement of one it drops, and releases the
+   rest when it is freed. A `for...of` over a channel owns each value and
+   releases it at the end of the iteration. `select` over channels of counted
+   values is rejected: nothing could count the values in the tuple it returns.
 8. **Closures.** A closure that captures counted variables is wrapped:
    `__hold(fn, x, y)`. A counted variable captured by a closure cannot be
    reassigned.
@@ -140,8 +146,9 @@ Rules:
 11. **Ordinary containers.** A raw address stored in a JS array or object is
     invisible to counting; the checker rejects literals, element and property
     stores, destructuring and for-of over them. It cannot see a store made by a
-    generic call (`list.push(node)`, `map.set(k, node)`): that is still a hole,
-    to be closed by boxing at generic boundaries or rejecting such calls.
+    generic call (`list.push(node)`, `map.set(k, node)` on a JS Map): that is
+    still a hole, to be closed by boxing at generic boundaries or rejecting such
+    calls. A SharedMap or SharedSet is the container that counts (7).
 
 ## Limits
 

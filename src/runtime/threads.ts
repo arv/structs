@@ -1,12 +1,14 @@
 // threads for JavaScript in plain TypeScript (types: threads.d.ts): the API
 // programs import, over own.ts (own and shared values, cells, shared structs,
-// reference counts) and chan.ts (goroutines and channels). The bundler plugin
-// (vite-plugin-threads.ts) compiles what imports it; the helpers it emits
+// reference counts), chan.ts (goroutines and channels) and maps.ts (SharedMap
+// and SharedSet). The bundler plugin (vite-plugin-threads.ts) compiles what
+// imports it; the helpers it emits
 // (__F64, __retain, ...) come from here too
 import {__sharedStruct, __heapStats} from './own.ts';
 
 export * from './own.ts';
 export * from './chan.ts';
+export * from './maps.ts';
 
 // shared structs: struct({ x: f64, n: i32, done: bool, name: str, next: ref()
 // }) is a struct type, a class whose instances are handles on a block of shared

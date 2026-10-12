@@ -342,6 +342,73 @@ export declare class Slots<T> implements Cell {
   flat(): Shared<T extends readonly (infer E)[] ? E[] : T[]>;
 }
 
+// ---- maps and sets ----
+
+/**
+ * A Map in shared memory, which any number of threads read and write: Map's
+ * methods, with Map's semantics. Keys are compared as SameValueZero (a string by
+ * its text, a cell or a shared value by identity), and iteration is in
+ * insertion order: a loop sees entries added while it runs, and skips those
+ * deleted before it gets to them. Keys and values are what can be shared: a
+ * number, a string, a boolean, null, undefined, a cell (a shared struct, a
+ * SharedArray, a Channel, a SharedMap...), a shared value, or a plain object or
+ * array, which moves in and is shared (frozen). Each call is atomic, and a loop
+ * sees other threads' changes between its steps. Strings are interned, as `str`
+ * fields' are.
+ */
+export declare class SharedMap<K, V> implements Cell {
+  readonly [cellBrand]: true;
+  constructor(entries?: Sending<Iterable<readonly [K, V]>> | null);
+  readonly size: number;
+  get(key: K): Shared<V> | undefined;
+  has(key: K): boolean;
+  set(...entry: Sending<[key: K, value: V]>): this;
+  /** The key's value, after adding `value` for it if it has none. */
+  getOrInsert(...entry: Sending<[key: K, value: V]>): Shared<V>;
+  /**
+   * The key's value, after adding `callback(key)` for it if it has none. If
+   * another thread adds the key while the callback runs, its value is kept and
+   * returned (Map's would be replaced), so threads adding one key get one value.
+   */
+  getOrInsertComputed(
+    ...entry: Sending<[key: K, callback: (key: K) => Sending<V>]>
+  ): Shared<V>;
+  delete(key: K): boolean;
+  clear(): void;
+  forEach(
+    callback: (value: Shared<V>, key: Shared<K>, map: SharedMap<K, V>) => void,
+    thisArg?: unknown,
+  ): void;
+  keys(): IterableIterator<Shared<K>>;
+  values(): IterableIterator<Shared<V>>;
+  entries(): IterableIterator<[Shared<K>, Shared<V>]>;
+  [Symbol.iterator](): IterableIterator<[Shared<K>, Shared<V>]>;
+  readonly [Symbol.toStringTag]: string;
+}
+
+/**
+ * A Set in shared memory: Set's methods, with Set's semantics, as SharedMap has
+ * Map's.
+ */
+export declare class SharedSet<T> implements Cell {
+  readonly [cellBrand]: true;
+  constructor(values?: Sending<Iterable<T>> | null);
+  readonly size: number;
+  has(value: T): boolean;
+  add(...value: Sending<[value: T]>): this;
+  delete(value: T): boolean;
+  clear(): void;
+  forEach(
+    callback: (value: Shared<T>, value2: Shared<T>, set: SharedSet<T>) => void,
+    thisArg?: unknown,
+  ): void;
+  keys(): IterableIterator<Shared<T>>;
+  values(): IterableIterator<Shared<T>>;
+  entries(): IterableIterator<[Shared<T>, Shared<T>]>;
+  [Symbol.iterator](): IterableIterator<Shared<T>>;
+  readonly [Symbol.toStringTag]: string;
+}
+
 // ---- goroutines and channels ----
 
 /**
