@@ -1,6 +1,7 @@
-// Porffor's threads/playground/presets/2-mandelbrot.js with goroutines and channels (chan.js): a job channel
-// of rows to draw, and a result channel of drawn rows. The workers share nothing but the two
-// channels; a drawn row moves back to main.
+// Porffor's threads/playground/presets/2-mandelbrot.js with goroutines and
+// channels (chan.js): a job channel of rows to draw, and a result channel of
+// drawn rows. The workers share nothing but the two channels; a drawn row moves
+// back to main.
 //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
 //   node run.js build/ts/mandelbrot-chan.js
 import {Channel, go, log} from './threads.js';
@@ -63,7 +64,8 @@ function render(threads: number): number[][] {
   return rows;
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark can repeat them
+// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0,
     rows: number[][] = [];

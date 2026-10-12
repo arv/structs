@@ -1,5 +1,6 @@
-// check(tsconfigPath, { runtime }): the diagnostics that `tsgo own check -p <tsconfig> --ownRuntime
-// <runtime>` reports, computed with TypeScript 7.1's API instead of a fork of the compiler.
+// check(tsconfigPath, { runtime }): the diagnostics that
+// `tsgo own check -p <tsconfig> --ownRuntime <runtime>` reports, computed with
+// TypeScript 7.1's API instead of a fork of the compiler.
 
 import {isAbsolute, resolve} from 'node:path';
 import type {SourceFile} from 'typescript/ast';
@@ -16,14 +17,16 @@ import {K} from './syntax.ts';
 import type {Node} from './syntax.ts';
 
 export interface CheckOptions {
-  // The module specifier programs import the runtime from (`threads`, `./threads.js`): its exports
-  // are the markers.
+  // The module specifier programs import the runtime from (`threads`,
+  // `./threads.js` ): its exports are the markers.
   runtime: string;
-  // An API session to use (and leave open); by default one is started and closed.
+  // An API session to use (and leave open); by default one is started and
+  // closed.
   api?: API;
 }
 
-// An error that means the project could not be checked (a missing tsconfig, an API failure).
+// An error that means the project could not be checked (a missing tsconfig, an
+// API failure).
 export class CheckError extends Error {}
 
 export function check(
@@ -74,8 +77,9 @@ function checkProgram(
   if (moduleKind < ModuleKind.ES2015)
     diagnostics.push(optionDiagnostic(host, tsconfig, 'ownRuntime'));
 
-  // The program's files, but for the default library and the declaration files of packages (which
-  // the fork looks at too, but which never use the runtime: fetching them would be costly).
+  // The program's files, but for the default library and the declaration files
+  // of packages (which the fork looks at too, but which never use the runtime:
+  // fetching them would be costly).
   const names = program.getSourceFileNames();
   const metadata = api.batch(
     ...names.map(name => program.getSourceFileMetadata.gen(name)),
@@ -109,9 +113,9 @@ function checkProgram(
 
   const checked = files.filter(f => !f.isDeclarationFile);
   const c = new Own(host, runtime, [...runtimeFiles.values()], checked);
-  // (The fork runs these checks after checking each file; the API's checker answers questions in
-  // the order they are asked, and its diagnostics come from other checkers, so there is no checking
-  // a file first here.)
+  // (The fork runs these checks after checking each file; the API's checker
+  // answers questions in the order they are asked, and its diagnostics come
+  // from other checkers, so there is no checking a file first here.)
   for (const file of checked) host.prefetch(file);
   for (const file of checked) {
     checkOwnership(c, file);
@@ -127,8 +131,9 @@ function checkProgram(
   return sortAndDeduplicate(diagnostics);
 }
 
-// The diagnostic of an option (program.go's createDiagnosticForOptionName): on the option's key in
-// the tsconfig's compilerOptions, or else on the `compilerOptions` key, or else global.
+// The diagnostic of an option (program.go's createDiagnosticForOptionName): on
+// the option's key in the tsconfig's compilerOptions, or else on the
+// `compilerOptions` key, or else global.
 function optionDiagnostic(
   host: Host,
   tsconfig: string,
@@ -167,9 +172,9 @@ function optionDiagnostic(
   };
 }
 
-// Reports whether a `// @ts-ignore` or `// @ts-expect-error` comment above a position suppresses a
-// diagnostic there (the program's filter of semantic diagnostics), looking up through blank and
-// comment lines.
+// Reports whether a `// @ts-ignore` or `// @ts-expect-error` comment above a
+// position suppresses a diagnostic there (the program's filter of semantic
+// diagnostics), looking up through blank and comment lines.
 function isSuppressed(file: SourceFile, pos: number): boolean {
   const text = file.text;
   const starts = file.getLineStarts();

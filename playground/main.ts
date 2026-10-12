@@ -1,8 +1,11 @@
-// The playground: edit a program in Monaco, with TypeScript's types from the threads API; see the
-// JavaScript it compiles to (with the tsgo fork, or with its types only erased) and the ownership
-// checker's errors; run it on the page's pool of workers. The Vite plugin's dev server compiles (POST
-// /__threads/compile); the page imports the result as a module, and so do the workers.
-import 'threads/heap'; // first: the shared memory, before anything that uses it loads
+// The playground: edit a program in Monaco, with TypeScript's types from the
+// threads API; see the JavaScript it compiles to (with the tsgo fork, or with
+// its types only erased) and the ownership checker's errors; run it on the
+// page's pool of workers. The Vite plugin's dev server compiles (POST
+// /__threads/compile); the page imports the result as a module, and so do the
+// workers.
+// first: the shared memory, before anything that uses it loads
+import 'threads/heap';
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
@@ -45,7 +48,8 @@ type Result = {
   erased: {js: string | null; error: string | null; added: number};
 };
 
-// [group, name, source]: the basics first, one idea each, then the bigger examples
+// [group, name, source]: the basics first, one idea each, then the bigger
+// examples
 const PRESETS: [string, string, string][] = [
   ['Basics', 'Hello, threads', hello],
   ['Basics', 'Moving a value to a thread', move],
@@ -70,8 +74,9 @@ const PRESETS: [string, string, string][] = [
   ['Examples', 'Mistakes the checker catches', mistakes],
 ];
 
-// what the page remembers in this browser: the program picked last, by name, and each program's text
-// as edited (none once it is back to the original). storage can be blocked: then nothing is kept
+// what the page remembers in this browser: the program picked last, by name,
+// and each program's text as edited (none once it is back to the original).
+// storage can be blocked: then nothing is kept
 const storage = {
   get: (key: string) => {
     try {
@@ -130,7 +135,8 @@ self.MonacoEnvironment = {
       ? new TsWorker()
       : new EditorWorker(),
 };
-// the editor's TypeScript sees the threads API as the module "threads", as tsc does
+// the editor's TypeScript sees the threads API as the module "threads", as tsc
+// does
 const ts = monaco.typescript;
 ts.typescriptDefaults.setCompilerOptions({
   target: ts.ScriptTarget.ESNext,
@@ -186,13 +192,14 @@ const jsEditor = monaco.editor.create($('js'), {
 });
 const added = jsEditor.createDecorationsCollection();
 
-// what the compiler added (or, erased, the one line the runtime needs), marked in the JavaScript
+// what the compiler added (or, erased, the one line the runtime needs), marked
+// in the JavaScript
 function markAdded() {
   const marks: monaco.editor.IModelDeltaDecoration[] = [];
   const lines = jsModel.getLinesContent();
   if (result && mode() === 'compiled') {
-    // the runtime's helpers, by the names the compile imported them as (`__F64_1` where the program
-    // has its own `__F64`)
+    // the runtime's helpers, by the names the compile imported them as
+    // (`__F64_1` where the program has its own `__F64` )
     const helpers = result.compiled.helpers;
     const helper = helpers.length
       ? new RegExp(`(?<![\\w$])(?:${helpers.join('|')})(?![\\w$])`, 'g')
@@ -238,8 +245,8 @@ function showJs() {
   showDiagnostics();
 }
 
-// ---- diagnostics: the ownership checker's are squiggles in the editor too (tsc's, the editor's own
-// TypeScript shows) ----
+// ---- diagnostics: the ownership checker's are squiggles in the editor too
+// (tsc's, the editor's own TypeScript shows) ----
 function showDiagnostics() {
   if (!result) return;
   const {ownership, types, checker, checkMs} = result.compiled;
@@ -332,7 +339,8 @@ function updateRun() {
   runButton.disabled = running || !code || compilingNow;
 }
 
-// ---- running: the program's lines, with the 256-color backgrounds Mandelbrot draws with ----
+// ---- running: the program's lines, with the 256-color backgrounds Mandelbrot
+// draws with ----
 const BASIC = [
   '#000',
   '#800000',
@@ -407,7 +415,8 @@ runButton.addEventListener('click', async () => {
     );
     if (typeof program.main !== 'function')
       throw new Error('the program exports no main(threadCounts)');
-    await run(program.main, counts); // main runs on a worker, like any thread; the page awaits it
+    // main runs on a worker, like any thread; the page awaits it
+    await run(program.main, counts);
     print(
       `<div class="done">done in ${(performance.now() - t0).toFixed(0)} ms</div>`,
     );

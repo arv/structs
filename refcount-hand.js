@@ -1,14 +1,16 @@
-// reference counting (REFCOUNT.md), written by hand as the compiler emits it, to test the runtime:
+// reference counting (REFCOUNT.md), written by hand as the compiler emits it,
+// to test the runtime:
 //   node run.js refcount-hand --check
 // --check poisons freed blocks, so a read after free shows up as a bad value.
 //
 //   shared struct Node { value: number; check: number; next: Node | null }
 //   shared struct Box { item: Node | null }
 //
-// churn: builds and drops a 1000-node list 200 times; the heap stops growing once the free lists
-// hold a list's worth of blocks. race: one thread keeps replacing box.item with a fresh node while
-// others read box.item and its fields without counting the address (valid until their next
-// quiescent point), and now and then hold one, counted, across a quiescent point
+// churn: builds and drops a 1000-node list 200 times; the heap stops growing
+// once the free lists hold a list's worth of blocks. race: one thread keeps
+// replacing box.item with a fresh node while others read box.item and its
+// fields without counting the address (valid until their next quiescent point),
+// and now and then hold one, counted, across a quiescent point
 import {
   __F64,
   __I32,
@@ -29,7 +31,8 @@ import {K_FREE, POISON} from './runtime.js';
 
 const Node = __sharedStruct('Node', ['value', 'check', 'next'], [2]);
 const Box = __sharedStruct('Box', ['item'], [0]);
-// Node: value __F64[(p >> 3) + 1], check __F64[(p >> 3) + 2], next __I32[(p >> 2) + 6]; Box: item __I32[(p >> 2) + 2]
+// Node: value __F64[(p >> 3) + 1], check __F64[(p >> 3) + 2], next __I32[(p >>
+// 2) + 6]; Box: item __I32[(p >> 2) + 2]
 
 // function makeList(n: number): Node | null
 function makeList(n) {
@@ -117,8 +120,9 @@ function reader(box, rounds) {
   let bad = 0,
     x = 0;
   for (let i = 0; i < rounds; i++) {
-    // by hand: box.item read once and not counted, its fields read with no call in between. the
-    // compiler counts a local like this; the runtime has to keep it valid until the next quiescent point
+    // by hand: box.item read once and not counted, its fields read with no call
+    // in between. the compiler counts a local like this; the runtime has to
+    // keep it valid until the next quiescent point
     const t = __I32[(box >> 2) + 2];
     if (t !== 0) {
       const v = __F64[(t >> 3) + 1];
@@ -167,8 +171,9 @@ function race(readers) {
   }
 }
 
-// handles: uncompiled code uses the struct class; each handle holds a count until V8 collects it and
-// the registry gives it back, which a worker does between threads
+// handles: uncompiled code uses the struct class; each handle holds a count
+// until V8 collects it and the registry gives it back, which a worker does
+// between threads
 function handles(n) {
   let sum = 0;
   for (let i = 0; i < n; i++) {
@@ -187,7 +192,8 @@ export function main(threadCounts) {
   scope(s => {
     s.spawn(handles, 100000).join();
   });
-  // the worker finalizes its handles when V8 collects them: wait up to 2 s for it
+  // the worker finalizes its handles when V8 collects them: wait up to 2 s for
+  // it
   const sleep = new Int32Array(new SharedArrayBuffer(4));
   let h1 = __heapStats();
   for (let k = 0; k < 40 && h1.freed - h0.freed < 200000; k++) {

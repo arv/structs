@@ -1,5 +1,6 @@
-// summarizes a DevTools performance trace (chrome.js --trace=...): for each thread that ran
-// JS, its sampled CPU time and the functions that took it (self time)
+// summarizes a DevTools performance trace (chrome.js --trace=...): for each
+// thread that ran JS, its sampled CPU time and the functions that took it (self
+// time)
 //   node trace-summary.js trace.json [--top=12]
 import fs from 'node:fs';
 
@@ -15,7 +16,8 @@ for (const e of events)
   if (e.ph === 'M' && e.name === 'thread_name')
     threadName.set(`${e.pid}:${e.tid}`, e.args.name);
 
-// a CPU profile per isolate: Profile starts it, ProfileChunks carry nodes, samples and time deltas
+// a CPU profile per isolate: Profile starts it, ProfileChunks carry nodes,
+// samples and time deltas
 const profiles = new Map();
 for (const e of events) {
   if (e.name === 'Profile')

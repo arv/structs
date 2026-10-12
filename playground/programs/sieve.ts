@@ -1,6 +1,7 @@
-// A SharedArray of booleans holds one byte per element, in shared memory. Here the threads run a sieve
-// of Eratosthenes over one array of N flags: each crosses out the multiples of the small primes in its
-// own part of the array, so no two threads write the same element, and main counts what is left once
+// A SharedArray of booleans holds one byte per element, in shared memory. Here
+// the threads run a sieve of Eratosthenes over one array of N flags: each
+// crosses out the multiples of the small primes in its own part of the array,
+// so no two threads write the same element, and main counts what is left once
 // scope has joined them.
 import {log, scope, share, type Shared, SharedArray} from 'threads';
 
@@ -31,10 +32,11 @@ function crossOut(
   }
 }
 
-// main runs on a worker too: the playground starts it as a thread, so it may block (scope waits for
-// the threads it started)
+// main runs on a worker too: the playground starts it as a thread, so it may
+// block (scope waits for the threads it started)
 export function main(threadCounts: readonly number[]) {
-  const primes = share(smallPrimes(Math.floor(Math.sqrt(N)))); // every thread reads the same list
+  // every thread reads the same list
+  const primes = share(smallPrimes(Math.floor(Math.sqrt(N))));
   for (const threads of threadCounts) {
     const composite = new SharedArray(Boolean, N),
       t0 = performance.now();

@@ -1,8 +1,9 @@
 # own-threads
 
-Threads for JavaScript, in plain TypeScript. Real parallelism on Web Workers and a
-`SharedArrayBuffer`, with a programming model you can reason about: every value is owned by one
-thread, shared read-only, or a cell built for sharing, and a checker proves you follow the rules.
+Threads for JavaScript, in plain TypeScript. Real parallelism on Web Workers and
+a `SharedArrayBuffer`, with a programming model you can reason about: every
+value is owned by one thread, shared read-only, or a cell built for sharing, and
+a checker proves you follow the rules.
 
 ```ts
 import {
@@ -43,17 +44,17 @@ export function main(threads: number) {
 }
 ```
 
-> **Status: experimental.** The API, the checker and the runtime work and are tested, but the
-> compiler that lays shared structs out in shared memory is a fork of TypeScript 7 that is not
-> published yet. See [Status](#status).
+> **Status: experimental.** The API, the checker and the runtime work and are
+> tested, but the compiler that lays shared structs out in shared memory is a
+> fork of TypeScript 7 that is not published yet. See [Status](#status).
 
 Try it in the browser, with the compiled JavaScript side by side:
 [arv/threads](https://github.com/arv/threads/tree/main/playground).
 
 ## The model
 
-A thread is a worker with its own JavaScript heap, and objects cannot cross between heaps. So every
-value is one of three kinds:
+A thread is a worker with its own JavaScript heap, and objects cannot cross
+between heaps. So every value is one of three kinds:
 
 | Kind   | In the types                                                | Crosses threads by                                       | For                                                             |
 | ------ | ----------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
@@ -61,8 +62,8 @@ value is one of three kinds:
 | Shared | `Shared<T>`, deeply readonly                                | being frozen: every thread reads its own copy, made once | tables, settings, lookups                                       |
 | Cell   | `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
 
-Code inside a thread is plain JavaScript on plain objects, at full speed. The cost is at the
-crossings, and the types say where they are.
+Code inside a thread is plain JavaScript on plain objects, at full speed. The
+cost is at the crossings, and the types say where they are.
 
 ```ts
 import {log, share, spawn, type Sending, type Shared} from 'own-threads';
@@ -92,10 +93,11 @@ export function main() {
 }
 ```
 
-Threads can also talk the way Go does: `go(f, ...args)` starts a goroutine, and a `Channel<T>` moves
-values between threads in order (`send`, `recv`, `for (const v of channel)`, `select`). A goroutine
-of an async function is light, as Go's are: a worker runs thousands of them, each waiting with
-`await` without blocking the others.
+Threads can also talk the way Go does: `go(f, ...args)` starts a goroutine, and
+a `Channel<T>` moves values between threads in order (`send`, `recv`,
+`for (const v of channel)`, `select`). A goroutine of an async function is
+light, as Go's are: a worker runs thousands of them, each waiting with `await`
+without blocking the others.
 
 ```ts
 interface Replica {
@@ -127,13 +129,14 @@ npm install own-threads
 npm install --save-dev own-threads-check   # the ownership checker
 ```
 
-own-threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a browser with
-`SharedArrayBuffer`.
+own-threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a browser
+with `SharedArrayBuffer`.
 
 ## Set up
 
-**1. The Vite plugin** compiles your TypeScript, registers the functions threads run, and sets the
-cross-origin isolation headers that `SharedArrayBuffer` needs on the dev and preview servers.
+**1. The Vite plugin** compiles your TypeScript, registers the functions threads
+run, and sets the cross-origin isolation headers that `SharedArrayBuffer` needs
+on the dev and preview servers.
 
 ```js
 // vite.config.js
@@ -144,9 +147,9 @@ export default {
 };
 ```
 
-**2. The page** imports the shared memory first, then runs functions on the pool of workers. `main`
-runs on a worker too, so it may block (join a thread, wait on a barrier, receive from a channel); the
-page only awaits its result.
+**2. The page** imports the shared memory first, then runs functions on the pool
+of workers. `main` runs on a worker too, so it may block (join a thread, wait on
+a barrier, receive from a channel); the page only awaits its result.
 
 ```ts
 // main.ts, the page's entry module
@@ -157,10 +160,11 @@ import {main} from './app.ts';
 console.log(await run(main, 8));
 ```
 
-**3. The checker** runs in CI like a linter. It reports what TypeScript's types cannot see: a value
-used after it was sent, an alias of something sent, sending what the caller still holds, a write to a
-shared value through a cast, a number that may not be an integer stored into an `i32` or a `u8`, a
-blocking call in an async function.
+**3. The checker** runs in CI like a linter. It reports what TypeScript's types
+cannot see: a value used after it was sent, an alias of something sent, sending
+what the caller still holds, a write to a shared value through a cast, a number
+that may not be an integer stored into an `i32` or a `u8`, a blocking call in an
+async function.
 
 ```sh
 npx own-threads-check -p tsconfig.json --runtime own-threads
@@ -170,7 +174,8 @@ npx own-threads-check -p tsconfig.json --runtime own-threads
 app.ts(23,16): error TS96007: 'order' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 ```
 
-**In production**, your server must send `Cross-Origin-Opener-Policy: same-origin` and
+**In production**, your server must send
+`Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`.
 
 ## API
@@ -206,9 +211,9 @@ All from `"own-threads"`, unless noted.
 | `ch.sendAsync(v)`, `ch.recvAsync()`, `for await (const v of ch)` | The same in an async function: waits without blocking its worker.                                                                                |
 | `select(...channels)`, `selectAsync(...channels)`                | Waits for the first channel with a value: `[index, value]`.                                                                                      |
 
-**Shared memory**: data many threads read and write in place, with no copying. Reads and writes are
-not ordered between threads: a `Barrier`, a `Channel`, joining a thread or an atomic operation
-orders them.
+**Shared memory**: data many threads read and write in place, with no copying.
+Reads and writes are not ordered between threads: a `Barrier`, a `Channel`,
+joining a thread or an atomic operation orders them.
 
 |                                                                          |                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -217,10 +222,12 @@ orders them.
 | `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline.                                                                                                                                   |
 | `atomic.add(s, "field", v)`, `atomic.add(array, i, v)`                   | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
 
-`i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array` keeps them (2³¹ wraps,
-and 256 is 0). The checker requires an integer of what is stored into one: integer arithmetic, or an
-explicit conversion such as `Math.round(x)` or `x | 0`, never a number that may have a fraction, which
-the store would truncate silently. Threads can claim work from one counter, with no lock:
+`i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array`
+keeps them (2³¹ wraps, and 256 is 0). The checker requires an integer of what is
+stored into one: integer arithmetic, or an explicit conversion such as
+`Math.round(x)` or `x | 0`, never a number that may have a fraction, which the
+store would truncate silently. Threads can claim work from one counter, with no
+lock:
 
 ```ts
 const Work = struct({next: i32});
@@ -229,8 +236,8 @@ function worker(work: Struct<typeof Work>, n: number) {
 }
 ```
 
-Structs and SharedArrays are reference counted and freed when no thread can reach them. A struct
-that refers to its own type is declared with an interface:
+Structs and SharedArrays are reference counted and freed when no thread can
+reach them. A struct that refers to its own type is declared with an interface:
 
 ```ts
 interface Node {
@@ -240,12 +247,12 @@ interface Node {
 const Node = struct<Node>({value: f64, next: ref<Node>()});
 ```
 
-**The page** (`"own-threads/browser"`): `start({ workers, check, onLog })` starts the pool (one
-worker per core by default; `run` starts it if needed), `run(f, ...args)` runs `f` on a thread and
-resolves with its result, `stop()`.
+**The page** (`"own-threads/browser"`): `start({ workers, check, onLog })`
+starts the pool (one worker per core by default; `run` starts it if needed),
+`run(f, ...args)` runs `f` on a thread and resolves with its result, `stop()`.
 
-**Odds and ends**: `log(...args)` prints a line from any thread; `heapStats()` reports shared memory
-in use and blocks allocated and freed.
+**Odds and ends**: `log(...args)` prints a line from any thread; `heapStats()`
+reports shared memory in use and blocks allocated and freed.
 
 ## Performance
 
@@ -257,29 +264,35 @@ On an Apple M5 Pro, ms on 1, 2, 4 and 8 threads:
 | Mandelbrot on goroutines and channels                             | 712, 341, 180, 97 |
 | A sieve of Eratosthenes on a `SharedArray<boolean>` of 10 million | 76, 56, 40, 37    |
 
-Values cross threads about as fast as JSON would carry them, and are read back faster: moving 50,000
-parsed JSON requests costs about 1.1 times `JSON.stringify` to write and a third of `JSON.parse` to
-read. Each distinct set of keys is written once per message, strings repeated in a value are written
+Values cross threads about as fast as JSON would carry them, and are read back
+faster: moving 50,000 parsed JSON requests costs about 1.1 times
+`JSON.stringify` to write and a third of `JSON.parse` to read. Each distinct set
+of keys is written once per message, strings repeated in a value are written
 once, and ASCII text is stored a byte per character.
 
 ## Status
 
-- **The compiler is a fork.** Shared structs and SharedArrays are compiled to typed-array reads and
-  writes (`b.x` becomes `__F64[(b >> 3) + 1]`), and their references are counted, by a fork of
-  TypeScript 7.0.2 that is not published yet; the plugin's `tsgo` option names its binary. With
-  types only erased, programs still run, and a use after move still throws, but each struct is a
+- **The compiler is a fork.** Shared structs and SharedArrays are compiled to
+  typed-array reads and writes (`b.x` becomes `__F64[(b >> 3) + 1]`), and their
+  references are counted, by a fork of TypeScript 7.0.2 that is not published
+  yet; the plugin's `tsgo` option names its binary. With types only erased,
+  programs still run, and a use after move still throws, but each struct is a
   handle behind accessors, about 50 times slower.
-- **The checker needs no fork.** own-threads-check runs on stock TypeScript 7.1's API.
-- Shared memory is a fixed 256 MB. Structs and SharedArrays are reference counted, but cycles of them
-  leak. Channels are never freed. A moved value (a thread's arguments and result, a channel's message) is freed once it is
-  read; shared values and interned strings are never freed.
+- **The checker needs no fork.** own-threads-check runs on stock TypeScript
+  7.1's API.
+- Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
+  counted, but cycles of them leak. Channels are never freed. A moved value (a
+  thread's arguments and result, a channel's message) is freed once it is read;
+  shared values and interned strings are never freed.
 - A thread runs a top-level function: closures do not cross threads.
-- A goroutine of a plain function is a whole worker: one per core is fine, thousands are not. Async
-  goroutines are light but cooperative: one that computes without awaiting holds up the others on its
-  worker, and none moves to another worker once it has started.
-- Moving revokes the values moved, so using them throws; `start({ check: true })` revokes everything
-  inside them too.
+- A goroutine of a plain function is a whole worker: one per core is fine,
+  thousands are not. Async goroutines are light but cooperative: one that
+  computes without awaiting holds up the others on its worker, and none moves to
+  another worker once it has started.
+- Moving revokes the values moved, so using them throws;
+  `start({ check: true })` revokes everything inside them too.
 
 ## License
 
-Copyright 2026 Erik Arvidsson. Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Copyright 2026 Erik Arvidsson. Licensed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).

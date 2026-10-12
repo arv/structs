@@ -1,7 +1,9 @@
-// Porffor's threads/playground/presets/3-nbody.js with its bodies in a SharedArray of shared structs: the
-// preset's own code, nearly, with typed layouts. The tsgo fork lays `Body` out as 7 numbers in the
-// shared heap and compiles `bodies[i].x` to a typed-array read, so threads share the bodies with no
-// copying: each thread writes only its own slice, and the barriers order the reads and the writes.
+// Porffor's threads/playground/presets/3-nbody.js with its bodies in a
+// SharedArray of shared structs: the preset's own code, nearly, with typed
+// layouts. The tsgo fork lays `Body` out as 7 numbers in the shared heap and
+// compiles `bodies[i].x` to a typed-array read, so threads share the bodies
+// with no copying: each thread writes only its own slice, and the barriers
+// order the reads and the writes.
 //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
 //   node run.js build/ts/nbody-struct.js
 import {
@@ -124,7 +126,8 @@ function simulate(threads: number): number {
   return energy(bodies);
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark can repeat them
+// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0;
   for (const threads of threadCounts) {

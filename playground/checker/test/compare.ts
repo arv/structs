@@ -1,19 +1,22 @@
-// vp run test: runs threads-check and the fork's `tsgo own check` on the same projects and compares
-// their diagnostics (file, line, column, code and message).
+// vp run test: runs threads-check and the fork's `tsgo own check` on the same
+// projects and compares their diagnostics (file, line, column, code and
+// message).
 //
-// The projects: the cases in test/cases, the playground (with and without programs/mistakes.ts),
-// the fork's marker-mode compiler tests, the prototype's programs (at the repository's root) and the
-// scratchpad's mistakes. Projects outside this repository are skipped when they are not there.
-// Without the fork (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is compared
-// with its expected output in test/expected, which `vp run test --update` writes from the fork's
-// output.
+// The projects: the cases in test/cases, the playground (with and without
+// programs/mistakes.ts), the fork's marker-mode compiler tests, the prototype's
+// programs (at the repository's root) and the scratchpad's mistakes. Projects
+// outside this repository are skipped when they are not there. Without the fork
+// (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is
+// compared with its expected output in test/expected, which
+// `vp run test --update` writes from the fork's output.
 //
-// Only test/cases have stored expectations: the other projects change on their own, and the fork's
-// tests come with the fork.
+// Only test/cases have stored expectations: the other projects change on their
+// own, and the fork's tests come with the fork.
 //
-// Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (the prototype this grew out of,
-// by default the repository's root, above the playground), MISTAKES (directories, separated by
-// colons, each with a tsconfig.json of programs that import the runtime as ./threads.js).
+// Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (the
+// prototype this grew out of, by default the repository's root, above the
+// playground), MISTAKES (directories, separated by colons, each with a
+// tsconfig.json of programs that import the runtime as ./threads.js).
 
 import {spawnSync} from 'node:child_process';
 import {
@@ -50,8 +53,9 @@ interface Case {
   cwd: string; // diagnostics are printed relative to it
 }
 
-// The fork's messages name the `sending` keyword it parses; threads-check's name the plain TypeScript
-// type, `Sending<T>`. Otherwise the messages are the same.
+// The fork's messages name the `sending` keyword it parses; threads-check's
+// name the plain TypeScript type, `Sending<T>` . Otherwise the messages are the
+// same.
 function reword(line: string): string {
   return line
     .replace(
@@ -82,7 +86,8 @@ const knownDifferences: Record<string, {missing: string[]; reason: string}> = {
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'threads-check-')));
 const cases: Case[] = [];
 
-// test/cases: marker-mode programs against the playground's runtime/threads.d.ts.
+// test/cases: marker-mode programs against the playground's
+// runtime/threads.d.ts.
 for (const name of readdirSync(join(checkerDir, 'test/cases')).sort()) {
   const dir = join(checkerDir, 'test/cases', name);
   cases.push({
@@ -171,7 +176,8 @@ for (const dir of mistakes) {
   }
 }
 
-// A compiler test (`// @option: value` lines, then `// @filename: name` units) as a project.
+// A compiler test (`// @option: value` lines, then `// @filename: name` units)
+// as a project.
 function writeCompilerTest(text: string, dir: string): {runtime: string} {
   const options: Record<string, unknown> = {};
   const files: string[] = [];

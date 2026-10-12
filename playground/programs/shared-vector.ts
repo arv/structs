@@ -1,12 +1,14 @@
-// A growable vector of numbers in shared memory, written in user space: nothing here is built into
-// the runtime or the compiler. A SharedArray has a fixed length, so the vector is a shared struct
-// holding the length and a SharedArray with room to spare. Pushing past the room copies into an array
-// twice as big and stores it in the struct. A thread that read the old array a moment before keeps a
-// valid one: the old array's count drops only once every thread has passed a quiescent point, and
-// then it is freed.
+// A growable vector of numbers in shared memory, written in user space: nothing
+// here is built into the runtime or the compiler. A SharedArray has a fixed
+// length, so the vector is a shared struct holding the length and a SharedArray
+// with room to spare. Pushing past the room copies into an array twice as big
+// and stores it in the struct. A thread that read the old array a moment before
+// keeps a valid one: the old array's count drops only once every thread has
+// passed a quiescent point, and then it is freed.
 //
-// Reads and writes are plain and unordered between threads, as with any struct. One thread pushes at
-// a time: several writers share a lock, here a channel holding one token, Go's way.
+// Reads and writes are plain and unordered between threads, as with any struct.
+// One thread pushes at a time: several writers share a lock, here a channel
+// holding one token, Go's way.
 import {
   bool,
   Channel,
@@ -45,7 +47,8 @@ function push(v: SharedVector, x: number) {
   if (v.length === data.length) {
     const bigger = new SharedArray(Number, data.length * 2);
     for (let i = 0; i < v.length; i++) bigger[i] = data[i];
-    v.data = bigger; // the old array is freed once no thread can still be reading it
+    // the old array is freed once no thread can still be reading it
+    v.data = bigger;
     v.grows++;
     data = bigger;
   }
@@ -91,8 +94,8 @@ function writer(
   }
 }
 
-// reads the newest element until told to stop, while the vector grows under it: how many reads, and
-// how many values that no writer pushed
+// reads the newest element until told to stop, while the vector grows under it:
+// how many reads, and how many values that no writer pushed
 function reader(v: SharedVector, flag: Flag, max: number): number {
   let reads = 0,
     bad = 0;
@@ -104,7 +107,8 @@ function reader(v: SharedVector, flag: Flag, max: number): number {
     if (!(Number.isInteger(x) && x >= 0 && x < max)) bad++;
     reads++;
   }
-  return reads * 1e6 + bad; // two numbers in one: a thread's result is one value
+  // two numbers in one: a thread's result is one value
+  return reads * 1e6 + bad;
 }
 
 export function main(threadCounts: readonly number[]) {

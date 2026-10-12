@@ -1,31 +1,44 @@
-// compares the hand-translated programs with Porffor's own builds of the same presets
+// compares the hand-translated programs with Porffor's own builds of the same
+// presets
 //   node bench.js [--runs=5] [--programs=mandelbrot,nbody] [--only=js-node,...]
-// configurations (each a fresh process or browser per run; the median of --runs):
+// configurations (each a fresh process or browser per run; the median of
+// --runs):
 //   native      Porffor's native build (clang)
-//   wasm        Porffor's wasm32-wasip1-threads build on the playground's runner, in Chrome
+//   wasm        Porffor's wasm32-wasip1-threads build on the playground's
+//               runner, in Chrome
 //   js-node     the hand translation on node worker_threads
 //   js-chrome   the hand translation on Web Workers, in Chrome
-//   js-apoll    js-node with clean points polling by Atomics.load, not a plain load
-//   own-node    the program written for own and shared values (<program>-own.js), on node
+//   js-apoll    js-node with clean points polling by Atomics.load, not a plain
+//               load
+//   own-node    the program written for own and shared values
+//               (<program>-own.js), on node
 //   own-chrome  the same, on Web Workers in Chrome
-//   ts-node     the program in TypeScript, moving and sharing objects (<program>-ts.ts), as the tsgo fork
-//               emitted it (build/ts/<program>-ts.js: compile first, see tsconfig.json), on node
+//   ts-node     the program in TypeScript, moving and sharing objects
+//               (<program>-ts.ts), as the tsgo fork emitted it
+//               (build/ts/<program>-ts.js: compile first, see tsconfig.json),
+//               on node
 //   ts-chrome   the same, on Web Workers in Chrome
-//   cells-node  own and shared values with the hot data in a shared typed-array cell (<program>-cells.js)
+//   cells-node  own and shared values with the hot data in a shared typed-array
+//               cell (<program>-cells.js)
 //   cells-chrome  the same, in Chrome
 //   struct-node TypeScript with SharedArray and shared struct typed layouts
-//               (<program>-struct.ts, emitted as build/ts/<program>-struct.js), on node
+//               (<program>-struct.ts, emitted as build/ts/<program>-struct.js),
+//               on node
 //   struct-chrome the same, in Chrome
-//   chan-node   TypeScript with goroutines and channels (chan.js; <program>-chan.ts,
-//               emitted as build/ts/<program>-chan.js), on node
+//   chan-node   TypeScript with goroutines and channels (chan.js;
+//               <program>-chan.ts, emitted as build/ts/<program>-chan.js), on
+//               node
 //   chan-chrome the same, in Chrome
-//   chan-struct-node  goroutines and channels over a SharedArray of shared structs, the channels in
-//               the barriers' place (<program>-chan-struct.ts), on node
+//   chan-struct-node  goroutines and channels over a SharedArray of shared
+//               structs, the channels in the barriers' place
+//               (<program>-chan-struct.ts), on node
 //   chan-struct-chrome  the same, in Chrome
-//   v8          plain V8 (node) running the original preset, with an inline Thread shim: 1 thread
-// every program runs its thread counts twice, 1, 2, 4, 8 and again: the first pass is cold (it
-// includes JIT warm-up in every worker), the second warm. checks that every configuration
-// prints what the native build prints, timings aside
+//   v8          plain V8 (node) running the original preset, with an inline
+//               Thread shim: 1 thread
+// every program runs its thread counts twice, 1, 2, 4, 8 and again: the first
+// pass is cold (it includes JIT warm-up in every worker), the second warm.
+// checks that every configuration prints what the native build prints, timings
+// aside
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,8 +46,9 @@ import {fileURLToPath} from 'node:url';
 import {runInChrome, expandForChrome} from './chrome.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// a Porffor checkout (github.com/arv/porffor, branch arv/shared-everything-threads): $PORFFOR, or
-// ../porffor beside this repository. its presets are the programs compared, and it builds them
+// a Porffor checkout (github.com/arv/porffor, branch
+// arv/shared-everything-threads): $PORFFOR, or ../porffor beside this
+// repository. its presets are the programs compared, and it builds them
 const root = path.resolve(
   process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
 );
@@ -199,7 +213,8 @@ for (const p of programs) {
         return r.output;
       };
   }
-  // a module run on node and in Chrome, as configs <name>-node and <name>-chrome
+  // a module run on node and in Chrome, as configs <name>-node and
+  // <name>-chrome
   const both = (name, file) => {
     if (!fs.existsSync(file)) return;
     if (want(`${name}-node`))
@@ -220,7 +235,8 @@ for (const p of programs) {
   both('chan', path.join(here, 'build', 'ts', `${p}-chan.js`));
   both('chan-struct', path.join(here, 'build', 'ts', `${p}-chan-struct.js`));
   if (want('v8')) {
-    // the original with an inline shim: threads run to completion when made, so only 1 means anything
+    // the original with an inline shim: threads run to completion when made, so
+    // only 1 means anything
     const shimmed = path.join(work, `${p}-v8.js`);
     fs.writeFileSync(
       shimmed,

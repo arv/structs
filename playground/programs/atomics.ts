@@ -1,8 +1,9 @@
-// Atomic operations act on i32s in shared memory: an i32 field of a struct, or an element of a
-// SharedArray<i32>. Each is indivisible, so threads can share a counter with no lock. Here threads
-// claim the rows of an image from one counter, so that each row is drawn once whichever thread is
-// fastest, draw them into a SharedArray of bytes (u8), and count the pixels at each level into one
-// histogram, all together.
+// Atomic operations act on i32s in shared memory: an i32 field of a struct, or
+// an element of a SharedArray<i32>. Each is indivisible, so threads can share a
+// counter with no lock. Here threads claim the rows of an image from one
+// counter, so that each row is drawn once whichever thread is fastest, draw
+// them into a SharedArray of bytes (u8), and count the pixels at each level
+// into one histogram, all together.
 import {
   atomic,
   i32,
@@ -22,8 +23,9 @@ const W = 72,
   H = 32,
   LEVELS = 8;
 
-// the gray level, 0 to 255, of pixel x, y: how many steps the point takes to escape (Mandelbrot). a
-// u8: the ownership checker requires an integer of what is stored into one, and the counter is
+// the gray level, 0 to 255, of pixel x, y: how many steps the point takes to
+// escape (Mandelbrot). a u8: the ownership checker requires an integer of what
+// is stored into one, and the counter is
 function gray(x: number, y: number): u8 {
   const cr = (x / W) * 3 - 2.2,
     ci = (y / H) * 2.4 - 1.2;
@@ -38,7 +40,8 @@ function gray(x: number, y: number): u8 {
   return i;
 }
 
-// runs on a thread: claims rows until none are left, and returns how many it drew
+// runs on a thread: claims rows until none are left, and returns how many it
+// drew
 function draw(
   work: Work,
   image: SharedArray<u8>,
@@ -55,8 +58,8 @@ function draw(
   return rows;
 }
 
-// main runs on a worker too: the playground starts it as a thread, so it may block (scope waits for
-// the threads it started)
+// main runs on a worker too: the playground starts it as a thread, so it may
+// block (scope waits for the threads it started)
 export function main(threadCounts: readonly number[]) {
   const image = new SharedArray(u8, W * H),
     histogram = new SharedArray(i32, LEVELS);

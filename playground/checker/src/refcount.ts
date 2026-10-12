@@ -1,16 +1,17 @@
-// Reference counting (ownrefcount.go): a shared struct or SharedArray is freed when nothing refers to
-// it, and the emit adds the increments and decrements. The checker reports what counting cannot
-// follow:
+// Reference counting (ownrefcount.go): a shared struct or SharedArray is freed
+// when nothing refers to it, and the emit adds the increments and decrements.
+// The checker reports what counting cannot follow:
 //
-//   - a raw address stored in an ordinary array or object (96021), or bound by destructuring (96024),
-//     or used as a for-of variable (96022);
-//   - a captured counted variable that is reassigned (96020), and a counted local captured by a
-//     method or a class (96023);
-//   - a generator's counted parameter (96025), and a `struct(...)` field that is not a number, a
-//     boolean, a string or a reference (96015).
+//   - a raw address stored in an ordinary array or object (96021), or bound by
+//     destructuring (96024), or used as a for-of variable (96022);
+//   - a captured counted variable that is reassigned (96020), and a counted
+//     local captured by a method or a class (96023);
+//   - a generator's counted parameter (96025), and a `struct(...)` field that
+//     is not a number, a boolean, a string or a reference (96015).
 //
-// Only the part of the counting rules that these errors depend on is here: whether the value of an
-// expression is counted at all (getCount), not how (owned, borrowed, ...), which only the emit needs.
+// Only the part of the counting rules that these errors depend on is here:
+// whether the value of an expression is counted at all (getCount), not how
+// (owned, borrowed, ...), which only the emit needs.
 
 import type {SourceFile} from 'typescript/ast';
 import {Conversion} from './context.ts';
@@ -53,18 +54,20 @@ import {
 } from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-// Whether the value of an expression is counted where it flows: not at all (a handle, a primitive),
-// null, or a counted address. (printer.OwnCount, with its counted kinds merged.)
+// Whether the value of an expression is counted where it flows: not at all (a
+// handle, a primitive), null, or a counted address. (printer.OwnCount, with its
+// counted kinds merged.)
 const Count = {None: 0, Null: 1, Counted: 2} as const;
 type Count = (typeof Count)[keyof typeof Count];
 
-// The count of a value that is one of two: null only if both are (ownJoinCounts ranks every other
-// count, "not counted" included, above null).
+// The count of a value that is one of two: null only if both are (ownJoinCounts
+// ranks every other count, "not counted" included, above null).
 function join(a: Count, b: Count): Count {
   return a === Count.Null && b === Count.Null ? Count.Null : Count.Counted;
 }
 
-// getOwnCount: how the value of an expression is counted where it flows, after its conversion.
+// getOwnCount: how the value of an expression is counted where it flows, after
+// its conversion.
 function getCount(c: Own, expr: Node | undefined): Count {
   if (!expr || !isOwnValueExpression(expr)) return Count.None;
   switch (getConversion(c, expr)) {
@@ -126,7 +129,8 @@ function getRawCount(c: Own, expr: Node): Count {
   return Count.Counted;
 }
 
-// Reports whether a declaration is ambient: declared in a declaration file or with `declare`.
+// Reports whether a declaration is ambient: declared in a declaration file or
+// with `declare` .
 function isAmbientDeclaration(decl: Node): boolean {
   return (
     (decl.flags & NodeFlags.Ambient) !== 0 ||
@@ -134,9 +138,9 @@ function isAmbientDeclaration(decl: Node): boolean {
   );
 }
 
-// The same for a declaration's handle (without fetching a declaration file, whose declarations all
-// are).
-// Reports a blocking call in an async function: it would stop every async function on its worker.
+// The same for a declaration's handle (without fetching a declaration file,
+// whose declarations all are). Reports a blocking call in an async function: it
+// would stop every async function on its worker.
 function reportBlocking(
   c: Own,
   node: Node,
@@ -154,7 +158,8 @@ function isAmbientHandle(c: Own, handle: NodeHandle | undefined): boolean {
   return !!decl && isAmbientDeclaration(decl);
 }
 
-// The element type of a channel, if t is one: `Channel<T>` (or `ChannelCell<T>`), declared ambiently.
+// The element type of a channel, if t is one: `Channel<T>` (or `ChannelCell<T>`
+// ), declared ambiently.
 export function getChannelElementType(
   c: Own,
   t: Type | undefined,
@@ -181,7 +186,8 @@ export function getChannelElementType(
   return c.host.typeArguments(t)[0];
 }
 
-// Reports whether a for-of statement receives counted values from a channel: its variable owns each.
+// Reports whether a for-of statement receives counted values from a channel:
+// its variable owns each.
 export function isChannelReceiveLoop(c: Own, loop: Node): boolean {
   return (
     loop.kind === K.ForOfStatement &&
@@ -189,13 +195,15 @@ export function isChannelReceiveLoop(c: Own, loop: Node): boolean {
   );
 }
 
-// The function that declares a variable or parameter; undefined for a module's variables.
+// The function that declares a variable or parameter; undefined for a module's
+// variables.
 function declaringFunction(decl: Node): Node | undefined {
   if (decl.kind === K.Parameter) return decl.parent as Node;
   return getContainingFunction(decl);
 }
 
-// The variable or parameter (with an identifier name) that an identifier in an expression refers to.
+// The variable or parameter (with an identifier name) that an identifier in an
+// expression refers to.
 function referencedVariable(c: Own, id: Node): TsSymbol | undefined {
   if (id.kind !== K.Identifier || !isOwnReferencePosition(id)) return undefined;
   let symbol = c.host.resolvedSymbol(id);
@@ -207,20 +215,22 @@ function referencedVariable(c: Own, id: Node): TsSymbol | undefined {
     (handle.kind !== K.VariableDeclaration && handle.kind !== K.Parameter)
   )
     return undefined;
-  if (c.host.isDefaultLibraryPath(handle.path)) return symbol; // `declare var x: T`, never counted
+  // `declare var x: T` , never counted
+  if (c.host.isDefaultLibraryPath(handle.path)) return symbol;
   const decl = c.host.declarationOf(handle);
   if (!decl?.name || decl.name.kind !== K.Identifier) return undefined;
   return symbol;
 }
 
-// The counted variables that functions other than the declaring one refer to, and the references
-// from methods and classes (getOwnCaptureInfo).
+// The counted variables that functions other than the declaring one refer to,
+// and the references from methods and classes (getOwnCaptureInfo).
 function getCaptureInfo(c: Own, file: SourceFile): CaptureInfo {
   let info = c.captures.get(file);
   if (info) return info;
   const result: CaptureInfo = {captured: new Set(), members: []};
   c.captures.set(file, result);
-  const scopes: Node[] = []; // the functions and classes around the current node, innermost last
+  // the functions and classes around the current node, innermost last
+  const scopes: Node[] = [];
   const visit = (node: Node): boolean => {
     if (isTypeNode(node)) return false;
     if (
@@ -446,7 +456,8 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
           } else if (isParameterPropertyDeclaration(node, fn)) {
             c.error(node.name, Messages.StoredInOrdinary, host.typeToString(t));
           } else if (getFunctionFlags(fn) & FunctionFlags.Generator) {
-            // A generator's body (and so the retain of an owned parameter) runs at its first `next()`.
+            // A generator's body (and so the retain of an owned parameter) runs
+            // at its first `next()` .
             c.error(
               node.name,
               Messages.GeneratorParameter,
@@ -502,8 +513,9 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
           getFunctionFlags(getContainingFunction(node)) & FunctionFlags.Async
         )
           reportBlocking(c, node, blocking.name, blocking.instead);
-        // A runtime function that returns addresses in an ordinary array or tuple (`select` on
-        // channels of counted values, and `selectAsync`'s promise of one): nothing could count them.
+        // A runtime function that returns addresses in an ordinary array or
+        // tuple (`select` on channels of counted values, and `selectAsync` 's
+        // promise of one): nothing could count them.
         if (isAmbientHandle(c, host.signatureOf(node).declaration)) {
           const element = getCountedElementType(
             c,

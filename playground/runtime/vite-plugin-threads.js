@@ -1,22 +1,31 @@
-// A Vite plugin (its hooks are Rollup's) for threads in plain TypeScript (threads.d.ts):
+// A Vite plugin (its hooks are Rollup's) for threads in plain TypeScript
+// (threads.d.ts):
 //
 //   import threads from 'threads/vite-plugin';
-//   export default { plugins: [threads({ tsgo: '/path/to/tsgo-own/built/local/tsgo' })] };
+//   export default {
+//     plugins: [threads({tsgo: '/path/to/tsgo-own/built/local/tsgo'})],
+//   };
 //
-// - compiles the project's TypeScript with the tsgo fork, which lays shared structs and SharedArrays
-//   out in shared memory, counts their references and registers the functions threads run, and serves
-//   that output for each .ts module (type errors are left to tsc, ownership errors to `tsgo own check`);
-// - keys each module's registered functions by its path in the project rather than import.meta.url,
-//   so the page's bundle and the workers' agree on them;
-// - makes virtual:threads/modules, the modules a pool worker (threads-worker.js) loads on demand;
-// - sets the headers that make a page cross-origin isolated, which SharedArrayBuffer needs, on the
-//   dev and preview servers. A production server must send them too;
-// - with `playground: true`, compiles programs the page sends it (POST /__threads/compile) two ways:
-//   with the fork, and with the types only erased (node's type stripping, plus the one line the
-//   runtime needs, registering the module's top-level functions). The page imports either as
-//   virtual:threads/playground/<key>.js or <key>.erased.js. Dev server only. With `checker` (the path
-//   of threads-check's entry module) the ownership errors come from threads-check, on stock
-//   TypeScript 7.1, instead of the fork's `own check`.
+// - compiles the project's TypeScript with the tsgo fork, which lays shared
+//   structs and SharedArrays out in shared memory, counts their references and
+//   registers the functions threads run, and serves that output for each .ts
+//   module (type errors are left to tsc, ownership errors to `tsgo own check`
+//   );
+// - keys each module's registered functions by its path in the project rather
+//   than import.meta.url, so the page's bundle and the workers' agree on them;
+// - makes virtual:threads/modules, the modules a pool worker
+//   (threads-worker.js) loads on demand;
+// - sets the headers that make a page cross-origin isolated, which
+//   SharedArrayBuffer needs, on the dev and preview servers. A production
+//   server must send them too;
+// - with `playground: true` , compiles programs the page sends it (POST
+//   /__threads/compile) two ways: with the fork, and with the types only erased
+//   (node's type stripping, plus the one line the runtime needs, registering
+//   the module's top-level functions). The page imports either as
+//   virtual:threads/playground/<key>.js or <key>.erased.js. Dev server only.
+//   With `checker` (the path of threads-check's entry module) the ownership
+//   errors come from threads-check, on stock TypeScript 7.1, instead of the
+//   fork's `own check` .
 import {execFile, execFileSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -31,12 +40,14 @@ const ISOLATED = {
 };
 const MODULES = 'virtual:threads/modules',
   MODULES_ID = '\0threads/modules';
-const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url)); // the runtime lives beside this plugin
+// the runtime lives beside this plugin
+const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLAYGROUND = 'virtual:threads/playground/';
 const exec = promisify(execFile);
 
-// The runtime helpers the fork's emit imports. It imports them under other names (`__register as
-// __register_1`) where a module declares or uses the name itself, and so does the erased variant here.
+// The runtime helpers the fork's emit imports. It imports them under other
+// names (`__register as __register_1`) where a module declares or uses the name
+// itself, and so does the erased variant here.
 const HELPERS = new Set([
   '__F64',
   '__I32',
@@ -59,8 +70,8 @@ const HELPERS = new Set([
   '__unbox',
 ]);
 
-// The local names of the helpers that compiled code imports from `runtime`: the specifiers of its
-// first import of nothing but helpers.
+// The local names of the helpers that compiled code imports from `runtime` :
+// the specifiers of its first import of nothing but helpers.
 function helpersOf(code, runtime) {
   for (const m of code.matchAll(/^import \{ ([^}]*) \} from "([^"]*)";$/gm)) {
     if (m[2] !== runtime) continue;
@@ -73,7 +84,8 @@ function helpersOf(code, runtime) {
   return {};
 }
 
-// A name like `name` that no identifier in `source` has, as TypeScript makes one: name, name_1, ...
+// A name like `name` that no identifier in `source` has, as TypeScript makes
+// one: name, name_1, ...
 function uniqueName(source, name) {
   const used = new Set(source.match(/[A-Za-z_$][\w$]*/g));
   let unique = name;
@@ -81,8 +93,9 @@ function uniqueName(source, name) {
   return unique;
 }
 
-// Code that registers its functions (`__register(import.meta.url, { ... })`, its last statement, under
-// whatever name it imported __register as) with `key` in place of import.meta.url.
+// Code that registers its functions (`__register(import.meta.url, { ... })`,
+// its last statement, under whatever name it imported __register as) with `key`
+// in place of import.meta.url.
 function keyRegistration(code, runtime, key) {
   const register = helpersOf(code, runtime).__register;
   if (!register) return code;
@@ -92,7 +105,8 @@ function keyRegistration(code, runtime, key) {
   return `${code.slice(0, at)}${register}(${JSON.stringify(key)}, {${code.slice(at + call.length)}`;
 }
 
-// `file(line,col): error TS1234: message` lines, with their indented continuations
+// `file(line,col): error TS1234: message` lines, with their indented
+// continuations
 function diagnostics(text) {
   const out = [];
   for (const line of String(text ?? '').split('\n')) {
@@ -127,8 +141,8 @@ export default function threads(options = {}) {
     playgroundDir,
     registering = [];
 
-  // threads-check, loaded once, with one TypeScript API session for every check: node imports its
-  // TypeScript sources directly (type stripping)
+  // threads-check, loaded once, with one TypeScript API session for every
+  // check: node imports its TypeScript sources directly (type stripping)
   let threadsCheck = null;
   async function ownershipWithThreadsCheck(config) {
     threadsCheck ??= await import(pathToFileURL(checker).href).then(mod => ({
@@ -169,8 +183,9 @@ export default function threads(options = {}) {
     }
   }
 
-  // what a compiled program depends on besides its source: the runtime's types, the fork's binary and
-  // threads-check's sources (a changed runtime file restarts the server, and with it this)
+  // what a compiled program depends on besides its source: the runtime's types,
+  // the fork's binary and threads-check's sources (a changed runtime file
+  // restarts the server, and with it this)
   let fingerprint = null;
   const fingerprintOf = () => {
     const hash = crypto
@@ -191,9 +206,10 @@ export default function threads(options = {}) {
     return hash.digest('hex');
   };
 
-  // a playground program, compiled with the fork and with its types only erased; cached by content
-  // (and by which checker reports its ownership errors, the version of what a result holds, and the
-  // fingerprint of what compiles it)
+  // a playground program, compiled with the fork and with its types only
+  // erased; cached by content (and by which checker reports its ownership
+  // errors, the version of what a result holds, and the fingerprint of what
+  // compiles it)
   async function compile(source) {
     fingerprint ??= fingerprintOf();
     const key = `p${crypto
@@ -231,7 +247,8 @@ export default function threads(options = {}) {
     const fork = ['-p', config, '--ownRuntime', runtime, '--pretty', 'false'];
     const emitting = exec(tsgo, fork, {cwd: dir}).catch(e => e);
     const ownership = checker
-      ? await ownershipWithThreadsCheck(config) // synchronous: it runs while the fork emits
+      ? // synchronous: it runs while the fork emits
+        await ownershipWithThreadsCheck(config)
       : await exec(tsgo, ['own', 'check', ...fork], {cwd: dir})
           .catch(e => e)
           .then(r => ({
@@ -279,7 +296,8 @@ export default function threads(options = {}) {
     return result;
   }
 
-  // the project's sources as the fork emits them; ordinary type errors do not stop the emit
+  // the project's sources as the fork emits them; ordinary type errors do not
+  // stop the emit
   function emit() {
     fs.rmSync(outDir, {recursive: true, force: true});
     try {
@@ -336,13 +354,15 @@ export default function threads(options = {}) {
     name: 'threads',
     enforce: 'pre',
     config: user => ({
-      // the dev server serves the project and the runtime (its pool worker script among them)
+      // the dev server serves the project and the runtime (its pool worker
+      // script among them)
       server: {
         headers: ISOLATED,
         fs: {allow: [path.resolve(user.root ?? process.cwd()), RUNTIME_DIR]},
       },
       preview: {headers: ISOLATED},
-      worker: {format: 'es', plugins: () => [threads(options)]}, // the workers' bundle needs the same compile
+      // the workers' bundle needs the same compile
+      worker: {format: 'es', plugins: () => [threads(options)]},
       optimizeDeps: {exclude: [runtime]},
     }),
     configResolved(config) {
@@ -422,10 +442,11 @@ export default function threads(options = {}) {
       }
       return {code, map};
     },
-    // a changed source: compile again and reload the page (its workers hold the old modules). a
-    // changed runtime file restarts the server instead: Vite would mark the imports of the changed
-    // module with ?t=, and a page or worker that loaded it before would run a second copy of the
-    // runtime (whose threads' output, for one, goes nowhere)
+    // a changed source: compile again and reload the page (its workers hold the
+    // old modules). a changed runtime file restarts the server instead: Vite
+    // would mark the imports of the changed module with ?t=, and a page or
+    // worker that loaded it before would run a second copy of the runtime
+    // (whose threads' output, for one, goes nowhere)
     handleHotUpdate({file, server}) {
       if (file.startsWith(RUNTIME_DIR + path.sep)) {
         server.restart();

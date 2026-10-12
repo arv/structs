@@ -1,5 +1,5 @@
-// The diagnostics of the ownership checker: the codes and messages of `tsgo own check`
-// (internal/diagnostics in the fork).
+// The diagnostics of the ownership checker: the codes and messages of
+// `tsgo own check` (internal/diagnostics in the fork).
 
 import {relative} from 'node:path';
 
@@ -126,8 +126,8 @@ export function formatMessage(
   );
 }
 
-// A diagnostic: a 1-based line and column (in UTF-16 code units, as tsc prints them), or none for a
-// global diagnostic.
+// A diagnostic: a 1-based line and column (in UTF-16 code units, as tsc prints
+// them), or none for a global diagnostic.
 export interface Diagnostic {
   file: string | undefined;
   start: number;
@@ -137,8 +137,8 @@ export interface Diagnostic {
   message: string;
 }
 
-// A diagnostic in tsc's plain format: `file(line,col): error TS96001: message`, the file relative to
-// cwd.
+// A diagnostic in tsc's plain format: `file(line,col): error TS96001: message`
+// , the file relative to cwd.
 export function formatDiagnostic(
   d: Diagnostic,
   cwd: string = process.cwd(),

@@ -1,12 +1,14 @@
-// Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler counts the references to
-// shared structs, so a block is freed (and its memory reused) when nothing refers to it any more.
+// Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler
+// counts the references to shared structs, so a block is freed (and its memory
+// reused) when nothing refers to it any more.
 //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
 //   node run.js build/ts/refcount.js
-// churn: builds and drops a 1000-node list 200 times on one thread; the heap stops growing once the
-// free lists hold a list's worth of blocks. race: one thread keeps replacing box.item with a fresh
-// node while the others read box.item and its fields, pass it to a function, and now and then hold
-// one in a local across a call that reaches quiescent points. A node whose check is not twice its
-// value was freed and reused under its reader.
+// churn: builds and drops a 1000-node list 200 times on one thread; the heap
+// stops growing once the free lists hold a list's worth of blocks. race: one
+// thread keeps replacing box.item with a fresh node while the others read
+// box.item and its fields, pass it to a function, and now and then hold one in
+// a local across a call that reaches quiescent points. A node whose check is
+// not twice its value was freed and reused under its reader.
 import {
   f64,
   heapStats,
@@ -62,8 +64,8 @@ function churn() {
   );
 }
 
-// replaces box.item with a fresh node, `rounds` times: the old node's decrement waits for every
-// thread's next quiescent point
+// replaces box.item with a fresh node, `rounds` times: the old node's decrement
+// waits for every thread's next quiescent point
 function writer(box: Box, rounds: number): number {
   for (let i = 1; i <= rounds; i++) {
     const node = new Node();
@@ -83,7 +85,8 @@ function broken(node: Node | null): number {
   return node === null || node.check === 2 * node.value ? 0 : 1;
 }
 
-// reaches a quiescent point on every iteration (its loop reads a reference field)
+// reaches a quiescent point on every iteration (its loop reads a reference
+// field)
 function spin(box: Box, k: number): number {
   let seen = 0;
   for (let j = 0; j < k; j++) if (box.item !== null) seen++;
@@ -125,8 +128,8 @@ function race(readers: number) {
   );
 }
 
-// the thread counts come from the runner (run.js, chrome.js): a race per count, with a writer and
-// count - 1 readers
+// the thread counts come from the runner (run.js, chrome.js): a race per count,
+// with a writer and count - 1 readers
 export function main(threadCounts: readonly number[]) {
   churn();
   for (const threads of threadCounts) race(Math.max(1, threads - 1));

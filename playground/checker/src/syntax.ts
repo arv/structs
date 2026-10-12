@@ -1,10 +1,12 @@
-// Syntax helpers: the predicates of TypeScript's Go AST package (internal/ast) that the ownership
-// checker uses, over the nodes of TypeScript 7.1's JavaScript API.
+// Syntax helpers: the predicates of TypeScript's Go AST package (internal/ast)
+// that the ownership checker uses, over the nodes of TypeScript 7.1's
+// JavaScript API.
 
 import {NodeFlags, SyntaxKind as K} from 'typescript/ast';
 import type {Node as TsNode, SourceFile} from 'typescript/ast';
 
-// A node of the API's tree, with its kind-specific properties (`expression`, `name`, ...) untyped.
+// A node of the API's tree, with its kind-specific properties (`expression`,
+// `name` , ...) untyped.
 export type Node = TsNode & {readonly [property: string]: any};
 
 export {K, NodeFlags};
@@ -750,8 +752,8 @@ export function skipTrivia(text: string, pos: number): number {
   }
 }
 
-// Reports whether an identifier refers to a variable (rather than naming a property, a declaration
-// or a label): isOwnValueReference of ownership.go.
+// Reports whether an identifier refers to a variable (rather than naming a
+// property, a declaration or a label): isOwnValueReference of ownership.go.
 export function isOwnValueReference(id: Node): boolean {
   const parent = id.parent as Node | undefined;
   if (!parent) return false;
@@ -796,8 +798,8 @@ export function isOwnValueReference(id: Node): boolean {
   return true;
 }
 
-// Reports whether an identifier is in a reference position: isOwnReferencePosition of
-// ownrefcount.go.
+// Reports whether an identifier is in a reference position:
+// isOwnReferencePosition of ownrefcount.go.
 export function isOwnReferencePosition(id: Node): boolean {
   const parent = id.parent as Node | undefined;
   if (!parent) return false;
@@ -814,8 +816,8 @@ export function isOwnReferencePosition(id: Node): boolean {
   );
 }
 
-// Reports whether an expression is a value (not a property name, a declaration name, a label...):
-// isOwnValueExpression of ownrefcount.go.
+// Reports whether an expression is a value (not a property name, a declaration
+// name, a label...): isOwnValueExpression of ownrefcount.go.
 export function isOwnValueExpression(node: Node): boolean {
   if (!node.parent || !isExpression(node)) return false;
   if (node.kind === K.Identifier || node.kind === K.PrivateIdentifier)

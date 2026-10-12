@@ -1,16 +1,19 @@
-// The plain TypeScript API of threads (ownmarkers.go): the module the runtime specifier names
-// (threads.d.ts) exports markers that stock TypeScript accepts, and the checker gives them their
-// meaning:
+// The plain TypeScript API of threads (ownmarkers.go): the module the runtime
+// specifier names (threads.d.ts) exports markers that stock TypeScript accepts,
+// and the checker gives them their meaning:
 //
-//	Sending<T>                  a value whose ownership moves (a parameter, a rest parameter, a result)
-//	Shared<T>                   a shared value (deeply readonly)
-//	consume(x)                  ends x's lifetime
-//	a type assignable to Cell   a cell: shared and region-less
-//	const S = struct({ a: f64, next: ref<T>() }), const S = struct<I>({ ... })
-//	                            a shared struct: its fields in the order of the object literal, `f64` a
-//	                            number field and `ref<T>()` a reference field.
+//   Sending<T>                 a value whose ownership moves (a parameter, a
+//                              rest parameter, a result)
+//   Shared<T>                  a shared value (deeply readonly)
+//   consume(x)                 ends x's lifetime
+//   a type assignable to Cell  a cell: shared and region-less
+//   const S = struct({ a: f64, next: ref<T>() }), const S = struct<I>({ ... })
+//                              a shared struct: its fields in the order of the
+//                              object literal, `f64` a number field and
+//                              `ref<T>()` a reference field.
 //
-// A marker is recognized by its declaration: an export of the runtime module, by name.
+// A marker is recognized by its declaration: an export of the runtime module,
+// by name.
 
 import {CellKind} from './context.ts';
 import type {Own, StructInfo} from './context.ts';
@@ -27,7 +30,8 @@ import {
 } from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-// The name of the runtime export a symbol is (or is an alias of), or "" if it is none.
+// The name of the runtime export a symbol is (or is an alias of), or "" if it
+// is none.
 export function getRuntimeExportName(
   c: Own,
   symbol: TsSymbol | undefined,
@@ -45,7 +49,8 @@ export function getRuntimeExportName(
   return name;
 }
 
-// The marker a type node refers to: "Sending" or "Shared" for `Sending<T>` and `Shared<T>`, or "".
+// The marker a type node refers to: "Sending" or "Shared" for `Sending<T>` and
+// `Shared<T>` , or "".
 export function getTypeMarker(c: Own, t: Node | undefined): string {
   if (!t || t.kind !== K.TypeReference || t.typeArguments?.length !== 1)
     return '';
@@ -75,7 +80,8 @@ export function getCallMarker(c: Own, call: Node | undefined): string {
     : '';
 }
 
-// The operations of the runtime's `atomic`, which are those of `Atomics` by the same names.
+// The operations of the runtime's `atomic` , which are those of `Atomics` by
+// the same names.
 const atomicOperations = new Set([
   'load',
   'store',
@@ -90,9 +96,10 @@ const atomicOperations = new Set([
   'notify',
 ]);
 
-// Whether a call is an atomic operation (getOwnAtomicCall): undefined if it is not one, true if it
-// acts on an i32 field of a shared struct named by a string literal or on an element of a
-// SharedArray<i32>, and false if it acts on anything else, which is an error.
+// Whether a call is an atomic operation (getOwnAtomicCall): undefined if it is
+// not one, true if it acts on an i32 field of a shared struct named by a string
+// literal or on an element of a SharedArray<i32>, and false if it acts on
+// anything else, which is an error.
 export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
   const callee = skipParentheses(call.expression);
   if (
@@ -114,8 +121,8 @@ export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
   return cell.kinds[cell.fields.indexOf(key.text)] === 'i';
 }
 
-// The runtime's calls that block their thread, by declaring class and name, and what an async
-// function calls instead ("" for none).
+// The runtime's calls that block their thread, by declaring class and name, and
+// what an async function calls instead ("" for none).
 const blockingCalls = new Map([
   ['Channel.send', 'sendAsync'],
   ['Channel.recv', 'recvAsync'],
@@ -127,8 +134,8 @@ const blockingCalls = new Map([
   ['scope', ''],
 ]);
 
-// A call of the runtime's that blocks its thread (getOwnBlockingCall): its name, and what an async
-// function calls instead ("" for none).
+// A call of the runtime's that blocks its thread (getOwnBlockingCall): its
+// name, and what an async function calls instead ("" for none).
 export function getBlockingCall(
   c: Own,
   call: Node,
@@ -177,9 +184,10 @@ export function getRuntimeType(c: Own, name: string): Type | undefined {
   return result;
 }
 
-// Reports whether a type is a cell of the plain API: assignable to the runtime's `Cell` (Barrier,
-// Slots, Channel, Thread, Scope, SharedArray, a struct's values), or a struct type or a field marker
-// (immutable, `IntegerField` included). Its values are shared, with no region.
+// Reports whether a type is a cell of the plain API: assignable to the
+// runtime's `Cell` (Barrier, Slots, Channel, Thread, Scope, SharedArray, a
+// struct's values), or a struct type or a field marker (immutable,
+// `IntegerField` included). Its values are shared, with no region.
 export function isCellBranded(c: Own, t: Type | undefined): boolean {
   if (
     !t ||
@@ -213,8 +221,8 @@ export function isCellBranded(c: Own, t: Type | undefined): boolean {
   return result;
 }
 
-// The `struct(...)` calls of the program's source files, by the type of their structs' values
-// (StructType<T>'s T).
+// The `struct(...)` calls of the program's source files, by the type of their
+// structs' values (StructType<T>'s T).
 export function getStructRegistry(c: Own): Map<Type, Node> {
   if (c.structs) return c.structs;
   const structs = new Map<Type, Node>();
@@ -235,7 +243,8 @@ export function getStructRegistry(c: Own): Map<Type, Node> {
   return structs;
 }
 
-// The type of the values of the struct a `struct(...)` call declares: T in StructType<T>.
+// The type of the values of the struct a `struct(...)` call declares: T in
+// StructType<T>.
 export function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
   const t = c.host.typeOf(call);
   if (
@@ -247,8 +256,9 @@ export function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
   return c.host.typeArguments(t)[0];
 }
 
-// The layout of the struct a `struct(...)` call declares: its fields in the order of the object
-// literal, and their kinds by their types (see getFieldKind).
+// The layout of the struct a `struct(...)` call declares: its fields in the
+// order of the object literal, and their kinds by their types (see
+// getFieldKind).
 export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
   if (c.structCalls.has(call)) return c.structCalls.get(call);
   let info: StructInfo | undefined;
@@ -259,7 +269,8 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
     skipParentheses(call.arguments[0]).kind === K.ObjectLiteralExpression
   ) {
     info = {decl: call, name: 'Struct', fields: [], kinds: []};
-    c.structCalls.set(call, info); // before its fields: a field may refer to the struct itself
+    // before its fields: a field may refer to the struct itself
+    c.structCalls.set(call, info);
     const parent = walkUpParenthesizedExpressions(call.parent as Node);
     if (
       parent &&
@@ -292,8 +303,9 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
   return info;
 }
 
-// Checks a `struct(...)` call: its fields are given in an object literal, by name, and each is a
-// number, a boolean, a string or a reference (a shared struct or a SharedArray, possibly null).
+// Checks a `struct(...)` call: its fields are given in an object literal, by
+// name, and each is a number, a boolean, a string or a reference (a shared
+// struct or a SharedArray, possibly null).
 export function checkStructCall(c: Own, call: Node): void {
   const t = getStructTypeOfCall(c, call);
   if (!t || call.arguments.length < 1) return;

@@ -1,8 +1,9 @@
-// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels (chan.js). Each goroutine owns
-// its slice of the bodies. Every step it sends its positions to main, and main sends everyone's back,
-// shared once; at the end each slice moves back to main. No barrier and no shared mutable state:
-// the channels order everything. Messages are tagged with the sender, so the positions keep body
-// order and the arithmetic is the preset's.
+// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels
+// (chan.js). Each goroutine owns its slice of the bodies. Every step it sends
+// its positions to main, and main sends everyone's back, shared once; at the
+// end each slice moves back to main. No barrier and no shared mutable state:
+// the channels order everything. Messages are tagged with the sender, so the
+// positions keep body order and the arithmetic is the preset's.
 //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
 //   node run.js build/ts/nbody-chan.js
 import {
@@ -51,7 +52,8 @@ function makeBodies(): Sending<Body[]> {
   return bodies;
 }
 
-// new velocities for this goroutine's bodies, from everyone's positions (in body order)
+// new velocities for this goroutine's bodies, from everyone's positions (in
+// body order)
 function accelerate(mine: Body[], all: Shared<Pos[]>) {
   const n = all.length;
   for (let i = 0; i < mine.length; i++) {
@@ -94,8 +96,8 @@ function energy(bodies: Body[]): number {
   return e;
 }
 
-// a goroutine: sends its positions on `gather`, gets everyone's on `scatter`, and when done moves its
-// bodies back on `done`
+// a goroutine: sends its positions on `gather` , gets everyone's on `scatter` ,
+// and when done moves its bodies back on `done`
 function worker(
   t: number,
   mine: Sending<Body[]>,
@@ -127,7 +129,8 @@ function simulate(threads: number): number {
       const m = gather.recv()!;
       slots[m.t] = m.pos;
     }
-    const all = share(slots.flat()); // written once; each goroutine reads its own copy
+    // written once; each goroutine reads its own copy
+    const all = share(slots.flat());
     for (const ch of scatter) ch.send(all);
   }
   const slices: Body[][] = [];
@@ -138,7 +141,8 @@ function simulate(threads: number): number {
   return energy(slices.flat());
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark can repeat them
+// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0;
   for (const threads of threadCounts) {

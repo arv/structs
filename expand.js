@@ -1,16 +1,17 @@
-// expands the access macros in a hand-translated program into the code a publish-on-escape
-// transform would emit at each site (see README.md):
+// expands the access macros in a hand-translated program into the code a
+// publish-on-escape transform would emit at each site (see README.md):
 //   $G(o, key)          o.key
 //   $S(o, key, v)       o.key = v
 //   $GI(o, i)           o[i]
 //   $SI(o, i, v)        o[i] = v
 //   $C(o, key, ...a)    o.key(...a), at most 3 arguments
 //   $POLL()             a clean point (loop back-edges)
-// a named property is plain JS: on a shared object (or a local one that moved to the shared heap)
-// it is an accessor of its slot (see runtime.js), so the engine's inline caches tell the two
-// apart. elements, and names an array also has (length, push...), check $fwd first: a local
-// array that moved keeps its own length and elements, which no accessor can stand in for. o
-// must be an identifier, as a transform's temporary would be
+// a named property is plain JS: on a shared object (or a local one that moved
+// to the shared heap) it is an accessor of its slot (see runtime.js), so the
+// engine's inline caches tell the two apart. elements, and names an array also
+// has (length, push...), check $fwd first: a local array that moved keeps its
+// own length and elements, which no accessor can stand in for. o must be an
+// identifier, as a transform's temporary would be
 
 const isId = c => c !== undefined && /[\w$]/.test(c);
 const ident = s => {
@@ -116,8 +117,9 @@ export function expand(src, {atomicPoll = false, noPoll = false, runtime}) {
           : `${o}.${a[1]}(${rest.join(', ')})`;
       }
       case '$GI': {
-        // an element of a shared array, and a reference to a block this worker already has a
-        // handle for, inline in a stub per site; anything else is $sgeti's
+        // an element of a shared array, and a reference to a block this worker
+        // already has a handle for, inline in a stub per site; anything else is
+        // $sgeti's
         const site = sites++;
         stubs.push(
           `function $gi${site}(h, i) {\n  if (h[KIND] === 2) {\n    const a = h[ADDR];\n    if (i >= 0 && i < I32[(a + 12) >> 2] && (i | 0) === i) {\n      const b = I32[(a + 8) >> 2];\n      if (i < I32[(b + 4) >> 2]) {\n        const w = F64[(b + 8 + (i << 3)) >> 3];\n        if (w === w) return w;\n        SF[0] = w;\n        if (SI[1] === REF_HI) { const p = SI[0], k = (p >>> 3) & 0xffff; if (HK[k] === p) return HV[k]; }\n        return decBox(w);\n      }\n    }\n  }\n  return $sgeti(h, i);\n}`,

@@ -1,10 +1,13 @@
-// Async goroutines. A goroutine of a plain function is a whole worker, a thread, which may block. A
-// goroutine of an async function is light: a worker runs any number of them, and each one waiting is a
-// suspended async function, a few hundred bytes. They wait with await: sendAsync, recvAsync, for await
-// and selectAsync never block the worker they share (and a call that would, like recv(), throws there).
+// Async goroutines. A goroutine of a plain function is a whole worker, a
+// thread, which may block. A goroutine of an async function is light: a worker
+// runs any number of them, and each one waiting is a suspended async function,
+// a few hundred bytes. They wait with await: sendAsync, recvAsync, for await
+// and selectAsync never block the worker they share (and a call that would,
+// like recv(), throws there).
 //
-// Here ten thousand requests wait for a database replica to reach the position each needs, as the
-// request handlers of a Go server do, and then a pipeline of async goroutines squares numbers.
+// Here ten thousand requests wait for a database replica to reach the position
+// each needs, as the request handlers of a Go server do, and then a pipeline of
+// async goroutines squares numbers.
 import {atomic, Channel, go, i32, log, ref, selectAsync, struct} from 'threads';
 
 interface Db {
@@ -12,8 +15,9 @@ interface Db {
 }
 const Db = struct<Db>({done: ref<Channel<void>>()});
 
-// a replica's position, and a channel that is closed, and replaced, on every change: closing it wakes
-// everyone waiting on it at once. only advance() writes `changed`
+// a replica's position, and a channel that is closed, and replaced, on every
+// change: closing it wakes everyone waiting on it at once. only advance()
+// writes `changed`
 interface Replica {
   txid: i32;
   changed: Channel<void> | null;
@@ -31,7 +35,9 @@ const Replica = struct<Replica>({
 //     if r.Pos().TXID >= txID { return nil }
 //     select {
 //     case <-notify:
-//     case <-ctx.Done(): return fmt.Errorf("waiting for position %d: %w", txID, context.Cause(ctx))
+//     case <-ctx.Done():
+//       return fmt.Errorf("waiting for position %d: %w", txID,
+//         context.Cause(ctx))
 //     case <-r.db.ctx.Done(): return ErrDatabaseNotOpen
 //     }
 //   }
@@ -76,7 +82,8 @@ async function squares(input: Channel<number>, out: Channel<number>) {
   out.close();
 }
 
-// main is async too, so it waits as the others do: the playground runs it on a worker among them
+// main is async too, so it waits as the others do: the playground runs it on a
+// worker among them
 export async function main(threadCounts: readonly number[]) {
   const db = new Db(),
     r = new Replica();

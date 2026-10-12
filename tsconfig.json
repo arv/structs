@@ -1,7 +1,9 @@
 {
-  // programs in plain TypeScript on threads.js: stock tsc type-checks them, and the tsgo fork checks
-  // ownership and emits build/ts/*.js for the runtime (run them with run.js or chrome.js):
-  //   <fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js
+  // programs in plain TypeScript on threads.js: stock tsc type-checks them, and
+  // the tsgo fork checks ownership and emits build/ts/*.js for the runtime (run
+  // them with run.js or chrome.js):
+  //   <fork>/built/local/tsgo own check -p tsconfig.json \
+  //     --ownRuntime ./threads.js
   //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
   "compilerOptions": {
     "target": "es2022",

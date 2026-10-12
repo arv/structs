@@ -1,17 +1,24 @@
-// Integers (ownintegers.go): the runtime's `i32` and `u8` hold integers. A value stored into one is
-// converted as an Int32Array or a Uint8Array converts it, which wraps an integer out of range (as
-// integer arithmetic does) but truncates a number that is not an integer with no sign at all, and the
-// types cannot tell the two apart. So a value that flows into an i32 or a u8 (a field or an element,
-// a variable, a parameter, a return value, a cast) must be an integer expression (96029):
+// Integers (ownintegers.go): the runtime's `i32` and `u8` hold integers. A
+// value stored into one is converted as an Int32Array or a Uint8Array converts
+// it, which wraps an integer out of range (as integer arithmetic does) but
+// truncates a number that is not an integer with no sign at all, and the types
+// cannot tell the two apart. So a value that flows into an i32 or a u8 (a field
+// or an element, a variable, a parameter, a return value, a cast) must be an
+// integer expression (96029):
 //
-//   - a value of an integer type: an i32 or a u8, or an integer literal type (`const k = 3`);
-//   - `x | y`, `x & y`, `x ^ y`, `~x`, and the shifts: integers, whatever their operands;
-//   - `x + y`, `x - y`, `x * y`, `x % y`, `-x`, `+x`, `x++`, and `c ? x : y`, of integers;
-//   - Math.round, Math.floor, Math.ceil, Math.trunc, Math.sign, Math.clz32 and Math.imul of anything,
-//     and Math.abs, Math.min and Math.max of integers;
-//   - `.length`, and the results of charCodeAt, indexOf, lastIndexOf, findIndex and findLastIndex;
-//   - a local variable whose every value is an integer expression: its initializer, and whatever is
-//     assigned to it (not by destructuring, or as a for-in or for-of variable).
+//   - a value of an integer type: an i32 or a u8, or an integer literal type
+//     (`const k = 3`);
+//   - `x | y` , `x & y` , `x ^ y` , `~x` , and the shifts: integers, whatever
+//     their operands;
+//   - `x + y` , `x - y` , `x * y` , `x % y` , `-x` , `+x` , `x++` , and
+//     `c ? x : y` , of integers;
+//   - Math.round, Math.floor, Math.ceil, Math.trunc, Math.sign, Math.clz32 and
+//     Math.imul of anything, and Math.abs, Math.min and Math.max of integers;
+//   - `.length` , and the results of charCodeAt, indexOf, lastIndexOf,
+//     findIndex and findLastIndex;
+//   - a local variable whose every value is an integer expression: its
+//     initializer, and whatever is assigned to it (not by destructuring, or as
+//     a for-in or for-of variable).
 
 import type {SourceFile} from 'typescript/ast';
 import type {FieldKind, Own} from './context.ts';
@@ -28,8 +35,8 @@ import {
 } from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-// The kind of integer, "i" or "u", a value that flows into a place of type t becomes (looking through
-// null and undefined), or "".
+// The kind of integer, "i" or "u", a value that flows into a place of type t
+// becomes (looking through null and undefined), or "".
 export function getIntegerTargetKind(c: Own, t: Type | undefined): FieldKind {
   if (!t) return '';
   const members = nonNullishMembers(c, t);
@@ -44,7 +51,8 @@ function maybeTypeOfKind(c: Own, t: Type, kind: number): boolean {
   );
 }
 
-// Reports a value that flows into a place of type target, an i32 or a u8, but may not be an integer.
+// Reports a value that flows into a place of type target, an i32 or a u8, but
+// may not be an integer.
 export function checkIntegerTarget(c: Own, expr: Node, target: Type): void {
   const kind = getIntegerTargetKind(c, target);
   if (
@@ -60,7 +68,8 @@ export function checkIntegerTarget(c: Own, expr: Node, target: Type): void {
   c.error(expr, Messages.NotAnInteger, kind === 'u' ? 'a u8' : 'an i32');
 }
 
-// Reports a compound assignment to an i32 or a u8 (`x /= 2`) whose result may not be an integer.
+// Reports a compound assignment to an i32 or a u8 (`x /= 2`) whose result may
+// not be an integer.
 export function checkIntegerCompoundAssignment(
   c: Own,
   node: Node,
@@ -71,8 +80,8 @@ export function checkIntegerCompoundAssignment(
     c.error(node, Messages.NotAnInteger, kind === 'u' ? 'a u8' : 'an i32');
 }
 
-// Reports whether a type's values are integers: an i32 or a u8, an integer literal type, or a union
-// of them.
+// Reports whether a type's values are integers: an i32 or a u8, an integer
+// literal type, or a union of them.
 function isIntegerType(c: Own, t: Type): boolean {
   if (getIntegerKind(c, t) !== '') return true;
   if (t.flags & TypeFlags.NumberLiteral) {
@@ -85,8 +94,9 @@ function isIntegerType(c: Own, t: Type): boolean {
   );
 }
 
-// Reports whether an expression's value is an integer. A cast is one by its type: a cast to an
-// integer type is reported by itself, where it flows into one.
+// Reports whether an expression's value is an integer. A cast is one by its
+// type: a cast to an integer type is reported by itself, where it flows into
+// one.
 export function isIntegerExpression(c: Own, expr: Node): boolean {
   expr = skipParentheses(expr);
   if (isIntegerType(c, c.host.typeOf(expr))) return true;
@@ -183,8 +193,8 @@ const integerMethods = new Set([
   'findLastIndex',
 ]);
 
-// Reports whether a call's result is an integer: one of Math's that are (of anything, or of integers),
-// or a method that returns an index or a char code.
+// Reports whether a call's result is an integer: one of Math's that are (of
+// anything, or of integers), or a method that returns an index or a char code.
 function isIntegerCall(c: Own, call: Node): boolean {
   const callee = skipParentheses(call.expression);
   if (callee.kind !== K.PropertyAccessExpression) return false;
@@ -207,7 +217,8 @@ function isIntegerCall(c: Own, call: Node): boolean {
   );
 }
 
-// Reports whether an identifier `Math` is the global one, declared in a default library.
+// Reports whether an identifier `Math` is the global one, declared in a default
+// library.
 function isGlobalMath(c: Own, id: Node): boolean {
   const symbol = c.host.resolvedSymbol(id);
   return (
@@ -216,8 +227,8 @@ function isGlobalMath(c: Own, id: Node): boolean {
   );
 }
 
-// Reports whether an identifier is a local variable (declared in a source file, not a parameter)
-// whose every value is an integer expression.
+// Reports whether an identifier is a local variable (declared in a source file,
+// not a parameter) whose every value is an integer expression.
 function isIntegerVariable(c: Own, id: Node): boolean {
   const symbol = c.host.resolvedSymbol(id);
   if (!symbol || !(symbol.flags & SymbolFlags.Variable)) return false;
@@ -234,16 +245,20 @@ function isIntegerVariable(c: Own, id: Node): boolean {
   return c.integerVariables.get(variableKey(c, symbol)) ?? false;
 }
 
-// Symbols by a stable number: the API may hand out one symbol as several objects.
+// Symbols by a stable number: the API may hand out one symbol as several
+// objects.
 const variableKey = (c: Own, symbol: TsSymbol): number =>
   c.host.symbolId(symbol);
 
-// Decides which local variables of a file are integers: every one starts as an integer, and one with
-// a value that is not (given what the others are) stops being one, until none changes.
+// Decides which local variables of a file are integers: every one starts as an
+// integer, and one with a value that is not (given what the others are) stops
+// being one, until none changes.
 function computeIntegerVariables(c: Own, file: SourceFile): void {
-  if (c.integerFiles.has(file)) return; // computed, or being computed: its variables' current values stand
+  // computed, or being computed: its variables' current values stand
+  if (c.integerFiles.has(file)) return;
   c.integerFiles.set(file, false);
-  const values = new Map<number, Node[]>(); // what is assigned to each variable (a compound assignment as a whole)
+  // what is assigned to each variable (a compound assignment as a whole)
+  const values = new Map<number, Node[]>();
   const variables: number[] = [];
   const notIntegers = new Set<number>();
   const add = (key: number, value: Node) => {
@@ -281,8 +296,9 @@ function computeIntegerVariables(c: Own, file: SourceFile): void {
           node.operatorToken.kind === K.EqualsToken ? node.right : node,
         );
     } else if (node.kind === K.Identifier) {
-      // Assigned by destructuring, or as a for-in or for-of variable (an assignment's own left side
-      // and the operand of ++ or -- are handled above, or keep an integer one).
+      // Assigned by destructuring, or as a for-in or for-of variable (an
+      // assignment's own left side and the operand of ++ or -- are handled
+      // above, or keep an integer one).
       const target = getAssignmentTarget(node);
       if (
         target &&

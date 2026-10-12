@@ -1,7 +1,8 @@
-// the browser coordinator: makes the shared heap, starts a pool of Web Workers and the
-// program's main worker, and grows the pool on demand. the page itself never blocks (it
-// cannot: Atomics.wait is not allowed on a page's main thread). index.html?program=nbody&threads=1,2,4,8
-// loads build/<program>.js, which chrome.js expands from <program>.js
+// the browser coordinator: makes the shared heap, starts a pool of Web Workers
+// and the program's main worker, and grows the pool on demand. the page itself
+// never blocks (it cannot: Atomics.wait is not allowed on a page's main
+// thread). index.html?program=nbody&threads=1,2,4,8 loads build/<program>.js,
+// which chrome.js expands from <program>.js
 import {initShared, shutdown, counters} from './runtime.js';
 
 const params = new URLSearchParams(location.search);

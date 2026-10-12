@@ -1,19 +1,25 @@
 import fs from 'node:fs';
-// runs a hand-translated program in Chrome (the installed Google Chrome, through Playwright),
-// on real Web Workers sharing one SharedArrayBuffer heap
+// runs a hand-translated program in Chrome (the installed Google Chrome,
+// through Playwright), on real Web Workers sharing one SharedArrayBuffer heap
 //   node chrome.js <mandelbrot|nbody> [options]
 //   --threads=1,2,4,8   the thread counts the program runs its work with
-//   --pool=N            workers started up front (default: the browser's hardwareConcurrency)
-//   --trace=file.json   record a DevTools performance trace (CPU samples of every thread);
-//                       open it in DevTools' Performance panel, or summarize it with trace-summary.js
-//   --headed            show the browser window (default: Chrome's headless mode)
-//   --atomic-poll       clean points poll with Atomics.load instead of a plain load
+//   --pool=N            workers started up front (default: the browser's
+//                       hardwareConcurrency)
+//   --trace=file.json   record a DevTools performance trace (CPU samples of
+//                       every thread); open it in DevTools' Performance panel,
+//                       or summarize it with trace-summary.js
+//   --headed            show the browser window (default: Chrome's headless
+//                       mode)
+//   --atomic-poll       clean points poll with Atomics.load instead of a plain
+//                       load
 //   --stats             print the runtime's counters (to stderr)
-//   --check             verify every boxed value word right after storing it, poison freed blocks
-// --wasm=file.wasm instead runs a Porffor program built for wasm32-wasip1-threads (see bench.js)
-// on the playground's runner, in the same browser.
-// needs playwright-core (a dev dependency of this repository), found normally or through
-// $PLAYWRIGHT_CORE, the path of an install's node_modules/playwright-core
+//   --check             verify every boxed value word right after storing it,
+//                       poison freed blocks
+// --wasm=file.wasm instead runs a Porffor program built for
+// wasm32-wasip1-threads (see bench.js) on the playground's runner, in the same
+// browser. needs playwright-core (a dev dependency of this repository), found
+// normally or through $PLAYWRIGHT_CORE, the path of an install's
+// node_modules/playwright-core
 import http from 'node:http';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -21,9 +27,10 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {expand} from './expand.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// wasm.html runs a Porffor build on Porffor's playground runner, served from a Porffor checkout
-// (github.com/arv/porffor, branch arv/shared-everything-threads) under /porffor/: $PORFFOR, or
-// ../porffor beside this repository
+// wasm.html runs a Porffor build on Porffor's playground runner, served from a
+// Porffor checkout (github.com/arv/porffor, branch
+// arv/shared-everything-threads) under /porffor/: $PORFFOR, or ../porffor
+// beside this repository
 const porffor = path.resolve(
   process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
 );
@@ -41,8 +48,8 @@ const loadChromium = async () => {
   return pw.chromium ?? pw.default.chromium; // a CommonJS module, imported
 };
 
-// this repository, and a Porffor checkout under /porffor/, cross-origin isolated (SharedArrayBuffer
-// needs COOP and COEP)
+// this repository, and a Porffor checkout under /porffor/, cross-origin
+// isolated (SharedArrayBuffer needs COOP and COEP)
 const types = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -78,9 +85,9 @@ const serve = async () => {
   return server;
 };
 
-// expands a program for the page: build/<name>.js (build/ is not committed). the program is one in
-// this directory by name, or the path of a module (such as one the tsgo fork emitted); returns the
-// name the page loads it by
+// expands a program for the page: build/<name>.js (build/ is not committed).
+// the program is one in this directory by name, or the path of a module (such
+// as one the tsgo fork emitted); returns the name the page loads it by
 export const expandForChrome = (program, {atomicPoll = false} = {}) => {
   const file =
     program.endsWith('.js') && fs.existsSync(path.resolve(program))
@@ -98,8 +105,9 @@ export const expandForChrome = (program, {atomicPoll = false} = {}) => {
   return name;
 };
 
-// runs one page to completion: index.html (a program, expanded first) or wasm.html (a Porffor
-// wasm build under build/). resolves to { ok, error, output, counters, version }
+// runs one page to completion: index.html (a program, expanded first) or
+// wasm.html (a Porffor wasm build under build/). resolves to { ok, error,
+// output, counters, version }
 export const runInChrome = async ({
   page: pageName = 'index.html',
   query = {},

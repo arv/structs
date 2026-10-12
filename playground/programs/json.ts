@@ -1,11 +1,13 @@
-// JSON on threads. Each thread makes its part of a log of JSON lines (as a server would send it) and
-// parses it. Then either the thread sums its part up, and only the totals cross back, or it sends all
-// of its parsed requests back for main to sum up.
+// JSON on threads. Each thread makes its part of a log of JSON lines (as a
+// server would send it) and parses it. Then either the thread sums its part up,
+// and only the totals cross back, or it sends all of its parsed requests back
+// for main to sum up.
 //
-// Parsed JSON crosses threads cheaply where it repeats itself, and JSON does: an object's keys cross
-// as the addresses of their one interned copy, main makes every object with the same keys with one
-// constructor, and a string that occurs more than once in a thread's result (a service, a method, a
-// user) is copied once.
+// Parsed JSON crosses threads cheaply where it repeats itself, and JSON does:
+// an object's keys cross as the addresses of their one interned copy, main
+// makes every object with the same keys with one constructor, and a string that
+// occurs more than once in a thread's result (a service, a method, a user) is
+// copied once.
 import {log, scope, type Sending, type Thread} from 'threads';
 
 type Request = {
@@ -39,7 +41,8 @@ const PATHS = [
 ];
 const N = 200_000;
 
-// a made-up number in [0, 1) for request i and draw k: the same whichever thread makes the request
+// a made-up number in [0, 1) for request i and draw k: the same whichever
+// thread makes the request
 function noise(i: number, k: number): number {
   let h = Math.imul(i * 8 + k, 0x9e3779b1);
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -98,8 +101,8 @@ const show = (totals: Totals) =>
     .map(s => `${s} ${totals[s].errors}/${totals[s].requests}`)
     .join(', ');
 
-// main runs on a worker too: the playground starts it as a thread, so it may block (scope waits for
-// the threads it started)
+// main runs on a worker too: the playground starts it as a thread, so it may
+// block (scope waits for the threads it started)
 export function main(threadCounts: readonly number[]) {
   log(
     `${N} requests, ${(logText(0, N).length / 1048576).toFixed(1)} MB of JSON`,

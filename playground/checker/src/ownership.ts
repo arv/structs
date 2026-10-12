@@ -1,18 +1,22 @@
 // Ownership (region) analysis (ownership.go).
 //
-// The analysis is intraprocedural and flow-sensitive, in the style of Swift's region-based isolation
-// (SE-0414). Every value an expression evaluates to is either SHARED (it has no region: primitives,
-// values declared `Shared<T>`, cells, code) or lives in a REGION, a set of objects that may reference
-// each other. Regions are the classes of a union-find. A region can be SENT (handed to another owner
-// through a `Sending<T>` parameter, `share(...)` and the like); using a variable whose region was sent
-// is an error. CALLER regions (ordinary parameters and `this`) and OUTER regions (variables captured
-// from an enclosing scope) can never be sent.
+// The analysis is intraprocedural and flow-sensitive, in the style of Swift's
+// region-based isolation (SE-0414). Every value an expression evaluates to is
+// either SHARED (it has no region: primitives, values declared `Shared<T>` ,
+// cells, code) or lives in a REGION, a set of objects that may reference each
+// other. Regions are the classes of a union-find. A region can be SENT (handed
+// to another owner through a `Sending<T>` parameter, `share(...)` and the
+// like); using a variable whose region was sent is an error. CALLER regions
+// (ordinary parameters and `this` ) and OUTER regions (variables captured from
+// an enclosing scope) can never be sent.
 //
-// Counted values (shared structs and SharedArrays) live in COUNTED regions of their own, which never
-// merge with ordinary ones: `new`, a call and a received value give a fresh one; only a `Sending`
-// parameter that is not a rest parameter moves one (a channel's `send`).
+// Counted values (shared structs and SharedArrays) live in COUNTED regions of
+// their own, which never merge with ordinary ones: `new` , a call and a
+// received value give a fresh one; only a `Sending` parameter that is not a
+// rest parameter moves one (a channel's `send` ).
 //
-// The approximations are those of the fork, which this follows rule for rule; see ownership.go.
+// The approximations are those of the fork, which this follows rule for rule;
+// see ownership.go.
 
 import type {SourceFile} from 'typescript/ast';
 import type {Own} from './context.ts';
@@ -72,7 +76,8 @@ const RegionFlags = {Caller: 1, Outer: 2, Counted: 4} as const;
 interface Send {
   readonly site: Node; // the sent expression
   readonly callee: string; // what it was sent to
-  readonly via: string; // the variable (or expression) through which it was sent
+  // the variable (or expression) through which it was sent
+  readonly via: string;
   readonly consume: boolean; // consumed rather than sent
 }
 
@@ -84,7 +89,8 @@ interface RegionInfo {
 
 const noInfo: RegionInfo = {flags: 0, sent: undefined, maybe: false};
 
-// The abstract state at a program point. Region infos are immutable, so copies share them.
+// The abstract state at a program point. Region infos are immutable, so copies
+// share them.
 class State {
   unreachable = false;
   vars = new Map<TsSymbol, Value>();
@@ -153,8 +159,9 @@ class State {
     const ia = this.infoOf(ra);
     const ib = this.infoOf(rb);
     if ((ia.flags ^ ib.flags) & RegionFlags.Counted) {
-      // A counted value and an ordinary one never alias: keep them apart (the ordinary one stands for
-      // the pair, so that sending it still sends the ordinary objects).
+      // A counted value and an ordinary one never alias: keep them apart (the
+      // ordinary one stands for the pair, so that sending it still sends the
+      // ordinary objects).
       return ia.flags & RegionFlags.Counted ? rb : ra;
     }
     this.parent.set(rb, ra);
@@ -212,7 +219,8 @@ class State {
     return this.mergeValues(a, b);
   }
 
-  // A canonical description of the state, used to detect that a loop has reached a fixpoint.
+  // A canonical description of the state, used to detect that a loop has
+  // reached a fixpoint.
   signature(idOf: (symbol: TsSymbol) => number): string {
     if (this.unreachable) return 'unreachable';
     const symbols = [...this.vars.keys()].sort((a, b) => idOf(a) - idOf(b));
@@ -243,8 +251,8 @@ class State {
   }
 }
 
-// Joins the states of two paths. Equivalences, flags and sends of both are kept; a region sent on
-// only one of the paths is "maybe sent".
+// Joins the states of two paths. Equivalences, flags and sends of both are
+// kept; a region sent on only one of the paths is "maybe sent".
 function joinStates(a: State, b: State): State {
   if (a.unreachable) return b.copy();
   if (b.unreachable) return a.copy();
@@ -277,7 +285,8 @@ function joinAllStates(first: State, rest: State[]): State {
 
 // Entry point
 
-// Runs the ownership analysis on the top-level statements and every function body of a file.
+// Runs the ownership analysis on the top-level statements and every function
+// body of a file.
 export function checkOwnership(c: Own, file: SourceFile): void {
   const a = new Analyzer(c);
   a.analyzeFunction(file as Node);
@@ -310,13 +319,16 @@ function isFunctionBody(node: Node): boolean {
 const ReportKind = {Use: 0, Send: 1, Return: 2, Write: 3} as const;
 
 interface FunctionResult {
-  returnsFresh: boolean; // every returned value is shared or in a region not linked to the caller or outer scopes
+  // every returned value is shared or in a region not linked to the caller or
+  // outer scopes
+  returnsFresh: boolean;
 }
 
 interface Captures {
   symbols: TsSymbol[];
   nodes: Node[]; // first reference of each symbol
-  usesThis: boolean; // an arrow function (or a closure nested in one) uses the enclosing `this`
+  // an arrow function (or a closure nested in one) uses the enclosing `this`
+  usesThis: boolean;
 }
 
 const ReturnKind = {Ordinary: 0, Sending: 1, Shared: 2} as const;
@@ -482,15 +494,17 @@ class Analyzer {
     return this.c.host.resolvedSymbol(id);
   }
 
-  // A declaration node, unless it is in a default library file: those never use the markers, so
-  // every question about their type nodes has the answer of a missing one.
+  // A declaration node, unless it is in a default library file: those never use
+  // the markers, so every question about their type nodes has the answer of a
+  // missing one.
   declarationOutsideLibrary(handle: NodeHandle | undefined): Node | undefined {
     if (!handle || this.c.host.isDefaultLibraryPath(handle.path))
       return undefined;
     return this.c.host.declarationOf(handle);
   }
 
-  // Reports whether a symbol is declared in the function (or file, for top-level code) `owner`.
+  // Reports whether a symbol is declared in the function (or file, for
+  // top-level code) `owner` .
   isLocalTo(symbol: TsSymbol, owner: Node): boolean {
     if (symbol.flags & SymbolFlags.Alias) return false;
     const handle = symbol.valueDeclaration ?? symbol.declarations[0];
@@ -499,16 +513,17 @@ class Analyzer {
     return !!decl && ownerOf(decl) === owner;
   }
 
-  // Binds a value to a variable, making it shared if the variable is declared shared (or is a
-  // primitive).
+  // Binds a value to a variable, making it shared if the variable is declared
+  // shared (or is a primitive).
   normalize(symbol: TsSymbol, v: Value): Value {
     return v.kind === ValueKind.InRegion && this.isSharedSymbol(symbol)
       ? sharedValue
       : v;
   }
 
-  // Reports whether a symbol's value is shared regardless of the program point: code, library values,
-  // cells, variables declared `Shared<T>` and variables of primitive types.
+  // Reports whether a symbol's value is shared regardless of the program point:
+  // code, library values, cells, variables declared `Shared<T>` and variables
+  // of primitive types.
   isSharedSymbol(symbol: TsSymbol): boolean {
     const cached = this.shared.get(symbol);
     if (cached !== undefined) return cached;
@@ -545,8 +560,8 @@ class Analyzer {
     return this.isPrimitiveOrSharedStructType(t);
   }
 
-  // Reports whether a variable, parameter or property is declared with a `Shared<T>` type, or is a
-  // `const` initialized with a shared value.
+  // Reports whether a variable, parameter or property is declared with a
+  // `Shared<T>` type, or is a `const` initialized with a shared value.
   isDeclaredShared(symbol: TsSymbol): boolean {
     const handle = symbol.valueDeclaration;
     if (!handle) return false;
@@ -575,7 +590,8 @@ class Analyzer {
     return false;
   }
 
-  // Reports whether an expression's value is shared on every path, using declarations only.
+  // Reports whether an expression's value is shared on every path, using
+  // declarations only.
   isStaticallyShared(expr: Node): boolean {
     expr = skipOuterExpressions(expr, OEK.All);
     switch (expr.kind) {
@@ -607,15 +623,16 @@ class Analyzer {
     return false;
   }
 
-  // The declaration of the signature a call or `new` resolves to (outside the default library).
+  // The declaration of the signature a call or `new` resolves to (outside the
+  // default library).
   signatureDeclarationOf(call: Node): Node | undefined {
     return this.declarationOutsideLibrary(
       this.c.host.signatureOf(call).declaration,
     );
   }
 
-  // Reports whether the elements of an array-typed expression are declared shared, as in
-  // `xs: Shared<T>[]`.
+  // Reports whether the elements of an array-typed expression are declared
+  // shared, as in `xs: Shared<T>[]` .
   isElementDeclaredShared(expr: Node): boolean {
     const t = this.resolveTypeNode(this.declaredTypeNodeOf(expr));
     if (!t) return false;
@@ -692,7 +709,8 @@ class Analyzer {
       : v;
   }
 
-  // Skips parentheses and `readonly`, and follows type aliases (a few levels deep).
+  // Skips parentheses and `readonly` , and follows type aliases (a few levels
+  // deep).
   resolveTypeNode(t: Node | undefined): Node | undefined {
     for (let i = 0; i < 5; i++) {
       if (!t) return undefined;
@@ -702,14 +720,16 @@ class Analyzer {
       )
         t = t.type as Node;
       if (t.kind !== K.TypeReference || getTypeMarker(this.c, t) !== '') {
-        return t; // `Sending<T>` and `Shared<T>` are aliases of T: keep the marker
+        // `Sending<T>` and `Shared<T>` are aliases of T: keep the marker
+        return t;
       }
       const symbol = this.c.host.symbolAt(t.typeName);
       if (!symbol || !(symbol.flags & SymbolFlags.TypeAlias)) return t;
       const handle = symbol.declarations.find(
         d => d.kind === K.TypeAliasDeclaration,
       );
-      // The default library's aliases (Record, Readonly...) never lead to a marker: stop there.
+      // The default library's aliases (Record, Readonly...) never lead to a
+      // marker: stop there.
       if (!handle || this.c.host.isDefaultLibraryPath(handle.path)) return t;
       const decl = this.c.host.declarationOf(handle);
       if (!decl) return t;
@@ -718,8 +738,8 @@ class Analyzer {
     return t;
   }
 
-  // `Shared<T>`, possibly behind parentheses, `readonly` or an alias, or a union of such types with
-  // null and undefined.
+  // `Shared<T>` , possibly behind parentheses, `readonly` or an alias, or a
+  // union of such types with null and undefined.
   isSharedTypeNode(t: Node | undefined): boolean {
     t = this.resolveTypeNode(t);
     if (!t) return false;
@@ -762,8 +782,9 @@ class Analyzer {
     return undefined;
   }
 
-  // The declared type of a parameter, or the type of the corresponding parameter of the contextual
-  // signature for an unannotated parameter of a function expression.
+  // The declared type of a parameter, or the type of the corresponding
+  // parameter of the contextual signature for an unannotated parameter of a
+  // function expression.
   parameterTypeNode(p: Node): Node | undefined {
     if (p.type) return p.type;
     const fn = p.parent as Node | undefined;
@@ -800,9 +821,9 @@ class Analyzer {
     return ReturnKind.Ordinary;
   }
 
-  // The X of a result type `Promise<X>`, which an async function's returns resolve; any other type
-  // itself. A result `Promise<Sending<T>>` hands over ownership as `Sending<T>` does (`recvAsync()`,
-  // `joinAsync()`).
+  // The X of a result type `Promise<X>` , which an async function's returns
+  // resolve; any other type itself. A result `Promise<Sending<T>>` hands over
+  // ownership as `Sending<T>` does (`recvAsync()`, `joinAsync()` ).
   unwrapPromiseTypeNode(t: Node | undefined): Node | undefined {
     const r = this.resolveTypeNode(t);
     if (
@@ -832,8 +853,9 @@ class Analyzer {
     return false;
   }
 
-  // A share-like signature `<T>(x: Sending<T>) => Shared<T>` turns its argument into a shared value;
-  // the argument is then reported as consumed rather than sent.
+  // A share-like signature `<T>(x: Sending<T>) => Shared<T>` turns its argument
+  // into a shared value; the argument is then reported as consumed rather than
+  // sent.
   isConsumingSignature(decl: Node | undefined): boolean {
     if (!decl || this.returnKind(decl) !== ReturnKind.Shared) return false;
     const result = typeParameterName(decl, this.markedTypeOperand(decl.type));
@@ -849,8 +871,8 @@ class Analyzer {
     return false;
   }
 
-  // Reports whether a signature is Array.prototype.map or flatMap (or the ReadonlyArray versions) from
-  // the default library.
+  // Reports whether a signature is Array.prototype.map or flatMap (or the
+  // ReadonlyArray versions) from the default library.
   isLibArrayMethod(handle: NodeHandle | undefined): boolean {
     if (!handle || !this.c.host.isDefaultLibraryPath(handle.path)) return false;
     const decl = this.c.host.declarationOf(handle);
@@ -866,9 +888,10 @@ class Analyzer {
     );
   }
 
-  // Reports whether an expression is a shared value in the sense of the extension, which is immutable:
-  // it must be declared shared (a variable, parameter or member declared `Shared<T>`, a call returning
-  // `Shared<T>`, or something read out of such a value).
+  // Reports whether an expression is a shared value in the sense of the
+  // extension, which is immutable: it must be declared shared (a variable,
+  // parameter or member declared `Shared<T>` , a call returning `Shared<T>` ,
+  // or something read out of such a value).
   isImmutableShared(expr: Node): boolean {
     return (
       !this.isPrimitiveOrSharedStructType(this.typeOf(expr)) &&
@@ -933,8 +956,8 @@ class Analyzer {
         .memberTypes(t)
         .every(m => this.isPrimitiveOrSharedStructType(m));
     } else {
-      // SharedArrays are cells in the shared heap, like shared structs, and so is every Cell of the
-      // plain API.
+      // SharedArrays are cells in the shared heap, like shared structs, and so
+      // is every Cell of the plain API.
       result =
         !!(t.flags & (TypeFlags.Primitive | TypeFlags.Never)) ||
         getSharedArrayElementType(this.c, t) !== undefined ||
@@ -988,8 +1011,9 @@ class Analyzer {
     return captures;
   }
 
-  // The variables with a fresh binding in each iteration of a loop: those its body declares with `let`
-  // or `const` (catch clause variables included), outside the functions and classes in it.
+  // The variables with a fresh binding in each iteration of a loop: those its
+  // body declares with `let` or `const` (catch clause variables included),
+  // outside the functions and classes in it.
   loopBindings(loop: Node): Set<TsSymbol> {
     const existing = this.loopFresh.get(loop);
     if (existing) return existing;
@@ -1136,8 +1160,9 @@ class FunctionAnalysis {
         this.statement(node.statement, s);
         break;
     }
-    // Function and class declarations are analyzed on their own; the closures they create are
-    // accounted for where they are referenced. Type declarations, imports and the like have no effect.
+    // Function and class declarations are analyzed on their own; the closures
+    // they create are accounted for where they are referenced. Type
+    // declarations, imports and the like have no effect.
   }
 
   variableDeclarationList(list: Node, s: State): void {
@@ -1148,8 +1173,8 @@ class FunctionAnalysis {
     }
   }
 
-  // Binds the names declared by a variable, parameter or binding element. Every name in a binding
-  // pattern is bound to the region of the destructured value.
+  // Binds the names declared by a variable, parameter or binding element. Every
+  // name in a binding pattern is bound to the region of the destructured value.
   bindName(name: Node | undefined, decl: Node, v: Value, s: State): void {
     if (!name) return;
     if (name.kind === K.Identifier) {
@@ -1215,12 +1240,14 @@ class FunctionAnalysis {
     s.unreachable = true;
   }
 
-  // Loops are iterated until the state at the head stops changing, so that a send in one iteration is
-  // seen by the uses in the next.
+  // Loops are iterated until the state at the head stops changing, so that a
+  // send in one iteration is seen by the uses in the next.
   loop(node: Node, labels: string[], s: State): void {
     const a = this.a;
     let iterated = sharedValue;
-    let receives = false; // a for-of over a channel of counted values: each iteration receives a fresh one
+    // a for-of over a channel of counted values: each iteration receives a
+    // fresh one
+    let receives = false;
     switch (node.kind) {
       case K.ForStatement:
         if (node.initializer) {
@@ -1243,8 +1270,9 @@ class FunctionAnalysis {
         iterated = sharedValue; // property names
         break;
     }
-    // Each iteration has fresh bindings of the variables the loop's body declares with `let` or
-    // `const`: what an earlier iteration did with them must not flow into the next one.
+    // Each iteration has fresh bindings of the variables the loop's body
+    // declares with `let` or `const` : what an earlier iteration did with them
+    // must not flow into the next one.
     const fresh = a.loopBindings(node);
     let head = s.copy();
     for (const symbol of fresh) head.vars.delete(symbol);
@@ -1329,7 +1357,8 @@ class FunctionAnalysis {
     let current = State.unreachable();
     let hasDefault = false;
     for (const clause of node.caseBlock.clauses as Node[]) {
-      const entry = joinStates(afterExpression, current); // falls through from the previous clause
+      // falls through from the previous clause
+      const entry = joinStates(afterExpression, current);
       if (clause.kind === K.CaseClause) this.eval(clause.expression, entry);
       else hasDefault = true;
       this.statements(clause.statements, entry);
@@ -1341,8 +1370,8 @@ class FunctionAnalysis {
     s.assign(result);
   }
 
-  // try/catch/finally is analyzed conservatively: the catch and finally blocks start from the join of
-  // the try block's entry and exit states.
+  // try/catch/finally is analyzed conservatively: the catch and finally blocks
+  // start from the join of the try block's entry and exit states.
   tryStatement(node: Node, s: State): void {
     const entry = s.copy();
     this.statement(node.tryBlock, s);
@@ -1418,7 +1447,8 @@ class FunctionAnalysis {
       case K.PartiallyEmittedExpression:
         return this.eval(node.expression, s);
       case K.AwaitExpression: {
-        // What a promise resolves to is in the promise's region, unless it is a primitive.
+        // What a promise resolves to is in the promise's region, unless it is a
+        // primitive.
         const v = this.eval(node.expression, s);
         return a.isPrimitiveOrSharedStructType(a.typeOf(node))
           ? sharedValue
@@ -1507,8 +1537,8 @@ class FunctionAnalysis {
     return this.evalChildren(node, s);
   }
 
-  // Fallback for expressions without a specific rule (JSX and the like): a fresh region holding the
-  // regions of all subexpressions.
+  // Fallback for expressions without a specific rule (JSX and the like): a
+  // fresh region holding the regions of all subexpressions.
   evalChildren(node: Node, s: State): Value {
     const r = this.a.newRegion();
     forEachChild(node, child => {
@@ -1543,8 +1573,9 @@ class FunctionAnalysis {
     return v;
   }
 
-  // The value of a variable in this function: its binding, a closure for a local function
-  // declaration, or (for variables of enclosing scopes) shared or an OUTER region.
+  // The value of a variable in this function: its binding, a closure for a
+  // local function declaration, or (for variables of enclosing scopes) shared
+  // or an OUTER region.
   lookup(symbol: TsSymbol, s: State): Value {
     const bound = s.vars.get(symbol);
     if (bound) return bound;
@@ -1560,7 +1591,8 @@ class FunctionAnalysis {
         // A nested function or class: a closure over the variables it captures.
         return this.closureValue(a.c.host.declarationOf(handle)!, s);
       }
-      // Shared, or declared in this function but not initialized yet (or hoisted).
+      // Shared, or declared in this function but not initialized yet (or
+      // hoisted).
       return sharedValue;
     }
     if (a.isSharedSymbol(symbol)) return sharedValue;
@@ -1571,8 +1603,8 @@ class FunctionAnalysis {
     return v;
   }
 
-  // Reports a use of a variable whose region was sent (or whose value was consumed). Returns true if
-  // it reported an error.
+  // Reports a use of a variable whose region was sent (or whose value was
+  // consumed). Returns true if it reported an error.
   checkUse(node: Node, name: string, v: Value, s: State): boolean {
     if (v.kind === ValueKind.Consumed) {
       this.a.reportUseAfterSend(node, name, v.consumed!, v.maybe);
@@ -1588,8 +1620,9 @@ class FunctionAnalysis {
     return false;
   }
 
-  // `consume(x)` hands x's value over to the enclosing expression and ends x's lifetime: later uses of
-  // x are errors. The value itself is only sent if it is then passed to a `Sending` parameter.
+  // `consume(x)` hands x's value over to the enclosing expression and ends x's
+  // lifetime: later uses of x are errors. The value itself is only sent if it
+  // is then passed to a `Sending` parameter.
   evalConsume(node: Node, operand: Node, s: State): Value {
     operand = skipParentheses(operand);
     const v = this.eval(operand, s);
@@ -1666,8 +1699,8 @@ class FunctionAnalysis {
     return sharedValue;
   }
 
-  // Evaluates the target of `x++`, `delete a.b`, `a.b += 1` and the like, reporting writes through
-  // shared values.
+  // Evaluates the target of `x++` , `delete a.b` , `a.b += 1` and the like,
+  // reporting writes through shared values.
   evalWriteTarget(target: Node, s: State): void {
     target = skipParentheses(target);
     if (
@@ -1683,8 +1716,9 @@ class FunctionAnalysis {
     }
   }
 
-  // Assigns a value to an assignment target: rebinds a local variable, merges into the OUTER region of
-  // a captured one, or links the value to the object whose property is written.
+  // Assigns a value to an assignment target: rebinds a local variable, merges
+  // into the OUTER region of a captured one, or links the value to the object
+  // whose property is written.
   assign(target: Node, v: Value, s: State): void {
     target = skipOuterExpressions(target, OEK.Assertions | OEK.Parentheses);
     const a = this.a;
@@ -1769,8 +1803,8 @@ class FunctionAnalysis {
     this.eval(target, s);
   }
 
-  // Reports a write to a property or element of a shared value. Fields of shared struct instances are
-  // mutable cells, so writing them is allowed.
+  // Reports a write to a property or element of a shared value. Fields of
+  // shared struct instances are mutable cells, so writing them is allowed.
   checkWrite(target: Node, object: Node, obj: Value): void {
     if (obj.kind !== ValueKind.Shared || !this.a.isImmutableShared(object))
       return;
@@ -1783,14 +1817,16 @@ class FunctionAnalysis {
     );
   }
 
-  // The value of `o.p` or `o[i]` given the value of `o`: shared if `o` is shared (sharedness is deep),
-  // if the member is declared shared, or if it is a primitive; otherwise in `o`'s region.
+  // The value of `o.p` or `o[i]` given the value of `o` : shared if `o` is
+  // shared (sharedness is deep), if the member is declared shared, or if it is
+  // a primitive; otherwise in `o` 's region.
   readMember(node: Node, object: Node, obj: Value, s: State): Value {
     const a = this.a;
     if (obj.kind !== ValueKind.InRegion) return sharedValue;
     if (s.isCounted(obj)) {
-      // A struct element of a SharedArray is stored inline in the array's block: an alias of the
-      // array. Fields are numbers or untracked references.
+      // A struct element of a SharedArray is stored inline in the array's
+      // block: an alias of the array. Fields are numbers or untracked
+      // references.
       if (
         node.kind === K.ElementAccessExpression &&
         a.isCountedType(a.typeOf(node))
@@ -1837,8 +1873,9 @@ class FunctionAnalysis {
     return regionValue(s.find(r));
   }
 
-  // The value of a closure (function, arrow function, class or object literal method): a fresh region
-  // merged with the regions of the variables it captures.
+  // The value of a closure (function, arrow function, class or object literal
+  // method): a fresh region merged with the regions of the variables it
+  // captures.
   closureValue(node: Node, s: State): Value {
     const r = this.a.newRegion();
     if (this.building.has(node)) return regionValue(r);
@@ -1847,8 +1884,9 @@ class FunctionAnalysis {
       const captures = this.a.capturesOf(node);
       captures.symbols.forEach((symbol, i) => {
         const v = this.lookup(symbol, s);
-        // A captured variable that was already sent is reported once, here; it is not linked to the
-        // closure, so that uses of the closure do not report it again.
+        // A captured variable that was already sent is reported once, here; it
+        // is not linked to the closure, so that uses of the closure do not
+        // report it again.
         if (
           !this.checkUse(captures.nodes[i]!, symbol.name, v, s) &&
           v.kind === ValueKind.InRegion &&
@@ -1930,7 +1968,8 @@ class FunctionAnalysis {
       const cb = skipParentheses(args[0]!);
       if (isFunctionExpressionOrArrowFunction(cb)) callback = cb;
     }
-    const otherArgs: Region[] = []; // arguments other than the receiver and a map callback
+    // arguments other than the receiver and a map callback
+    const otherArgs: Region[] = [];
     args.forEach((arg, i) => {
       const expr =
         arg.kind === K.SpreadElement ? (arg.expression as Node) : arg;
@@ -1958,12 +1997,14 @@ class FunctionAnalysis {
         return sharedValue;
     }
     if (callback && a.analyzeFunction(callback).returnsFresh) {
-      // map/flatMap with a callback that builds fresh values: the result is a fresh array.
+      // map/flatMap with a callback that builds fresh values: the result is a
+      // fresh array.
       this.unionAll(otherArgs, s);
       return regionValue(a.newRegion());
     }
     let r = this.unionAll(regions, s);
-    if (counted) return regionValue(a.newRegionOf(true, s)); // not tracked through the call: a fresh counted value
+    // not tracked through the call: a fresh counted value
+    if (counted) return regionValue(a.newRegionOf(true, s));
     if (a.isPrimitiveOrSharedStructType(a.typeOf(node))) return sharedValue;
     if (r === 0) r = a.newRegion();
     return regionValue(r);
@@ -1974,7 +2015,8 @@ class FunctionAnalysis {
     const args = (node.arguments ?? []) as Node[];
     const counted = a.isCountedType(a.typeOf(node));
     if (counted) {
-      // `new` of a SharedArray (or another counted value): a fresh counted value.
+      // `new` of a SharedArray (or another counted value): a fresh counted
+      // value.
       for (const arg of args) this.eval(arg, s);
       return regionValue(a.newRegionOf(true, s));
     }
@@ -2009,7 +2051,8 @@ class FunctionAnalysis {
       this.unionAll(regions, s);
       return sharedValue;
     }
-    // A new object: a fresh region holding the (non-shared) constructor arguments.
+    // A new object: a fresh region holding the (non-shared) constructor
+    // arguments.
     const r = a.newRegion();
     for (const region of regions) s.union(r, region);
     return regionValue(s.find(r));
@@ -2023,9 +2066,9 @@ class FunctionAnalysis {
     return r;
   }
 
-  // Passes an argument to a `Sending` parameter. A counted value is sent (moved) only by a parameter
-  // that is not a rest parameter: a thread's arguments share it, and a share-like function leaves it
-  // as it is.
+  // Passes an argument to a `Sending` parameter. A counted value is sent
+  // (moved) only by a parameter that is not a rest parameter: a thread's
+  // arguments share it, and a share-like function leaves it as it is.
   sendArgument(
     v: Value,
     expr: Node,
@@ -2038,7 +2081,8 @@ class FunctionAnalysis {
     this.send(v, expr, callee, consuming, s);
   }
 
-  // Sends a value: passes it to a `Sending` parameter (or a share-like function, which consumes it).
+  // Sends a value: passes it to a `Sending` parameter (or a share-like
+  // function, which consumes it).
   send(
     v: Value,
     expr: Node,
@@ -2091,8 +2135,8 @@ function lineOf(node: Node): number {
   return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
 }
 
-// A short name for an expression in a message: the variable for `x` and `consume(x)`, otherwise the
-// (abbreviated) source text.
+// A short name for an expression in a message: the variable for `x` and
+// `consume(x)` , otherwise the (abbreviated) source text.
 function expressionName(expr: Node): string {
   expr = skipParentheses(expr);
   if (

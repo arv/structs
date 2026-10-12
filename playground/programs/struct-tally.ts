@@ -1,7 +1,8 @@
-// A shared struct lives in shared memory, and every thread reads and writes the same one, in place.
-// Here each thread counts the primes in its own range into its own tally, one of a SharedArray of
-// them, and main adds the tallies up once scope has joined the threads (joining orders the threads'
-// writes before main's reads).
+// A shared struct lives in shared memory, and every thread reads and writes the
+// same one, in place. Here each thread counts the primes in its own range into
+// its own tally, one of a SharedArray of them, and main adds the tallies up
+// once scope has joined the threads (joining orders the threads' writes before
+// main's reads).
 import {f64, log, scope, SharedArray, struct, type Struct} from 'threads';
 
 const Tally = struct({primes: f64, largest: f64});
@@ -25,8 +26,8 @@ function count(tally: Tally, lo: number, hi: number) {
 
 const N = 2_000_000;
 
-// main runs on a worker too: the playground starts it as a thread, so it may block (scope waits for
-// the threads it started)
+// main runs on a worker too: the playground starts it as a thread, so it may
+// block (scope waits for the threads it started)
 export function main(threadCounts: readonly number[]) {
   for (const threads of threadCounts) {
     const tallies = new SharedArray(Tally, threads),

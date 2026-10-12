@@ -1,8 +1,10 @@
 #!/usr/bin/env -S node --experimental-strip-types
-// threads-check -p <tsconfig.json> --runtime <module>: the ownership diagnostics of a project, in
-// tsc's format (`file(line,col): error TS96001: ...`).
+// threads-check -p <tsconfig.json> --runtime <module>: the ownership
+// diagnostics of a project, in tsc's format (`file(line,col): error TS96001:
+// ...`).
 //
-// Exit status: 0 without diagnostics, 1 with some, 3 if the project cannot be checked.
+// Exit status: 0 without diagnostics, 1 with some, 3 if the project cannot be
+// checked.
 
 import {existsSync, statSync} from 'node:fs';
 import {join} from 'node:path';

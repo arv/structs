@@ -1,10 +1,11 @@
 import {writeSync} from 'node:fs';
-// a node worker: the program's main thread, or a pool worker that runs Threads (see run.js).
-// web-worker.js is the same for a browser
+// a node worker: the program's main thread, or a pool worker that runs Threads
+// (see run.js). web-worker.js is the same for a browser
 import {workerData, parentPort} from 'node:worker_threads';
 
 const {sab, program, opts, role, threads} = workerData;
-// the runtime's heap views are module constants: the heap must be known before it loads
+// the runtime's heap views are module constants: the heap must be known before
+// it loads
 globalThis.__escapeSab = sab;
 try {
   const R = await import('./runtime.js');

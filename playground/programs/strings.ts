@@ -1,7 +1,9 @@
-// Strings in shared memory are interned: each distinct string is stored once, and a `str` field (or an
-// element of a SharedArray<string>) holds the address of that copy. Writing one interns it; reading one
-// gives this thread's copy of the string, decoded the first time and kept. Here threads fill a log in
-// shared memory, each its own part, and then count the errors per service in it.
+// Strings in shared memory are interned: each distinct string is stored once,
+// and a `str` field (or an element of a SharedArray<string>) holds the address
+// of that copy. Writing one interns it; reading one gives this thread's copy of
+// the string, decoded the first time and kept. Here threads fill a log in
+// shared memory, each its own part, and then count the errors per service in
+// it.
 import {
   f64,
   log,
@@ -19,8 +21,8 @@ type Entry = Struct<typeof Entry>;
 const SERVICES = ['auth', 'billing', 'search', 'upload', 'email'];
 const N = 500_000;
 
-// a made-up number in [0, 1) for entry i and draw k (a hash of them): the same whichever thread fills
-// the entry
+// a made-up number in [0, 1) for entry i and draw k (a hash of them): the same
+// whichever thread fills the entry
 function noise(i: number, k: number): number {
   let h = Math.imul(i * 4 + k, 0x9e3779b1);
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -38,7 +40,8 @@ function fill(entries: SharedArray<Entry>, lo: number, hi: number) {
   }
 }
 
-// runs on a thread: the errors per service in entries [lo, hi), in an object its result moves back
+// runs on a thread: the errors per service in entries [lo, hi), in an object
+// its result moves back
 function errors(
   entries: SharedArray<Entry>,
   lo: number,
@@ -52,8 +55,8 @@ function errors(
   return counts;
 }
 
-// main runs on a worker too: the playground starts it as a thread, so it may block (scope waits for
-// the threads it started)
+// main runs on a worker too: the playground starts it as a thread, so it may
+// block (scope waits for the threads it started)
 export function main(threadCounts: readonly number[]) {
   const entries = new SharedArray(Entry, N);
   for (const threads of threadCounts) {

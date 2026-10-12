@@ -1,8 +1,9 @@
-// a Web Worker: the program's main thread, or a pool worker that runs Threads (see page.js).
-// worker.js is the same for node
+// a Web Worker: the program's main thread, or a pool worker that runs Threads
+// (see page.js). worker.js is the same for node
 onmessage = async ({data}) => {
   const {sab, program, opts, role, threads} = data;
-  // the runtime's heap views are module constants: the heap must be known before it loads
+  // the runtime's heap views are module constants: the heap must be known
+  // before it loads
   globalThis.__escapeSab = sab;
   try {
     const R = await import('./runtime.js');

@@ -1,19 +1,23 @@
-// the runtime for publish-on-escape threads in plain JS (see README.md). objects stay ordinary
-// V8 objects while one thread can reach them. one moves into the shared heap (a SharedArrayBuffer)
-// when its owner stores it somewhere another thread can reach: the owner copies it there, and the
-// local object turns into a view of the copy. shared objects follow the threads design of
-// Porffor's threads/README.md: one value word per slot, readers never lock, thread-local ownership with
-// handover at clean points, and a lock per object once it is really shared.
+// the runtime for publish-on-escape threads in plain JS (see README.md).
+// objects stay ordinary V8 objects while one thread can reach them. one moves
+// into the shared heap (a SharedArrayBuffer) when its owner stores it somewhere
+// another thread can reach: the owner copies it there, and the local object
+// turns into a view of the copy. shared objects follow the threads design of
+// Porffor's threads/README.md: one value word per slot, readers never lock,
+// thread-local ownership with handover at clean points, and a lock per object
+// once it is really shared.
 //
-// a shared object is reached through a handle: a JS object whose prototype (one per shape) has
-// a getter and a setter per property, reading and writing its slot in the heap. so the
-// translated program reads and writes properties as plain JS does, and the engine's own inline
-// caches pick the local field or the shared slot. a property the handle's shape did not have
-// falls through to a Proxy at the end of the prototype chain, which looks it up in the heap
+// a shared object is reached through a handle: a JS object whose prototype (one
+// per shape) has a getter and a setter per property, reading and writing its
+// slot in the heap. so the translated program reads and writes properties as
+// plain JS does, and the engine's own inline caches pick the local field or the
+// shared slot. a property the handle's shape did not have falls through to a
+// Proxy at the end of the prototype chain, which looks it up in the heap
 
 // ---- the control area: the first CTRL_BYTES of the SAB, as i32 indices ----
 const C_ALLOC = 0; // the shared bump cursor (bytes)
-const C_POLL = 1; // handovers requested and not yet done (the clean points' poll)
+// handovers requested and not yet done (the clean points' poll)
+const C_POLL = 1;
 const C_STW_LOCK = 2; // guards the thread table and handover lists
 const C_STW_SEQ = 3; // its condition variable
 const C_NEXT_TID = 4;
@@ -36,8 +40,11 @@ const C_PEND = 19,
   C_PEND_CAP = 21,
   C_PEND_LOCK = 22; // decrements left by threads that ended
 export const C_ACTIVITY = 23,
-  C_SELECTING = 24; // bumped on every channel change; threads waiting in select (chan.js)
-const C_FREE = 1100; // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for larger
+  // bumped on every channel change; threads waiting in select (chan.js)
+  C_SELECTING = 24;
+// free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for
+// larger
+const C_FREE = 1100;
 const C_CNT = 32; // counters, see COUNTERS
 const C_RING = 64,
   RING = 1024;
@@ -80,8 +87,9 @@ const N_PUB = 0,
   N_BALLOC = 10,
   N_BFREE = 11,
   N_DEFER = 12;
-// counted per thread, added to the shared totals when the thread ends: one shared counter
-// bumped on every locked write would itself be the most contended word in the program
+// counted per thread, added to the shared totals when the thread ends: one
+// shared counter bumped on every locked write would itself be the most
+// contended word in the program
 const LC = new Int32Array(COUNTERS.length);
 const count = n => {
   LC[n]++;
@@ -95,12 +103,14 @@ const flushCounts = () => {
 };
 
 // ---- block kinds and layouts (byte offsets) ----
-// object: [0 kind][4 lock][8 slots][12 -][16 proto word]       slots: [0 shape][4 cap][8 words]
+// object: [0 kind][4 lock][8 slots][12 -][16 proto word] slots: [0 shape][4
+//         cap][8 words]
 // array:  [0 kind][4 lock][8 slots][12 length]
 // fn:     [0 kind][4 -][8 fn index][12 -][16 env word]
 // lock:   [0 kind][4 -][8 state 0/1/2]   cond: [0 kind][4 -][8 seq]
 // thread: [0 kind][4 detached][8 done][12 threw][16 fn word][24 result word]
-// view:   [0 kind][4 -][8 byte offset][12 length]   sab: [0 kind][4 -][8 data][12 bytes]
+// view:   [0 kind][4 -][8 byte offset][12 length] sab: [0 kind][4 -][8 data][12
+//         bytes]
 // string: [0 kind][4 length][8 hash][12 -][16 utf-16 units]
 // shape:  [0 parent][4 key][8 count][12 first child][16 next sibling]
 export const K_OBJ = 1,
@@ -113,15 +123,16 @@ export const K_OBJ = 1,
   K_SAB = 8,
   K_STR = 9;
 
-// lock word: an owner's tag (thread id << 12 | LOCAL), PENDING while a takeover waits on it,
-// 0 when shared and unlocked, or a holder's id << 12 | depth
+// lock word: an owner's tag (thread id << 12 | LOCAL), PENDING while a takeover
+// waits on it, 0 when shared and unlocked, or a holder's id << 12 | depth
 const LOCAL = 0x800,
   PENDING = 0x400,
   DEPTH = 0x3ff;
 
-// in a worker the views are module constants, which the JIT can embed: the worker sets
-// globalThis.__escapeSab before importing this module. a coordinator (run.js, page.js) only
-// sets the heap up, through initShared, and reads it through the functions that take the buffer
+// in a worker the views are module constants, which the JIT can embed: the
+// worker sets globalThis.__escapeSab before importing this module. a
+// coordinator (run.js, page.js) only sets the heap up, through initShared, and
+// reads it through the functions that take the buffer
 const SAB = globalThis.__escapeSab ?? null;
 export const I32 = SAB && new Int32Array(SAB),
   F64 = SAB && new Float64Array(SAB);
@@ -134,14 +145,16 @@ let MY_TID = 0,
   ME = 0;
 const PRIV = new Int32Array(new SharedArrayBuffer(4)); // to sleep on
 
-// a handle's (and a forwarded local object's) own fields: its block's address and kind. $fwd
-// is the handle itself, or for a local object that moved to the shared heap, its handle
+// a handle's (and a forwarded local object's) own fields: its block's address
+// and kind. $fwd is the handle itself, or for a local object that moved to the
+// shared heap, its handle
 export const ADDR = Symbol('addr'),
   KIND = Symbol('kind');
 
 // ---- value words: one f64 access, NaN-boxed when not a number ----
-// a box: hi = 0xFFF80000 | tag << 11, lo = payload. boxes are built and read through this
-// scratch pair, never held as JS numbers in between (engines may canonicalize a NaN they see)
+// a box: hi = 0xFFF80000 | tag << 11, lo = payload. boxes are built and read
+// through this scratch pair, never held as JS numbers in between (engines may
+// canonicalize a NaN they see)
 export const SF = new Float64Array(1),
   SI = new Int32Array(SF.buffer);
 const BOX_HI = 0xfff80000 | 0;
@@ -218,7 +231,8 @@ export function decBox(w, a) {
   throw new Error(`bad value word at ${a}`);
 }
 
-// ---- slot accessors: one getter and setter per slot index, shared by every shape ----
+// ---- slot accessors: one getter and setter per slot index, shared by every
+// shape ----
 const GET = [],
   SET = [];
 const slotGetter = slot =>
@@ -232,7 +246,8 @@ const slotSetter = slot =>
     function (v) {
       setSlot(this[ADDR], off, v);
     })(8 + slot * 8));
-// the owner writes without locking; anyone else takes the object over, then locks it
+// the owner writes without locking; anyone else takes the object over, then
+// locks it
 function setSlot(a, off, v) {
   if (I32[(a + 4) >> 2] === MY_TAG) {
     $enc(I32[(a + 8) >> 2] + off, v);
@@ -247,8 +262,9 @@ function setSlot(a, off, v) {
   }
 }
 
-// the end of every shared object's prototype chain: a property its handle's shape did not have
-// (added since, or a method on its shared prototype) is looked up in the heap
+// the end of every shared object's prototype chain: a property its handle's
+// shape did not have (added since, or a method on its shared prototype) is
+// looked up in the heap
 const CATCH = new Proxy(Object.create(null), {
   get: (t, key, receiver) =>
     typeof key === 'symbol'
@@ -405,7 +421,8 @@ const newHandle = (a, kind) => {
   return h;
 };
 
-// ---- allocation: bump, per-thread chunks. only blocks own.js counts are freed ($freeBlock) ----
+// ---- allocation: bump, per-thread chunks. only blocks own.js counts are freed
+// ($freeBlock) ----
 const CHUNK = 64 << 10;
 let acur = 0,
   aend = 0;
@@ -427,7 +444,8 @@ export function $alloc(bytes) {
   return p;
 }
 
-// ---- locks on control words: futex style, 0 free, 1 held, 2 held with waiters ----
+// ---- locks on control words: futex style, 0 free, 1 held, 2 held with waiters
+// ----
 const mlock = i => {
   if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
   while (Atomics.exchange(I32, i, 2) !== 0) Atomics.wait(I32, i, 2);
@@ -440,10 +458,11 @@ const munlock = i => {
 };
 
 // ---- free lists, for the blocks own.js frees ----
-// a block of up to 2 KiB goes on the list for its size; a larger one on one list of large blocks,
-// reused only at the same size. each thread keeps a cache per size and trades with the global
-// lists, under one lock, a batch at a time. a free block is [K_FREE][next] ([K_FREE][bytes][next]
-// when large); with --check its other words are POISON, so a read after free stands out
+// a block of up to 2 KiB goes on the list for its size; a larger one on one
+// list of large blocks, reused only at the same size. each thread keeps a cache
+// per size and trades with the global lists, under one lock, a batch at a time.
+// a free block is [K_FREE][next] ([K_FREE][bytes][next] when large); with
+// --check its other words are POISON, so a read after free stands out
 const SMALL = 256,
   BATCH = 32;
 export const K_FREE = 99,
@@ -509,15 +528,18 @@ export function $freeBlock(p, bytes) {
   munlock(C_FREE_LOCK);
 }
 
-// ---- deferred decrements: quiescent-state-based reclamation (see REFCOUNT.md) ----
-// a decrement that may race with a reader (own.js: a field's old value, when the field is
-// overwritten) waits until every running thread has passed a quiescent point since: a point where
-// it holds no address it read from a field without counting it. each thread's T_QS word is the
-// epoch it saw at its last one, IDLE while it waits; a decrement queued in epoch g is safe once
-// every running thread's word is past g. a thread that ends hands what it still has to the
-// shared list (C_PEND), which any thread works off
+// ---- deferred decrements: quiescent-state-based reclamation (see REFCOUNT.md)
+// ----
+// a decrement that may race with a reader (own.js: a field's old value, when
+// the field is overwritten) waits until every running thread has passed a
+// quiescent point since: a point where it holds no address it read from a field
+// without counting it. each thread's T_QS word is the epoch it saw at its last
+// one, IDLE while it waits; a decrement queued in epoch g is safe once every
+// running thread's word is past g. a thread that ends hands what it still has
+// to the shared list (C_PEND), which any thread works off
 const IDLE = 0x7fffffff;
-let pend = []; // this thread's queued decrements: epoch, address, epoch, address, ...
+// this thread's queued decrements: epoch, address, epoch, address, ...
+let pend = [];
 let deferHandler = null,
   qsTick = 0;
 export const setDeferHandler = f => {
@@ -555,7 +577,8 @@ function oldestEpoch() {
 // apply the queued decrements that are safe now (at a quiescent point)
 function reclaim() {
   if (pend.length === 0 && Atomics.load(I32, C_PEND_LEN) === 0) return;
-  Atomics.add(I32, C_EPOCH, 1); // so what is queued now is older than every later quiescent point
+  // so what is queued now is older than every later quiescent point
+  Atomics.add(I32, C_EPOCH, 1);
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   const min = oldestEpoch();
   const list = pend;
@@ -604,7 +627,8 @@ function handOffPending() {
   munlock(C_PEND_LOCK);
   pend = [];
 }
-// work off every queued decrement this thread can: when no other thread is running, all of them
+// work off every queued decrement this thread can: when no other thread is
+// running, all of them
 export function $drain() {
   for (
     let round = 0;
@@ -633,7 +657,8 @@ const stwWait = () => {
   mlock(C_STW_LOCK);
 };
 
-// ---- strings: interned, so a string's address is its identity (keys compare by address) ----
+// ---- strings: interned, so a string's address is its identity (keys compare
+// by address) ----
 const strAddr = new Map(),
   addrStr = new Map();
 const strHash = s => {
@@ -695,9 +720,9 @@ export function $str(a) {
 }
 export const $key = $intern;
 
-// ---- shapes: immutable (parent, key) chains. transitions are shared, under a lock. a
-// key's slot never changes once added (nothing is deleted), so an accessor made for one shape
-// is right for every shape after it ----
+// ---- shapes: immutable (parent, key) chains. transitions are shared, under a
+// lock. a key's slot never changes once added (nothing is deleted), so an
+// accessor made for one shape is right for every shape after it ----
 const kidCache = new Map();
 function transition(shape, key) {
   let m = kidCache.get(shape);
@@ -738,7 +763,8 @@ const newSlots = cap => {
   return b;
 };
 
-// ---- thread-local ownership (Porffor's threads/README.md; its render.js porf_ttl_* and porf_rlock) ----
+// ---- thread-local ownership (Porffor's threads/README.md; its render.js
+// porf_ttl_* and porf_rlock) ----
 function releaseMine() {
   // holding the stw lock
   const len = I32[ME + T_LEN];
@@ -754,7 +780,8 @@ function releaseMine() {
   Atomics.store(I32, ME + T_LEN, 0);
   stwBroadcast();
 }
-// a clean point that found a handover requested (of anyone's: the poll word is global)
+// a clean point that found a handover requested (of anyone's: the poll word is
+// global)
 export function $clean() {
   count(N_SLOWPOLL);
   if (Atomics.load(I32, ME + T_LEN) === 0) return false;
@@ -763,7 +790,8 @@ export function $clean() {
   munlock(C_STW_LOCK);
   return false;
 }
-// around a blocking wait: meanwhile other threads take this thread's objects directly
+// around a blocking wait: meanwhile other threads take this thread's objects
+// directly
 const cleanEnter = () => {
   $waitBegin();
   mlock(C_STW_LOCK);
@@ -804,7 +832,8 @@ function takeover(li) {
       Atomics.load(I32, owner + T_ALIVE) === 0 ||
       Atomics.load(I32, owner + T_CLEAN) !== 0
     ) {
-      // the owner is gone, or blocked between operations: nothing of it is midway
+      // the owner is gone, or blocked between operations: nothing of it is
+      // midway
       if (Atomics.compareExchange(I32, li, v, 0) === v) count(N_DIRECT);
       continue;
     }
@@ -824,14 +853,16 @@ function takeover(li) {
   if (waiting) Atomics.store(I32, ME + T_CLEAN, 0);
   munlock(C_STW_LOCK);
 }
-// a lock word at byte address a + 4: nothing for the owner, else a reentrant lock
+// a lock word at byte address a + 4: nothing for the owner, else a reentrant
+// lock
 function rlock(a) {
   const li = (a + 4) >> 2;
   if (I32[li] === MY_TAG) return;
   let spins = 0;
   for (;;) {
     const v = Atomics.load(I32, li);
-    if ((v & ~PENDING) === MY_TAG) return; // ours with a takeover pending: still lock-free
+    // ours with a takeover pending: still lock-free
+    if ((v & ~PENDING) === MY_TAG) return;
     if (v & LOCAL) {
       takeover(li);
       continue;
@@ -854,7 +885,8 @@ function runlock(a) {
 }
 
 // ---- publishing: copy what a local value reaches into the shared heap ----
-// a class prototype keeps its handle here: it stays as it is, since its local instances use it
+// a class prototype keeps its handle here: it stays as it is, since its local
+// instances use it
 const classProtos = new WeakSet(),
   protoHandles = new WeakMap();
 function refAddr(v) {
@@ -875,8 +907,9 @@ export function $pub(v) {
 function publish(v) {
   count(N_PUB);
   if (Array.isArray(v)) {
-    // a local array keeps its elements but forwards: element reads and writes, and array
-    // methods and length, check $fwd (see expand.js) and go to the shared copy
+    // a local array keeps its elements but forwards: element reads and writes,
+    // and array methods and length, check $fwd (see expand.js) and go to the
+    // shared copy
     const n = v.length,
       a = $alloc(16),
       blk = newSlots(n < 4 ? 4 : n);
@@ -918,8 +951,9 @@ function publish(v) {
   I32[a >> 2] = K_OBJ;
   I32[(a + 4) >> 2] = MY_TAG;
   I32[(a + 8) >> 2] = blk;
-  // the handle exists before what the object reaches is published, for cycles: so the shape it
-  // starts with is the empty one, and its properties go through CATCH until it is made again
+  // the handle exists before what the object reaches is published, for cycles:
+  // so the shape it starts with is the empty one, and its properties go through
+  // CATCH until it is made again
   const pending = {[ADDR]: a};
   if (isProto) protoHandles.set(v, pending);
   else {
@@ -939,8 +973,9 @@ function publish(v) {
     protoHandles.set(v, h);
     return h;
   }
-  // the local object becomes a view of its copy: each property an accessor of its slot, then
-  // the shared object's chain (so new properties and methods go to the heap too)
+  // the local object becomes a view of its copy: each property an accessor of
+  // its slot, then the shared object's chain (so new properties and methods go
+  // to the heap too)
   for (let k = 0; k < n; k++)
     Object.defineProperty(v, keys[k], {
       get: slotGetter(k),
@@ -1001,8 +1036,9 @@ function ssetBody(a, key, v) {
     $enc(blk + 8 + (slot << 3), v);
     return v;
   }
-  // a new property: the value before the shape that has it, so a racing reader never finds
-  // the key without its value. past capacity, into a copied block published whole
+  // a new property: the value before the shape that has it, so a racing reader
+  // never finds the key without its value. past capacity, into a copied block
+  // published whole
   const ns = transition(shape, key);
   slot = I32[(ns + 8) >> 2] - 1;
   const cap = I32[(blk + 4) >> 2];
@@ -1023,7 +1059,8 @@ function ssetBody(a, key, v) {
   }
   return v;
 }
-// what a forwarding array (or anything) reaches by a name an array also has: see expand.js
+// what a forwarding array (or anything) reaches by a name an array also has:
+// see expand.js
 let K_length, K_push;
 export function $sget(h, key) {
   if (h[KIND] === K_ARR && key === K_length) return I32[(h[ADDR] + 12) >> 2];
@@ -1044,7 +1081,8 @@ export function $scall(h, key, a0, a1, a2) {
   return f.call(h, a0, a1, a2);
 }
 
-// ---- shared arrays: capacity never shrinks; a grow publishes the block before the length ----
+// ---- shared arrays: capacity never shrinks; a grow publishes the block before
+// the length ----
 export function $sgeti(h, i) {
   if (h[KIND] !== K_ARR)
     throw new TypeError('escape-proto: indexing a shared non-array');
@@ -1106,7 +1144,8 @@ function spush(a, v) {
 }
 
 // ---- functions and classes ----
-// a function value: an index into the module's table and the environment it captured
+// a function value: an index into the module's table and the environment it
+// captured
 export function $closure(idx, env) {
   const f = function (a0, a1, a2) {
     return FNS[idx](env, this, a0, a1, a2);
@@ -1223,7 +1262,8 @@ export async function threadJoinAsync(a) {
   while (Atomics.load(I32, di) === 0) {
     const w = Atomics.waitAsync(I32, di, 0);
     if (!w.async) continue;
-    const alive = setTimeout(() => {}, 1 << 30); // node lets a worker exit on a bare waitAsync
+    // node lets a worker exit on a bare waitAsync
+    const alive = setTimeout(() => {}, 1 << 30);
     try {
       await w.value;
     } finally {
@@ -1257,7 +1297,8 @@ export function $newTA(Ctor, buf) {
 }
 
 // ---- iteration, equality, printing ----
-// a local array, or the shared one a local array forwards to (iterable either way)
+// a local array, or the shared one a local array forwards to (iterable either
+// way)
 export const $iter = x => (x.$fwd === undefined ? x : x.$fwd);
 export function $eq(a, b) {
   if (a === b) return true;
@@ -1338,19 +1379,21 @@ export function threadEnd() {
   stwBroadcast();
   munlock(C_STW_LOCK);
 }
-// what a pool thread runs, given its block: by default the function stored in it (own.js
-// replaces this)
+// what a pool thread runs, given its block: by default the function stored in
+// it (own.js replaces this)
 let threadEntry = t => $dec(t + 16)();
 export const setThreadEntry = f => {
   threadEntry = f;
 };
-// whether a worker should give its event loop a turn after a thread (own.js: when V8 may have
-// handles to finalize, which a FinalizationRegistry does only between tasks)
+// whether a worker should give its event loop a turn after a thread (own.js:
+// when V8 may have handles to finalize, which a FinalizationRegistry does only
+// between tasks)
 let afterTask = () => false;
 export const setAfterTask = f => {
   afterTask = f;
 };
-// what a worker does before it runs a thread, if anything (own.js: load the thread's module)
+// what a worker does before it runs a thread, if anything (own.js: load the
+// thread's module)
 let beforeTask = null;
 export const setBeforeTask = f => {
   beforeTask = f;
@@ -1382,14 +1425,15 @@ function runThread(t) {
     threw = 1;
   }
   I32[(t + 12) >> 2] = threw;
-  if (threw && I32[(t + 4) >> 2] === 1) $log(`a detached thread threw: ${r}`); // nothing joins it
+  // nothing joins it
+  if (threw && I32[(t + 4) >> 2] === 1) $log(`a detached thread threw: ${r}`);
   threadEnd();
   Atomics.store(I32, (t + 8) >> 2, 1);
   Atomics.notify(I32, (t + 8) >> 2);
   if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
 }
-// a pool worker: take threads off the queue until shutdown
-// while it has handles to finalize it waits asynchronously, so its event loop runs the registry
+// a pool worker: take threads off the queue until shutdown while it has handles
+// to finalize it waits asynchronously, so its event loop runs the registry
 export async function poolLoop() {
   for (;;) {
     if (afterTask()) {
@@ -1405,7 +1449,8 @@ export async function poolLoop() {
         if (afterTask()) {
           const w = Atomics.waitAsync(I32, C_PENDING, 0, 50);
           if (w.async) {
-            const alive = setTimeout(() => {}, 60); // node lets a worker exit on a bare waitAsync
+            // node lets a worker exit on a bare waitAsync
+            const alive = setTimeout(() => {}, 60);
             await w.value;
             clearTimeout(alive);
           }

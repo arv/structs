@@ -1,17 +1,22 @@
-// Typed layouts (ownlayout.go): a value whose static type is a shared struct or a SharedArray is, at
-// run time, an address in the shared heap. The checker classifies types by layout, decides where the
-// emit boxes and unboxes such values (the conversions, which the counting rules read), and reports
-// what the layouts cannot express:
+// Typed layouts (ownlayout.go): a value whose static type is a shared struct or
+// a SharedArray is, at run time, an address in the shared heap. The checker
+// classifies types by layout, decides where the emit boxes and unboxes such
+// values (the conversions, which the counting rules read), and reports what the
+// layouts cannot express:
 //
-//   - the elements of a SharedArray must be numbers, booleans, strings or a shared struct (96016);
-//   - the elements of a SharedArray of structs are stored inline, so they cannot be assigned (96017);
-//   - no optional chaining on an address (96018), no destructuring of a parameter or a for-of variable
-//     that holds one (96019);
-//   - a field of a union of structs must be at the same place in all of them (96026);
-//   - a string or channel field, or a string element, is not assigned by destructuring or as a loop
-//     variable (96027);
-//   - an atomic operation acts on an i32 field named by a string literal, or on an element of a
-//     SharedArray<i32> (96028, reported with the struct calls, in refcount.ts).
+//   - the elements of a SharedArray must be numbers, booleans, strings or a
+//     shared struct (96016);
+//   - the elements of a SharedArray of structs are stored inline, so they
+//     cannot be assigned (96017);
+//   - no optional chaining on an address (96018), no destructuring of a
+//     parameter or a for-of variable that holds one (96019);
+//   - a field of a union of structs must be at the same place in all of them
+//     (96026);
+//   - a string or channel field, or a string element, is not assigned by
+//     destructuring or as a loop variable (96027);
+//   - an atomic operation acts on an i32 field named by a string literal, or on
+//     an element of a SharedArray<i32> (96028, reported with the struct calls,
+//     in refcount.ts).
 
 import type {SourceFile} from 'typescript/ast';
 import {CellKind, Conversion, isArrayKind} from './context.ts';
@@ -56,8 +61,8 @@ const structCell = (kind: CellKind, s: StructInfo): CellType => ({
   kinds: s.kinds,
 });
 
-// The shared struct whose instances have type t, if any: a `struct(...)` call (whose values' type
-// may be intersected with Cell).
+// The shared struct whose instances have type t, if any: a `struct(...)` call
+// (whose values' type may be intersected with Cell).
 export function getStructOfType(
   c: Own,
   t: Type | undefined,
@@ -120,23 +125,25 @@ function isNullishOnly(c: Own, t: Type): boolean {
   );
 }
 
-// Reports whether a field or element of type t is a boolean: `boolean`, `true` or `false` (not a
-// union with anything else).
+// Reports whether a field or element of type t is a boolean: `boolean` , `true`
+// or `false` (not a union with anything else).
 export function isBooleanType(t: Type): boolean {
   return !!(t.flags & (TypeFlags.Boolean | TypeFlags.BooleanLiteral));
 }
 
-// Reports whether a field or element of type t is a string: `string`, a string literal type, or a
-// union of them (`"a" | "b"`), but not with null or undefined.
+// Reports whether a field or element of type t is a string: `string` , a string
+// literal type, or a union of them (`"a" | "b"`), but not with null or
+// undefined.
 export function isStringType(c: Own, t: Type): boolean {
   if (t.flags & TypeFlags.Union)
     return c.host.memberTypes(t).every(m => !!(m.flags & TypeFlags.StringLike));
   return !!(t.flags & TypeFlags.StringLike);
 }
 
-// The runtime's integer type t is: "i" for `i32`, "u" for `u8`, or "". Each is a number with a
-// phantom brand, `number & { readonly [int32Brand]?: never }`, recognized by the brand's declaration
-// in the runtime module (getOwnIntegerKind).
+// The runtime's integer type t is: "i" for `i32` , "u" for `u8` , or "". Each
+// is a number with a phantom brand,
+// `number & { readonly [int32Brand]?: never }` , recognized by the brand's
+// declaration in the runtime module (getOwnIntegerKind).
 export function getIntegerKind(c: Own, t: Type): FieldKind {
   if (!(t.flags & TypeFlags.Intersection)) return '';
   let kind = c.integerKinds.get(t);
@@ -167,8 +174,8 @@ export function getIntegerKind(c: Own, t: Type): FieldKind {
   return kind;
 }
 
-// Reports whether a field of type t holds a channel: the runtime's Channel, possibly with null or
-// undefined (isOwnChannelFieldType).
+// Reports whether a field of type t holds a channel: the runtime's Channel,
+// possibly with null or undefined (isOwnChannelFieldType).
 export function isChannelFieldType(c: Own, t: Type): boolean {
   const members = nonNullishMembers(c, t);
   if (members.length !== 1 || !(members[0]!.flags & TypeFlags.Object))
@@ -182,8 +189,9 @@ export function isChannelFieldType(c: Own, t: Type): boolean {
   );
 }
 
-// The kind of a field of type t: an f64 for a number (and for a type no field may have, which is
-// reported), an i32 or a u8, a boolean, a string, a reference, or a channel (getOwnFieldKind).
+// The kind of a field of type t: an f64 for a number (and for a type no field
+// may have, which is reported), an i32 or a u8, a boolean, a string, a
+// reference, or a channel (getOwnFieldKind).
 export function getFieldKind(c: Own, t: Type): FieldKind {
   const integer = getIntegerKind(c, t);
   if (integer !== '') return integer;
@@ -194,8 +202,9 @@ export function getFieldKind(c: Own, t: Type): FieldKind {
   return 'f';
 }
 
-// Reports whether a shared struct may have a field of type t: a number (or an i32 or a u8), a boolean,
-// a string, or a reference (a shared struct or a SharedArray, possibly with null or undefined).
+// Reports whether a shared struct may have a field of type t: a number (or an
+// i32 or a u8), a boolean, a string, or a reference (a shared struct or a
+// SharedArray, possibly with null or undefined).
 export function isFieldType(c: Own, t: Type): boolean {
   return (
     (!!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union)) ||
@@ -207,9 +216,9 @@ export function isFieldType(c: Own, t: Type): boolean {
   );
 }
 
-// Classifies a type for the layout emit: a shared struct (or a union of them), a SharedArray of
-// numbers, i32s, u8s, booleans or strings, or a SharedArray of a shared struct (looking through null
-// and undefined).
+// Classifies a type for the layout emit: a shared struct (or a union of them),
+// a SharedArray of numbers, i32s, u8s, booleans or strings, or a SharedArray of
+// a shared struct (looking through null and undefined).
 export function getCellType(c: Own, t: Type | undefined): CellType {
   if (!t) return noCell;
   const members = nonNullishMembers(c, t);
@@ -236,8 +245,9 @@ export function getCellType(c: Own, t: Type | undefined): CellType {
   return noCell;
 }
 
-// Reports whether a value of type t is a shared struct or a SharedArray (possibly with null or
-// undefined), which is represented by an address: isOwnCellType.
+// Reports whether a value of type t is a shared struct or a SharedArray
+// (possibly with null or undefined), which is represented by an address:
+// isOwnCellType.
 export function isCellType(c: Own, t: Type | undefined): boolean {
   if (!t) return false;
   let result = c.cellTypes.get(t);
@@ -258,8 +268,8 @@ export function isCellExpression(c: Own, expr: Node | undefined): boolean {
   return !!expr && isExpression(expr) && isCellType(c, c.host.typeOf(expr));
 }
 
-// Checks the element type of a SharedArray type reference (or of a `new` of one): numbers, booleans,
-// strings or a shared struct.
+// Checks the element type of a SharedArray type reference (or of a `new` of
+// one): numbers, booleans, strings or a shared struct.
 export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   if (node.flags & NodeFlags.Ambient) return;
   const element = getSharedArrayElementType(c, t);
@@ -275,9 +285,9 @@ export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   c.error(node, Messages.SharedArrayElement);
 }
 
-// The layout of a union of shared structs, given its non-nullish members, or undefined if they are
-// not all shared structs: a field where it is at the same place, stored the same way, in every
-// member, and "" in the other slots.
+// The layout of a union of shared structs, given its non-nullish members, or
+// undefined if they are not all shared structs: a field where it is at the same
+// place, stored the same way, in every member, and "" in the other slots.
 function getStructOfUnion(
   c: Own,
   t: Type,
@@ -314,7 +324,8 @@ function getStructOfUnion(
   return info;
 }
 
-// Reports an access to a field of a union of shared structs that is at different places in them.
+// Reports an access to a field of a union of shared structs that is at
+// different places in them.
 function checkStructUnionField(c: Own, access: Node, t: Type): void {
   const members = nonNullishMembers(c, t);
   const name = access.name.text as string;
@@ -328,8 +339,9 @@ function checkStructUnionField(c: Own, access: Node, t: Type): void {
 
 // Boxing
 
-// Reports whether an expression holds a handle although its type is a struct or SharedArray: a
-// variable or property declared with another type and narrowed to one.
+// Reports whether an expression holds a handle although its type is a struct or
+// SharedArray: a variable or property declared with another type and narrowed
+// to one.
 export function isNarrowedReference(c: Own, expr: Node): boolean {
   let symbol;
   if (expr.kind === K.Identifier) {
@@ -346,8 +358,9 @@ export function isNarrowedReference(c: Own, expr: Node): boolean {
   return !isCellType(c, c.host.typeOfSymbol(symbol));
 }
 
-// Records the conversion of an expression flowing into a place whose representation is raw
-// (targetRaw) or a handle. Conditional and logical expressions pass the target on to their operands.
+// Records the conversion of an expression flowing into a place whose
+// representation is raw (targetRaw) or a handle. Conditional and logical
+// expressions pass the target on to their operands.
 function setTarget(c: Own, expr: Node | undefined, targetRaw: boolean): void {
   if (!expr) return;
   switch (expr.kind) {
@@ -385,7 +398,8 @@ function setTarget(c: Own, expr: Node | undefined, targetRaw: boolean): void {
   }
 }
 
-// The type a place has: undefined for none, or null for the error type (a handle).
+// The type a place has: undefined for none, or null for the error type (a
+// handle).
 type Target = Type | undefined | null;
 
 function setTargetType(c: Own, expr: Node | undefined, target: Target): void {
@@ -398,13 +412,15 @@ export function getConversion(c: Own, expr: Node): Conversion {
   return c.conversions.get(expr) ?? Conversion.None;
 }
 
-// Computes the box and unbox conversions of a file, and reports the layout errors (assigning an
-// inline struct element, optional chaining, destructuring a struct parameter, a field at different
-// places in a union, a SharedArray of other elements).
+// Computes the box and unbox conversions of a file, and reports the layout
+// errors (assigning an inline struct element, optional chaining, destructuring
+// a struct parameter, a field at different places in a union, a SharedArray of
+// other elements).
 export function computeConversions(c: Own, file: SourceFile): void {
   const visit = (node: Node): boolean => {
     if (isTypeNode(node)) {
-      // Type references are checked as the checker checks them (checkTypeReferenceNode).
+      // Type references are checked as the checker checks them
+      // (checkTypeReferenceNode).
       checkTypeReferences(c, node);
       return false;
     }
@@ -471,7 +487,8 @@ function computeConversion(c: Own, node: Node): void {
           (node.kind === K.VariableDeclaration &&
             node.parent?.parent?.kind === K.ForOfStatement)
         ) {
-          // A parameter or loop variable cannot be boxed before it is destructured.
+          // A parameter or loop variable cannot be boxed before it is
+          // destructured.
           const t = host.typeOf(node.name);
           if (isCellType(c, t))
             c.error(node.name, Messages.Destructured, host.typeToString(t));
@@ -575,7 +592,8 @@ function computeConversion(c: Own, node: Node): void {
       const cell = getCellType(c, t);
       switch (cell.kind) {
         case CellKind.Struct: {
-          // A field is read through the layout; anything else through the handle.
+          // A field is read through the layout; anything else through the
+          // handle.
           const k = cell.fields.indexOf(name);
           if (k < 0) checkStructUnionField(c, node, t);
           if (cell.kinds[k] === 's' || cell.kinds[k] === 'c')
@@ -604,9 +622,10 @@ function computeConversion(c: Own, node: Node): void {
   }
 }
 
-// Reports a string or channel field, or a string element, that is assigned by destructuring or as a
-// for-in or for-of variable: the emit converts the value (interns a string, takes a channel's address)
-// only where it is assigned on its own.
+// Reports a string or channel field, or a string element, that is assigned by
+// destructuring or as a for-in or for-of variable: the emit converts the value
+// (interns a string, takes a channel's address) only where it is assigned on
+// its own.
 function checkConvertedTarget(c: Own, access: Node): void {
   const target = getAssignmentTarget(access);
   if (
@@ -684,7 +703,8 @@ function computeBinaryConversion(c: Own, node: Node): void {
         setTarget(c, left, true);
         setTarget(c, right, true);
       } else if (leftCell) {
-        // Compare addresses with null and undefined (as 0), handles with anything else.
+        // Compare addresses with null and undefined (as 0), handles with
+        // anything else.
         const rightNullish = isNullishOnly(c, rightType);
         setTarget(c, left, rightNullish);
         if (rightNullish) setTarget(c, right, true);
@@ -704,7 +724,8 @@ function computeBinaryConversion(c: Own, node: Node): void {
   }
 }
 
-// The type a function's returned values flow into: its declared, contextual or inferred return type.
+// The type a function's returned values flow into: its declared, contextual or
+// inferred return type.
 function getReturnTargetType(c: Own, fn: Node | undefined): Target {
   if (!fn || !isFunctionLike(fn)) return undefined;
   const flags = getFunctionFlags(fn);

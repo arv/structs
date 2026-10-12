@@ -1,6 +1,7 @@
-// The checker's view of a program: TypeScript 7.1's synchronous JavaScript API, with the answers it
-// gives cached by node, symbol and type, and fetched a file at a time in batches (one round trip
-// for the types of all of a file's expressions, one for its call signatures, and so on).
+// The checker's view of a program: TypeScript 7.1's synchronous JavaScript API,
+// with the answers it gives cached by node, symbol and type, and fetched a file
+// at a time in batches (one round trip for the types of all of a file's
+// expressions, one for its call signatures, and so on).
 
 import type {SourceFile} from 'typescript/ast';
 import {
@@ -78,10 +79,12 @@ export class Host {
     this.checker = checker;
   }
 
-  // Fetches what the analysis of a file asks for, in a few batches: the types of its expressions,
-  // the symbols of its references and declarations, the signatures of its calls and the types of
-  // those symbols. (Names of properties and types are left to single requests: the analysis asks
-  // about few of them, and their symbols, with all their declarations, are costly to send.)
+  // Fetches what the analysis of a file asks for, in a few batches: the types
+  // of its expressions, the symbols of its references and declarations, the
+  // signatures of its calls and the types of those symbols. (Names of
+  // properties and types are left to single requests: the analysis asks about
+  // few of them, and their symbols, with all their declarations, are costly to
+  // send.)
   prefetch(file: SourceFile): void {
     const expressions: Node[] = [];
     const references: Node[] = [];
@@ -149,7 +152,8 @@ export class Host {
     return unknown ? undefined : symbol;
   }
 
-  // checker.getTypeOfExpression (as the API gives it: the regular type of the expression).
+  // checker.getTypeOfExpression (as the API gives it: the regular type of the
+  // expression).
   typeOf(node: Node): Type {
     let t = this.types.get(node);
     if (!t) {
@@ -167,8 +171,8 @@ export class Host {
     return symbol;
   }
 
-  // checker.getResolvedSymbol: what an identifier in an expression refers to (an exported
-  // variable's local symbol, as in the fork), or undefined.
+  // checker.getResolvedSymbol: what an identifier in an expression refers to
+  // (an exported variable's local symbol, as in the fork), or undefined.
   resolvedSymbol(id: Node): TsSymbol | undefined {
     if (this.resolved.has(id)) return this.resolved.get(id);
     const symbol = this.known(this.checker.getResolvedSymbol(id as any));
@@ -255,7 +259,8 @@ export class Host {
     return result;
   }
 
-  // The type an `await` of a value of type t gives: t itself unless it is a promise.
+  // The type an `await` of a value of type t gives: t itself unless it is a
+  // promise.
   awaitedType(t: Type): Type {
     let awaited = this.awaited.get(t);
     if (!awaited) {
@@ -279,8 +284,8 @@ export class Host {
     return (t as any).getTypes() ?? [];
   }
 
-  // Type.Target(): the generic type of a type reference, or the type an anonymous or mapped type
-  // was instantiated from.
+  // Type.Target(): the generic type of a type reference, or the type an
+  // anonymous or mapped type was instantiated from.
   typeTarget(t: Type): Type | undefined {
     if (!(t.flags & TypeFlags.Object) || !(t as any).target) return undefined;
     return (t as any).getTarget() as Type | undefined;
@@ -299,8 +304,8 @@ export class Host {
     return s;
   }
 
-  // checker.tryGetTypeAtPosition: the type of the parameter an argument at a position is passed to,
-  // or undefined past the parameters.
+  // checker.tryGetTypeAtPosition: the type of the parameter an argument at a
+  // position is passed to, or undefined past the parameters.
   parameterTypeAt(signature: Signature, pos: number): Type | undefined {
     const rest = signature.hasRestParameter;
     const count = signature.parameters.length - (rest ? 1 : 0);
@@ -308,15 +313,16 @@ export class Host {
     return this.checker.getParameterType(signature, pos);
   }
 
-  // checker.getContextualSignatureForFunctionLikeDeclaration (for function expressions, arrow
-  // functions and object literal methods).
+  // checker.getContextualSignatureForFunctionLikeDeclaration (for function
+  // expressions, arrow functions and object literal methods).
   contextualSignature(fn: Node): Signature | undefined {
     if (this.contextualSignatures.has(fn))
       return this.contextualSignatures.get(fn);
     let result: Signature | undefined;
     let t: Type | undefined;
     if (fn.kind === K.MethodDeclaration) {
-      // An object literal method: the type of its property in the literal's contextual type.
+      // An object literal method: the type of its property in the literal's
+      // contextual type.
       const literalType = this.checker.getContextualType(fn.parent as any);
       const name = fn.name?.text as string | undefined;
       if (literalType && name !== undefined)
@@ -348,9 +354,9 @@ export class Host {
   }
 }
 
-// Reports whether the analysis may ask for the type of an expression (to prefetch it): not for
-// property names, declaration names, callees, updated variables, operands of arithmetic, and the
-// like.
+// Reports whether the analysis may ask for the type of an expression (to
+// prefetch it): not for property names, declaration names, callees, updated
+// variables, operands of arithmetic, and the like.
 function isTypeQueried(node: Node): boolean {
   const parent = node.parent as Node | undefined;
   switch (node.kind) {

@@ -1,13 +1,17 @@
-// own and shared values between threads, with a borrow checker at the boundaries (see
-// README.md). a value is one of:
-//   own      an ordinary object, reachable by one thread. it crosses to another thread only by
-//            moving (spawn's arguments, a thread's result): it is copied over and the sender's
-//            objects are revoked, so using them again throws
-//   shared   immutable: share(v) deep-freezes v and writes it into the shared heap once. a thread
-//            it reaches makes its own frozen copy on first use, then reads plain objects
-//   a cell   shared and mutable, explicitly: Lock, Condition (runtime.js), Barrier, Slots. their
-//            state lives in the shared heap and they synchronize
-// ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
+// own and shared values between threads, with a borrow checker at the
+// boundaries (see README.md). a value is one of:
+//   own      an ordinary object, reachable by one thread. it crosses to another
+//            thread only by moving (spawn's arguments, a thread's result): it
+//            is copied over and the sender's objects are revoked, so using them
+//            again throws
+//   shared   immutable: share(v) deep-freezes v and writes it into the shared
+//            heap once. a thread it reaches makes its own frozen copy on first
+//            use, then reads plain objects
+//   a cell   shared and mutable, explicitly: Lock, Condition (runtime.js),
+//            Barrier, Slots. their state lives in the shared heap and they
+//            synchronize
+// ordinary code reads and writes ordinary objects: nothing per access,
+// everything at the crossings
 import {
   $alloc,
   $intern,
@@ -40,11 +44,15 @@ const I32 = SAB && new Int32Array(SAB),
 
 export {$log as log};
 
-// ---- the wire format: a blob of 8-byte words in the shared heap. word 0 is the root value ----
-// a value word is a number (f64), or a box: hi = 0xFFF80000 | tag << 11, lo = payload. payloads
-// of strings, arrays and objects are the word offset of their body in the same blob
-//   string body: [length] then utf-16 units     array body: [length] then value words
-//   object body: [count] then count key words (interned key address) then count value words
+// ---- the wire format: a blob of 8-byte words in the shared heap. word 0 is
+// the root value ----
+// a value word is a number (f64), or a box: hi = 0xFFF80000 | tag << 11, lo =
+// payload. payloads of strings, arrays and objects are the word offset of their
+// body in the same blob
+//   string body: [length] then utf-16 units
+//   array body:  [length] then value words
+//   object body: [count] then count key words (interned key address) then
+//                count value words
 const BOX = 0xfff80000 | 0;
 const T_UNDEF = 1,
   T_NULL = 2,
@@ -57,7 +65,8 @@ const T_UNDEF = 1,
   T_CELL = 9,
   T_COUNTED = 10;
 
-// writing: into a growing private buffer, then copied into the heap in one piece
+// writing: into a growing private buffer, then copied into the heap in one
+// piece
 let wf = new Float64Array(1024),
   wi = new Int32Array(wf.buffer),
   wn = 0;
@@ -73,7 +82,8 @@ const box = (at, tag, p) => {
   wi[at * 2 + 1] = BOX | (tag << 11);
 };
 
-// a cell is a JS object of one of these classes; it crosses as its block's address
+// a cell is a JS object of one of these classes; it crosses as its block's
+// address
 const cellKinds = new Map(); // kind -> class
 const sharedAddr = new WeakMap(); // a shared value -> its blob
 const REVOKED = new Proxy(Object.create(null), {
@@ -89,7 +99,8 @@ const REVOKED = new Proxy(Object.create(null), {
   },
 });
 
-// write v into word `at`. moved: the own objects copied, to revoke once the whole blob is written
+// write v into word `at` . moved: the own objects copied, to revoke once the
+// whole blob is written
 function put(at, v, moved, seen) {
   if (typeof v === 'number') {
     wf[at] = v === v ? v : NaN;
@@ -119,7 +130,8 @@ function put(at, v, moved, seen) {
   const shared = sharedAddr.get(v);
   if (shared !== undefined) return box(at, T_SHARED, shared);
   if (v.$cell !== undefined) return box(at, T_CELL, v.$cell);
-  if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]); // a runtime.js Lock or Condition
+  // a runtime.js Lock or Condition
+  if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]);
   if (seen.has(v)) throw new TypeError('own: cycles cannot be sent yet');
   seen.add(v);
   if (moved) moved.push(v);
@@ -156,7 +168,8 @@ function write(v, moved, alloc = $alloc) {
   return a;
 }
 
-// reading: a blob is immutable once written, so its words are read without care for tearing
+// reading: a blob is immutable once written, so its words are read without care
+// for tearing
 function get(base, at, frozen) {
   const v = F64[(base >> 3) + at];
   if (v === v) return v;
@@ -206,9 +219,11 @@ function get(base, at, frozen) {
 }
 const read = (a, frozen) => get(a, 0, frozen);
 
-// objects with the same keys (in the same order) are made by one generated function, an object
-// literal: the engine gives them one hidden class, and making one is a single allocation
-const makers = new Map(); // hash of the key addresses -> [ { keys, frozen, make } ]
+// objects with the same keys (in the same order) are made by one generated
+// function, an object literal: the engine gives them one hidden class, and
+// making one is a single allocation
+// hash of the key addresses -> [ { keys, frozen, make } ]
+const makers = new Map();
 function maker(base, p, n, frozen) {
   const k0 = (base >> 2) + (p + 1) * 2;
   let h = n | (frozen ? 1 << 30 : 0);
@@ -239,7 +254,8 @@ function maker(base, p, n, frozen) {
 }
 
 // ---- moving ----
-// revoke what was moved: the sender keeps the objects, but any use of them throws
+// revoke what was moved: the sender keeps the objects, but any use of them
+// throws
 function revoke(objs) {
   for (const o of objs) {
     if (Array.isArray(o)) o.length = 0;
@@ -253,8 +269,8 @@ const send = v => {
   revoke(moved);
   return a;
 };
-// a message (chan.js): v moved into a block of its own, which the receiver frees once it has read
-// it. [address, bytes]
+// a message (chan.js): v moved into a block of its own, which the receiver
+// frees once it has read it. [address, bytes]
 export function __message(v) {
   const moved = [];
   const a = write(v, moved, $allocBlock),
@@ -307,9 +323,11 @@ const K_BARRIER = 20,
   K_SLOTS = 21,
   K_F64 = 22,
   K_SHARED_ARRAY = 23;
-const counted = kind => kind === K_SHARED_ARRAY || kind >= 100; // structs and SharedArrays (REFCOUNT.md)
-// address -> this thread's cell object. a struct's or SharedArray's handle holds a count of its own
-// and is held weakly: when V8 collects it, the registry gives the count back
+// structs and SharedArrays (REFCOUNT.md)
+const counted = kind => kind === K_SHARED_ARRAY || kind >= 100;
+// address -> this thread's cell object. a struct's or SharedArray's handle
+// holds a count of its own and is held weakly: when V8 collects it, the
+// registry gives the count back
 const cells = new Map();
 let finalizable = 0;
 const handles = new FinalizationRegistry(a => {
@@ -334,7 +352,8 @@ function cell(a) {
       c.$cell = a;
     } else if (kind === K_SHARED_ARRAY) c = sharedArrayHandle(a);
     else
-      c = Cls ? Object.assign(Object.create(Cls.prototype), {$cell: a}) : $h(a); // Lock, Condition
+      // Lock, Condition
+      c = Cls ? Object.assign(Object.create(Cls.prototype), {$cell: a}) : $h(a);
     if (counted(kind)) {
       holdFor(c, a);
       cells.set(a, new WeakRef(c));
@@ -342,7 +361,8 @@ function cell(a) {
   }
   return c;
 }
-// for cells defined outside this module (chan.js): their kind's class, and a new one's block
+// for cells defined outside this module (chan.js): their kind's class, and a
+// new one's block
 export const __cellKind = (kind, Cls) => {
   cellKinds.set(kind, Cls);
 };
@@ -355,8 +375,9 @@ const newCell = (kind, bytes, self) => {
   return a;
 };
 
-// a reusable barrier for n threads: the last to arrive wakes the others. a waiter spins a
-// little first: steps between barriers are often shorter than a sleep and a wake-up
+// a reusable barrier for n threads: the last to arrive wakes the others. a
+// waiter spins a little first: steps between barriers are often shorter than a
+// sleep and a wake-up
 const SPINS = 20000;
 export class Barrier {
   constructor(n) {
@@ -366,7 +387,8 @@ export class Barrier {
   wait() {
     const i = this.$cell >> 2,
       gen = Atomics.load(I32, i + 3);
-    $waitBegin(); // a quiescent point (REFCOUNT.md), and quiescent while it waits
+    // a quiescent point (REFCOUNT.md), and quiescent while it waits
+    $waitBegin();
     if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
       Atomics.store(I32, i + 2, 0);
       Atomics.add(I32, i + 3, 1);
@@ -381,8 +403,9 @@ export class Barrier {
 }
 cellKinds.set(K_BARRIER, Barrier);
 
-// numbers every thread reads and writes in place: a Float64Array over the shared heap. no copies;
-// the program orders its reads and writes itself (with a Barrier, say)
+// numbers every thread reads and writes in place: a Float64Array over the
+// shared heap. no copies; the program orders its reads and writes itself (with
+// a Barrier, say)
 export function sharedFloat64Array(n) {
   const a = $alloc(16 + n * 8);
   I32[a >> 2] = K_F64;
@@ -414,7 +437,8 @@ export class Slots {
     const a = Atomics.load(I32, (this.$cell >> 2) + 2 + i);
     return a === 0 ? undefined : materialize(a);
   }
-  // the arrays in every slot, concatenated in slot order (their elements are this thread's copies)
+  // the arrays in every slot, concatenated in slot order (their elements are
+  // this thread's copies)
   flat() {
     const all = [];
     for (let k = 0; k < this.length; k++) {
@@ -426,17 +450,20 @@ export class Slots {
 }
 cellKinds.set(K_SLOTS, Slots);
 
-// `const Name = struct({ a: f64, b: ref<Name>() })` (threads.js), or `shared struct Name { a: number;
-// b: Name | null }` in the syntax, compiles to __sharedStruct('Name', ['a', 'b'], [1]). a struct's
-// block is [kind][count] and then its fields, 8 bytes each, in order: a number field is an f64, a
-// reference field (refs: a struct or a SharedArray) the address in its low half, 0 for null.
-// compiled with the tsgo fork's typed layout, a struct value is the block's address and `p.a` is
-// `__F64[(p >> 3) + 1]` (see __newStruct). where one flows into `any` or `unknown` the compiler
-// boxes it (__box): the handle is an instance of the class this returns, an object whose accessors
-// read and write the same block. uncompiled code can use the class directly.
-// a struct's kind is the address of its name and layout in the shared string table, so every thread
-// agrees on it whatever order it loads modules in (a page's workers load them on demand), and two
-// structs with one layout may share it. it is at least CTRL_BYTES, so never a small cell kind
+// `const Name = struct({ a: f64, b: ref<Name>() })` (threads.js), or
+// `shared struct Name { a: number; b: Name | null }` in the syntax, compiles to
+// __sharedStruct('Name', ['a', 'b'], [1]). a struct's block is [kind][count]
+// and then its fields, 8 bytes each, in order: a number field is an f64, a
+// reference field (refs: a struct or a SharedArray) the address in its low
+// half, 0 for null. compiled with the tsgo fork's typed layout, a struct value
+// is the block's address and `p.a` is `__F64[(p >> 3) + 1]` (see __newStruct).
+// where one flows into `any` or `unknown` the compiler boxes it (__box): the
+// handle is an instance of the class this returns, an object whose accessors
+// read and write the same block. uncompiled code can use the class directly. a
+// struct's kind is the address of its name and layout in the shared string
+// table, so every thread agrees on it whatever order it loads modules in (a
+// page's workers load them on demand), and two structs with one layout may
+// share it. it is at least CTRL_BYTES, so never a small cell kind
 export function __sharedStruct(name, fields, refs = []) {
   const kind = $intern(
       `struct ${name} { ${fields.join(', ')} } refs [${refs.join(', ')}]`,
@@ -491,21 +518,25 @@ export function __sharedStruct(name, fields, refs = []) {
   return Struct;
 }
 
-// ---- typed layouts: what the compiler emits for shared structs and SharedArrays ----
-// a struct or SharedArray value is the byte address of its block in the shared heap, so threads pass
-// it along as a number and all use the same memory: nothing is copied. the compiler reads and writes
-// fields and elements through these views
+// ---- typed layouts: what the compiler emits for shared structs and
+// SharedArrays ----
+// a struct or SharedArray value is the byte address of its block in the shared
+// heap, so threads pass it along as a number and all use the same memory:
+// nothing is copied. the compiler reads and writes fields and elements through
+// these views
 export {I32 as __I32, F64 as __F64};
-// a zeroed struct: [kind][count 1], then its fields from byte 8. the caller owns the count
+// a zeroed struct: [kind][count 1], then its fields from byte 8. the caller
+// owns the count
 export function __newStruct(type) {
   const a = $allocBlock(type.size);
   I32[a >> 2] = type.kind;
   I32[(a >> 2) + 1] = 1;
   return a;
 }
-// [kind][length][element size][count] then the elements from byte 16: numbers (type 8, their size) or
-// whole struct blocks, each with its own header so an element's address can be boxed like any struct.
-// an element's header is [kind][back], back the array's address minus its own: an element lives as
+// [kind][length][element size][count] then the elements from byte 16: numbers
+// (type 8, their size) or whole struct blocks, each with its own header so an
+// element's address can be boxed like any struct. an element's header is
+// [kind][back], back the array's address minus its own: an element lives as
 // long as its array, and counting it counts the array
 export function __newSharedArray(type, length) {
   const size = typeof type === 'number' ? type : type.size;
@@ -530,7 +561,8 @@ const owner = p => {
 };
 const countAt = o =>
   I32[o >> 2] === K_SHARED_ARRAY ? (o >> 2) + 3 : (o >> 2) + 1;
-// null is 0; a raw value can also be undefined at run time (a missing argument, `f?.()`)
+// null is 0; a raw value can also be undefined at run time (a missing argument,
+// `f?.()` )
 export function __retain(p) {
   if (p) Atomics.add(I32, countAt(owner(p)), 1);
   return p;
@@ -540,8 +572,9 @@ export function __release(p) {
   const o = owner(p);
   if (Atomics.sub(I32, countAt(o), 1) === 1) destroy(o);
 }
-// count 0: no thread holds an uncounted address of the block or of anything read through it, so
-// its reference fields are released at once, and so on down, with a work list rather than recursion
+// count 0: no thread holds an uncounted address of the block or of anything
+// read through it, so its reference fields are released at once, and so on
+// down, with a work list rather than recursion
 function destroy(o) {
   const work = [o];
   const drop = p => {
@@ -569,8 +602,9 @@ function destroy(o) {
     }
   }
 }
-// a reference field store at i32 index i: takes over v's count. a thread may have read the old value
-// and not counted it yet, so its decrement waits for every thread's next quiescent point
+// a reference field store at i32 index i: takes over v's count. a thread may
+// have read the old value and not counted it yet, so its decrement waits for
+// every thread's next quiescent point
 export function __store(i, v) {
   const old = Atomics.exchange(I32, i, v);
   if (old !== 0) $defer(old);
@@ -581,7 +615,8 @@ export const __quiescent = $quiescent;
 export const __heapStats = $heapStats;
 // works off the decrements that wait: all of them when no other thread runs
 export const __collect = $drain;
-// a closure that captures counted addresses holds a count on each until V8 collects it
+// a closure that captures counted addresses holds a count on each until V8
+// collects it
 const closures = new FinalizationRegistry(ps => {
   finalizable--;
   for (const p of ps) __release(p);
@@ -592,24 +627,29 @@ export function __hold(fn, ...ps) {
   finalizable++;
   return fn;
 }
-// a counted spawn argument: retained for the thread, which releases it when its function returns
+// a counted spawn argument: retained for the thread, which releases it when its
+// function returns
 class CountedArg {
   constructor(a) {
     this.a = a;
   }
 }
 export const __ref = a => new CountedArg(__retain(a));
-// where get() records the counted values it reads: a thread's arguments, released when its function
-// returns, or null, when the reader owns them (a channel message's receiver)
+// where get() records the counted values it reads: a thread's arguments,
+// released when its function returns, or null, when the reader owns them (a
+// channel message's receiver)
 let countedInto = null;
 export const __isCounted = v => v instanceof CountedArg;
 
-// boxing: where a struct or SharedArray value (an address) flows into `any`, `unknown`, a generic
-// and the like, the compiler wraps it in this thread's one handle object for that address (so ===
-// still holds), and unwraps it on the way back. a struct's handle is an instance of its class; a
-// SharedArray's is an array-like Proxy over the same memory
+// boxing: where a struct or SharedArray value (an address) flows into `any` ,
+// `unknown` , a generic and the like, the compiler wraps it in this thread's
+// one handle object for that address (so ===
+// still holds), and unwraps it on the way back. a struct's handle is an
+// instance of its class; a SharedArray's is an array-like Proxy over the same
+// memory
 export const __box = a => (a ? cell(a) : null);
-// for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the boxed array-like
+// for code the compiler did not lay out: `new SharedArray(Struct, n)` gives the
+// boxed array-like
 export class SharedArray {
   constructor(type, length) {
     const a = __newSharedArray(type === Number ? 8 : type, length),
@@ -674,9 +714,10 @@ function oob(a, i) {
     `index ${i} is out of range for a SharedArray of length ${I32[(a >> 2) + 1]}`,
   );
 }
-// what compiled code reads when an index is out of range, instead of calling a function: a read of
-// this Proxy throws. an optimized loop with a call in it (even one never taken) loses some of V8's loop
-// optimizations; a property read with no feedback costs nothing until it happens
+// what compiled code reads when an index is out of range, instead of calling a
+// function: a read of this Proxy throws. an optimized loop with a call in it
+// (even one never taken) loses some of V8's loop optimizations; a property read
+// with no feedback costs nothing until it happens
 export const __OOB = new Proxy(
   {},
   {
@@ -688,10 +729,12 @@ export const __OOB = new Proxy(
   },
 );
 
-// ---- threads: spawn(fn, ...args) moves args to a new thread running fn; join moves its result back ----
-// a thread names its function by key: every worker loads the same modules, so a key finds the same
-// function everywhere. the compiler registers every top-level function of a module that uses the
-// ownership syntax (`__register(import.meta.url, { ... })`); fns() is the same, by hand
+// ---- threads: spawn(fn, ...args) moves args to a new thread running fn; join
+// moves its result back ----
+// a thread names its function by key: every worker loads the same modules, so a
+// key finds the same function everywhere. the compiler registers every
+// top-level function of a module that uses the ownership syntax
+// (`__register(import.meta.url, { ... })`); fns() is the same, by hand
 const byKey = new Map(),
   keyOf = new Map();
 export function __register(url, table) {
@@ -715,7 +758,8 @@ setThreadEntry(t => {
     for (const p of mine) __release(p);
   }
 });
-// between threads, a worker yields to its event loop when handles or closures wait to be finalized
+// between threads, a worker yields to its event loop when handles or closures
+// wait to be finalized
 setAfterTask(() => finalizable > 0);
 class Thread {
   constructor(t) {
@@ -743,8 +787,8 @@ class Thread {
   }
 }
 export const spawn = (fn, ...args) => new Thread(__start(fn, args, false));
-// a thread block for fn(...args), queued for the pool. a detached thread (chan.js go) is never
-// joined, so the runtime prints its error if it throws
+// a thread block for fn(...args), queued for the pool. a detached thread
+// (chan.js go) is never joined, so the runtime prints its error if it throws
 export function __start(fn, args, detached) {
   const key = keyOf.get(fn);
   if (key === undefined)
@@ -760,7 +804,8 @@ export function __start(fn, args, detached) {
   return t;
 }
 
-// structured threads: scope(s => ...) joins every thread s spawned before it returns
+// structured threads: scope(s => ...) joins every thread s spawned before it
+// returns
 class Scope {
   constructor() {
     this.threads = [];
@@ -789,7 +834,8 @@ export const partition = (items, parts) =>
       Math.floor((items.length * (t + 1)) / parts),
     ),
   );
-// a destructive read: the element leaves the array, so the caller owns it (the checker trusts this)
+// a destructive read: the element leaves the array, so the caller owns it (the
+// checker trusts this)
 export function take(items, index) {
   const v = items[index];
   items[index] = undefined;

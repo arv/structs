@@ -1,5 +1,5 @@
-// Porffor's threads/playground/presets/2-mandelbrot.js, translated by hand by the rules in README.md.
-// the original is quoted above each function
+// Porffor's threads/playground/presets/2-mandelbrot.js, translated by hand by
+// the rules in README.md. the original is quoted above each function
 import {
   $closure,
   $fns,
@@ -51,7 +51,8 @@ function escape(cr0, ci0) {
 //   for (let x = 0; x < W; x++) {
 //     let sum = 0;
 //     for (let sy = 0; sy < SAMPLES; sy++) for (let sx = 0; sx < SAMPLES; sx++)
-//       sum += escape((x + sx / SAMPLES) / W * 3 - 2.1, (y + sy / SAMPLES) / H * 2.4 - 1.2);
+//       sum += escape((x + sx / SAMPLES) / W * 3 - 2.1,
+//                     (y + sy / SAMPLES) / H * 2.4 - 1.2);
 //     out.push(sum / (SAMPLES * SAMPLES));
 //   }
 //   return out;
@@ -79,9 +80,11 @@ export function row(y0) {
 
 // const render = threads => {
 //   const rows = new Array(H);
-//   const next = new Int32Array(new SharedArrayBuffer(4)); // the next row to draw
+//   // the next row to draw
+//   const next = new Int32Array(new SharedArrayBuffer(4));
 //   const worker = () => {
-//     for (let y = Atomics.add(next, 0, 1); y < H; y = Atomics.add(next, 0, 1)) rows[y] = row(y);
+//     for (let y = Atomics.add(next, 0, 1); y < H; y = Atomics.add(next, 0, 1))
+//       rows[y] = row(y);
 //   };
 //   const ts = [];
 //   for (let i = 0; i < threads; i++) ts.push(new Thread(worker));
@@ -119,15 +122,18 @@ function worker(env) {
 //   rows = render(threads);
 //   const ms = performance.now() - t0;
 //   if (threads === 1) base = ms;
-//   console.log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x`);
+//   console.log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ` +
+//     `${(base / ms).toFixed(2)}x`);
 // }
 //
-// const palette = [ 17, 18, 19, 54, 55, 56, 92, 93, 129, 165, 171, 207, 213, 209, 215, 221, 227, 229, 231 ];
+// const palette = [ 17, 18, 19, 54, 55, 56, 92, 93, 129, 165, 171, 207, 213,
+//   209, 215, 221, 227, 229, 231 ];
 // let art = '';
 // for (const r of rows) {
 //   let last = -1;
 //   for (const v of r) {
-//     const c = v >= MAX_ITER - 0.5 ? 16 : palette[Math.floor(Math.log(1 + v) / Math.log(MAX_ITER) * (palette.length - 1))];
+//     const c = v >= MAX_ITER - 0.5 ? 16 : palette[Math.floor(
+//       Math.log(1 + v) / Math.log(MAX_ITER) * (palette.length - 1))];
 //     if (c !== last) { art += `\x1b[48;5;${c}m`; last = c; }
 //     art += ' ';
 //   }

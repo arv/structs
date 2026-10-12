@@ -1,7 +1,8 @@
 import {spawn} from './own.js';
-// a page's side of threads: start() makes the pool of Web Workers on the memory threads/heap made,
-// and run(f, ...args) runs f on a thread and resolves with its result. the page's own thread never
-// blocks (it cannot: Atomics.wait is not allowed there), so it waits for threads asynchronously
+// a page's side of threads: start() makes the pool of Web Workers on the memory
+// threads/heap made, and run(f, ...args) runs f on a thread and resolves with
+// its result. the page's own thread never blocks (it cannot: Atomics.wait is
+// not allowed there), so it waits for threads asynchronously
 import {attach, threadBegin, shutdown, $waitBegin} from './runtime.js';
 
 const sab = globalThis.__escapeSab;
@@ -20,7 +21,8 @@ export function start({
     );
   const onMessage = m => {
     if (m.type === 'out') onLog(m.text);
-    else if (m.type === 'grow') add(); // every pool thread is busy: one more worker
+    // every pool thread is busy: one more worker
+    else if (m.type === 'grow') add();
     else if (m.type === 'crash')
       console.error(`threads: a worker crashed: ${m.message}`);
   };
@@ -37,15 +39,17 @@ export function start({
         reject(new Error(`threads: a worker failed to start: ${e.message}`));
       w.postMessage({sab, opts: {check}});
     });
-  attach(sab, {check}, onMessage, onLog); // the runtime set the heap up when it loaded
+  // the runtime set the heap up when it loaded
+  attach(sab, {check}, onMessage, onLog);
   threadBegin(1);
-  $waitBegin(); // between tasks the page holds no uncounted address (REFCOUNT.md): quiescent
+  // between tasks the page holds no uncounted address (REFCOUNT.md): quiescent
+  $waitBegin();
   started = Promise.all(Array.from({length: count}, add)).then(() => {});
   return started;
 }
 
-// f must be a top-level function of a module the plugin compiled (other than the page's entry, which
-// workers do not load)
+// f must be a top-level function of a module the plugin compiled (other than
+// the page's entry, which workers do not load)
 export async function run(f, ...args) {
   await start();
   const result = spawn(f, ...args).joinAsync();

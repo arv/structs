@@ -1,5 +1,5 @@
-// Porffor's threads/playground/presets/3-nbody.js, translated by hand by the rules in README.md.
-// the original is quoted above each function
+// Porffor's threads/playground/presets/3-nbody.js, translated by hand by the
+// rules in README.md. the original is quoted above each function
 import {
   $closure,
   $fns,
@@ -23,7 +23,10 @@ const FN = $fns({Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body});
 //   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 //   const bodies = [];
 //   for (let i = 0; i < BODIES; i++)
-//     bodies.push({ x: random() * 2 - 1, y: random() * 2 - 1, z: random() * 2 - 1, vx: 0, vy: 0, vz: 0, m: 0.5 + random() });
+//     bodies.push({
+//       x: random() * 2 - 1, y: random() * 2 - 1, z: random() * 2 - 1,
+//       vx: 0, vy: 0, vz: 0, m: 0.5 + random(),
+//     });
 //   return bodies;
 // };
 export function makeBodies() {
@@ -57,7 +60,9 @@ function random(env) {
 //   wait() {
 //     this.lock.hold(() => {
 //       const round = this.round;
-//       if (++this.waiting === this.n) { this.waiting = 0; this.round++; this.cond.notifyAll(); }
+//       if (++this.waiting === this.n) {
+//         this.waiting = 0; this.round++; this.cond.notifyAll();
+//       }
 //       else while (this.round === round) this.cond.wait(this.lock);
 //     });
 //   }
@@ -163,7 +168,8 @@ export function move(bodies, lo0, hi0) {
 
 // const energy = bodies => {
 //   let e = 0;
-//   for (const b of bodies) e += 0.5 * b.m * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
+//   for (const b of bodies)
+//     e += 0.5 * b.m * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
 //   return e;
 // };
 export function energy(bodies) {
@@ -183,7 +189,8 @@ export function energy(bodies) {
 //   const barrier = new Barrier(threads);
 //   const ts = [];
 //   for (let t = 0; t < threads; t++) {
-//     const lo = Math.floor(BODIES * t / threads), hi = Math.floor(BODIES * (t + 1) / threads);
+//     const lo = Math.floor(BODIES * t / threads),
+//       hi = Math.floor(BODIES * (t + 1) / threads);
 //     ts.push(new Thread(() => {
 //       for (let s = 0; s < STEPS; s++) {
 //         accelerate(bodies, lo, hi);
@@ -239,7 +246,8 @@ function thread_body(env) {
 //   const e = simulate(threads);
 //   const ms = performance.now() - t0;
 //   if (threads === 1) base = ms;
-//   console.log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x  kinetic energy ${e.toFixed(6)}`);
+//   console.log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ` +
+//     `${(base / ms).toFixed(2)}x  kinetic energy ${e.toFixed(6)}`);
 // }
 // (the thread counts come from the runner, so a benchmark can repeat them)
 export function main(threadCounts) {

@@ -1,7 +1,8 @@
-// Porffor's threads/playground/presets/3-nbody.js written for own and shared values (own.js): plain JS,
-// no translation. each thread owns its slice of the bodies (moved in, moved back by join).
-// every step each thread shares a frozen snapshot of its positions; the others read their own
-// copies of it. the board of snapshots and the barrier are the only shared mutable state
+// Porffor's threads/playground/presets/3-nbody.js written for own and shared
+// values (own.js): plain JS, no translation. each thread owns its slice of the
+// bodies (moved in, moved back by join). every step each thread shares a frozen
+// snapshot of its positions; the others read their own copies of it. the board
+// of snapshots and the barrier are the only shared mutable state
 import {fns, spawn, share, Barrier, Slots, log} from './own.js';
 
 const BODIES = 800,
@@ -26,8 +27,8 @@ const makeBodies = () => {
   return bodies;
 };
 
-// new velocities for this thread's bodies, from everyone's positions (all: every snapshot, in
-// body order)
+// new velocities for this thread's bodies, from everyone's positions (all:
+// every snapshot, in body order)
 const accelerate = (mine, all) => {
   const n = all.length;
   for (let i = 0; i < mine.length; i++) {
@@ -94,7 +95,8 @@ const simulate = threads => {
   for (let t = 0; t < threads; t++) {
     const lo = Math.floor((BODIES * t) / threads),
       hi = Math.floor((BODIES * (t + 1)) / threads);
-    ts.push(spawn(worker, t, bodies.slice(lo, hi), board, barrier)); // the slice moves to the thread
+    // the slice moves to the thread
+    ts.push(spawn(worker, t, bodies.slice(lo, hi), board, barrier));
   }
   bodies = ts.flatMap(th => th.join()); // and back
   return energy(bodies);

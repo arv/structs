@@ -1,7 +1,9 @@
-// Porffor's threads/playground/presets/3-nbody.js for own and shared values (own.js), with the positions in a
-// shared Float64Array cell instead of shared snapshots: plain JS, no translation. each thread owns
-// its slice of the bodies (moved in, moved back by join). every step it writes its bodies' positions
-// into the cell, and after a barrier everyone reads all of them in place: nothing is copied per step
+// Porffor's threads/playground/presets/3-nbody.js for own and shared values
+// (own.js), with the positions in a shared Float64Array cell instead of shared
+// snapshots: plain JS, no translation. each thread owns its slice of the bodies
+// (moved in, moved back by join). every step it writes its bodies' positions
+// into the cell, and after a barrier everyone reads all of them in place:
+// nothing is copied per step
 import {fns, spawn, Barrier, sharedFloat64Array, log} from './own.js';
 
 const BODIES = 800,
@@ -26,7 +28,8 @@ const makeBodies = () => {
   return bodies;
 };
 
-// new velocities for this thread's bodies, from everyone's positions: [x, y, z, m] per body
+// new velocities for this thread's bodies, from everyone's positions: [x, y, z,
+// m] per body
 const accelerate = (mine, pos) => {
   const n = pos.length >> 2;
   for (let i = 0; i < mine.length; i++) {
@@ -69,7 +72,8 @@ const energy = bodies => {
   return e;
 };
 
-// a thread: the first body index of its slice, the slice it owns, the positions cell, the barrier
+// a thread: the first body index of its slice, the slice it owns, the positions
+// cell, the barrier
 const worker = (lo, mine, pos, barrier) => {
   for (let s = 0; s < STEPS; s++) {
     for (let i = 0; i < mine.length; i++) {
@@ -97,7 +101,8 @@ const simulate = threads => {
   for (let t = 0; t < threads; t++) {
     const lo = Math.floor((BODIES * t) / threads),
       hi = Math.floor((BODIES * (t + 1)) / threads);
-    ts.push(spawn(worker, lo, bodies.slice(lo, hi), pos, barrier)); // the slice moves to the thread
+    // the slice moves to the thread
+    ts.push(spawn(worker, lo, bodies.slice(lo, hi), pos, barrier));
   }
   return energy(ts.flatMap(th => th.join())); // and back
 };

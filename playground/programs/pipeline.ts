@@ -1,6 +1,7 @@
-// goroutines and channels (chan.js) in plain TypeScript on threads.js, and what they cost:
-// an unbuffered ping-pong, a buffered producer and consumer, two producers merged with select, and
-// big arrays sent as copies and as SharedArrays, which move by address.
+// goroutines and channels (chan.js) in plain TypeScript on threads.js, and what
+// they cost: an unbuffered ping-pong, a buffered producer and consumer, two
+// producers merged with select, and big arrays sent as copies and as
+// SharedArrays, which move by address.
 import {Channel, go, log, select, SharedArray} from 'threads';
 
 type Item = {id: number; label: string};
@@ -17,7 +18,8 @@ function produce(out: Channel<Item>, first: number, count: number) {
   out.close();
 }
 
-// BUFFERS arrays of BIG numbers: as ordinary arrays, copied into each message and out again
+// BUFFERS arrays of BIG numbers: as ordinary arrays, copied into each message
+// and out again
 function fillArrays(out: Channel<number[]>) {
   for (let k = 0; k < BUFFERS; k++) {
     const a: number[] = [];
@@ -27,7 +29,8 @@ function fillArrays(out: Channel<number[]>) {
   out.close();
 }
 
-// the same as SharedArrays: only the address crosses, and the receiver owns the array
+// the same as SharedArrays: only the address crosses, and the receiver owns the
+// array
 function fillShared(out: Channel<SharedArray<number>>) {
   for (let k = 0; k < BUFFERS; k++) {
     const a = new SharedArray(Number, BIG);
@@ -70,7 +73,8 @@ export function main(threadCounts: readonly number[]) {
     `buffered: ${ITEMS} items, ${each.toFixed(0)} ns each (sum of ids ${sum})`,
   );
 
-  // select takes from whichever producer is ready; a closed channel leaves the set
+  // select takes from whichever producer is ready; a closed channel leaves the
+  // set
   const a = new Channel<Item>(64),
     b = new Channel<Item>(64);
   go(produce, a, 0, 1000);

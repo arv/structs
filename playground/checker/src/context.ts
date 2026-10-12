@@ -1,6 +1,7 @@
-// The state of one check of a program: the API host, the runtime module's files, the caches of the
-// layout and counting rules, and the diagnostics reported so far (the fork's *Checker, as far as the
-// ownership checker uses it).
+// The state of one check of a program: the API host, the runtime module's
+// files, the caches of the layout and counting rules, and the diagnostics
+// reported so far (the fork's *Checker, as far as the ownership checker uses
+// it).
 
 import type {SourceFile} from 'typescript/ast';
 import type {Host, Type} from './host.ts';
@@ -9,11 +10,13 @@ import type {Diagnostic, Message} from './messages.ts';
 import {errorStart} from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-// How a shared struct's field holds its value (printer.OwnFieldKind): f an f64, r a reference, b a
-// boolean, s a string, i an i32, u a u8, c a channel; "" in a union of structs, where the fields differ.
+// How a shared struct's field holds its value (printer.OwnFieldKind): f an f64,
+// r a reference, b a boolean, s a string, i an i32, u a u8, c a channel; "" in
+// a union of structs, where the fields differ.
 export type FieldKind = 'f' | 'r' | 'b' | 's' | 'i' | 'u' | 'c' | '';
 
-// A shared struct: its name, fields in slot order, and how each holds its value.
+// A shared struct: its name, fields in slot order, and how each holds its
+// value.
 export interface StructInfo {
   decl: Node | undefined;
   name: string;
@@ -49,8 +52,10 @@ export const isArrayKind = (kind: CellKind): boolean =>
 
 // The counted variables that functions capture, for a file.
 export interface CaptureInfo {
-  captured: Set<unknown>; // symbols referenced from a function other than the declaring one
-  members: Node[]; // references to counted locals of another function from a method or a class
+  // symbols referenced from a function other than the declaring one
+  captured: Set<unknown>;
+  // references to counted locals of another function from a method or a class
+  members: Node[];
 }
 
 export class Own {
@@ -72,15 +77,17 @@ export class Own {
   readonly sharedArrayElements = new Map<Type, Type | undefined>();
   readonly runtimeExportNames = new Map<unknown, string>();
   readonly cellBranded = new Map<Type, boolean>();
-  // the runtime's integer types, by type: "i" for i32, "u" for u8, "" for any other
+  // the runtime's integer types, by type: "i" for i32, "u" for u8, "" for any
+  // other
   readonly integerKinds = new Map<Type, FieldKind>();
-  // local variables (by symbolId), by whether every value assigned to them is an integer; and the
-  // files whose variables are computed (false while they are being computed)
+  // local variables (by symbolId), by whether every value assigned to them is
+  // an integer; and the files whose variables are computed (false while they
+  // are being computed)
   readonly integerVariables = new Map<number, boolean>();
   readonly integerFiles = new Map<SourceFile, boolean>();
 
-  // files: the source files to check (not declaration files); runtimeFiles: the files that the
-  // runtime specifier resolves to.
+  // files: the source files to check (not declaration files); runtimeFiles: the
+  // files that the runtime specifier resolves to.
   constructor(
     host: Host,
     runtime: string,

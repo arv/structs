@@ -1,6 +1,7 @@
-// The example of TUTORIAL.md: for many random points, count which of a few centers each is nearest
-// to, on several threads. The points are owned: each thread gets its own share of them. The centers
-// are shared: every thread reads them.
+// The example of TUTORIAL.md: for many random points, count which of a few
+// centers each is nearest to, on several threads. The points are owned: each
+// thread gets its own share of them. The centers are shared: every thread reads
+// them.
 import {
   log,
   partition,

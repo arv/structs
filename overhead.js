@@ -1,16 +1,18 @@
 // what the translation costs over plain JS, one thread, the same work:
 //   node overhead.js [--reps=15]
-// the presets' own functions (plain JS) against their translations, on local objects (nothing
-// shared: only the $fwd checks) and on objects in the shared heap. each variant runs in a fresh
-// process, so the JIT sees only that variant's objects
+// the presets' own functions (plain JS) against their translations, on local
+// objects (nothing shared: only the $fwd checks) and on objects in the shared
+// heap. each variant runs in a fresh process, so the JIT sees only that
+// variant's objects
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// a Porffor checkout (github.com/arv/porffor, branch arv/shared-everything-threads): $PORFFOR, or
-// ../porffor beside this repository. its presets are the programs compared, and it builds them
+// a Porffor checkout (github.com/arv/porffor, branch
+// arv/shared-everything-threads): $PORFFOR, or ../porffor beside this
+// repository. its presets are the programs compared, and it builds them
 const root = path.resolve(
   process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
 );
@@ -122,7 +124,8 @@ if (!variant) {
         prep = b => {
           const h = R.$pub(b);
           if (variant === 'nbody shared, locked') {
-            // as after another thread took them over: unowned, so each write takes the lock
+            // as after another thread took them over: unowned, so each write
+            // takes the lock
             for (let i = 0; i < 800; i++)
               R.I32[(R.$sgeti(h, i)[R.ADDR] + 4) >> 2] = 0;
           }

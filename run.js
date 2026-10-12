@@ -2,19 +2,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-// runs a hand-translated program on worker threads sharing one SharedArrayBuffer heap
+// runs a hand-translated program on worker threads sharing one
+// SharedArrayBuffer heap
 //   node run.js <program> [options]
-//   <program>: a program in this directory by name (mandelbrot, nbody, nbody-own...), or the path
-//   of a module, such as one the tsgo fork emitted (build/ts/nbody-ts.js)
+//   <program>: a program in this directory by name (mandelbrot, nbody,
+//   nbody-own...), or the path of a module, such as one the tsgo fork emitted
+//   (build/ts/nbody-ts.js)
 //   --threads=1,2,4,8   the thread counts the program runs its work with
-//   --atomic-poll       clean points poll with Atomics.load instead of a plain load
+//   --atomic-poll       clean points poll with Atomics.load instead of a plain
+//                       load
 //   --stats             print the runtime's counters (to stderr) at exit
 //   --heap=MiB          shared heap size (default 512)
-//   --pool=N            workers started up front (default 8; more start on demand)
-//   --check             verify every boxed value word right after storing it, poison freed blocks
+//   --pool=N            workers started up front (default 8; more start on
+//                       demand)
+//   --check             verify every boxed value word right after storing it,
+//                       poison freed blocks
 //   --keep              keep the expanded program (its path goes to stderr)
-// node's main thread only coordinates, as the playground's page does: the program's main
-// runs in a worker, so it may block, and the pool can still grow while it does
+// node's main thread only coordinates, as the playground's page does: the
+// program's main runs in a worker, so it may block, and the pool can still grow
+// while it does
 import {Worker} from 'node:worker_threads';
 import {expand} from './expand.js';
 import {initShared, shutdown, counters} from './runtime.js';
@@ -37,7 +43,8 @@ const src =
     ? path.resolve(name)
     : path.resolve(here, name.endsWith('.js') ? name : `${name}.js`);
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'escape-proto-'));
-fs.writeFileSync(path.join(outDir, 'package.json'), '{ "type": "module" }\n'); // the expanded program is a .js module
+// the expanded program is a .js module
+fs.writeFileSync(path.join(outDir, 'package.json'), '{ "type": "module" }\n');
 const out = path.join(outDir, path.basename(src));
 fs.writeFileSync(
   out,
