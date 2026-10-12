@@ -230,7 +230,10 @@ export default function threads(options: Options = {}): Plugin {
     for (const file of [
       tsgo,
       ...(checkerDir
-        ? fs.readdirSync(checkerDir).map(name => path.join(checkerDir, name))
+        ? fs
+            .readdirSync(checkerDir)
+            .filter(name => name.endsWith('.ts'))
+            .map(name => path.join(checkerDir, name))
         : []),
     ]) {
       try {

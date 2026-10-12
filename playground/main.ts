@@ -10,6 +10,7 @@ import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import {run, start} from 'threads/browser';
+import threadsTypes from '../src/runtime/threads.d.ts?raw';
 import asyncGoroutines from './programs/async-goroutines.ts?raw';
 import atomics from './programs/atomics.ts?raw';
 import channelPipeline from './programs/channel-pipeline.ts?raw';
@@ -31,7 +32,6 @@ import sieve from './programs/sieve.ts?raw';
 import strings from './programs/strings.ts?raw';
 import structTally from './programs/struct-tally.ts?raw';
 import tutorial from './programs/tutorial.ts?raw';
-import threadsTypes from './runtime/threads.d.ts?raw';
 
 type Diagnostic = {line: number; col: number; code: string; message: string};
 type Result = {

@@ -36,9 +36,9 @@ another browser with SharedArrayBuffer), and, for the compiled JavaScript, a
 fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`,
 branch `own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in
 its `tsc/` directory. The fork is not published yet. The ownership checker needs
-no fork: it is [checker/](checker), on stock TypeScript 7.1, a package of the
-repository's pnpm workspace, on [Vite+](https://viteplus.dev) (see
-[its README](../README.md#setup)).
+no fork: it is [src/checker/](../src/checker), on stock TypeScript 7.1, a
+package of the repository's pnpm workspace, on [Vite+](https://viteplus.dev)
+(see [its README](../README.md#setup)).
 
 ```sh
 pnpm install                                               # at the repository's root
@@ -105,13 +105,13 @@ of its own takes 3.2 ms to start and 8.6 MB; an async one takes 0.2 µs and abou
 350 bytes, and two on one worker hand a value over in a microtask.
 
 The whole API, with doc comments, is
-[runtime/threads.d.ts](runtime/threads.d.ts).
+[threads.d.ts](../src/runtime/threads.d.ts).
 
 ## Three tools
 
 - **tsc** (`vp run typecheck`) checks the types. `Shared<T>` is deeply readonly,
   so it already rejects most writes to shared values.
-- **The ownership checker**, `threads-check` ([checker/](checker),
+- **The ownership checker**, `threads-check` ([src/checker/](../src/checker),
   `vp run own-check`), runs in CI like a linter. It reports what tsc cannot see:
   a use after a value was sent, an alias of something sent, sending what the
   caller still holds, writing to a shared value through a cast, a number that
@@ -121,7 +121,7 @@ The whole API, with doc comments, is
   replaces. The playground's dev server runs it too, with one TypeScript session
   kept open.
 - **The compile** (the fork, through the Vite plugin,
-  [runtime/vite-plugin-threads.ts](runtime/vite-plugin-threads.ts)) erases the
+  [vite-plugin-threads.ts](../src/runtime/vite-plugin-threads.ts)) erases the
   types and leaves the code alone, except that struct fields become typed-array
   reads (`b.x` is `__F64[(b >> 3) + 1]`), references to structs are counted so
   shared memory is freed ([REFCOUNT.md](../REFCOUNT.md)), and top-level
@@ -145,7 +145,7 @@ channels, moving and sharing objects, channels copying objects), Mandelbrot on
 channels, JSON parsed on threads, the nearest-centers example, what channels
 cost, reference counting under a race, a growable `SharedVector` written in user
 space on the API above, and the mistakes the checker catches. Each exports
-`main(threadCounts)`.
+`main`, which the page calls with the thread counts to run with.
 
 Values cross threads about as fast as JSON would carry them, and are read back
 faster. On one thread (Node 24), 50,000 log requests, each with a nested object
@@ -168,14 +168,16 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
 ## Layout
 
-| Path                                                 | What                                                                                                                                            |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtime/threads.ts`, `threads.d.ts`                 | the API                                                                                                                                         |
-| `runtime/own.ts`, `chan.ts`, `runtime.ts`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
-| `runtime/heap.ts`, `browser.ts`, `threads-worker.ts` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
-| `runtime/vite-plugin-threads.ts`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
-| `checker/`                                           | threads-check, the ownership checker, on TypeScript 7.1's API                                                                                   |
-| `index.html`, `main.ts`                              | the playground, on [Monaco](https://github.com/microsoft/monaco-editor)                                                                         |
+| Path                                                        | What                                                                                                                                            |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.html`, `main.ts`                                     | the playground, on [Monaco](https://github.com/microsoft/monaco-editor)                                                                         |
+| `programs/`                                                 | its programs                                                                                                                                    |
+| `vite.config.ts`                                            | the dev server, with the runtime's bundler plugin                                                                                               |
+| `../src/runtime/threads.ts`, `threads.d.ts`                 | the API                                                                                                                                         |
+| `../src/runtime/own.ts`, `chan.ts`, `runtime.ts`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
+| `../src/runtime/heap.ts`, `browser.ts`, `threads-worker.ts` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
+| `../src/runtime/vite-plugin-threads.ts`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
+| `../src/checker/`                                           | threads-check, the ownership checker, on TypeScript 7.1's API                                                                                   |
 
 ## Limits
 

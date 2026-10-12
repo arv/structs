@@ -100,7 +100,7 @@ export const expandForChrome: (
     path.join(repo, 'build', `${name}.js`),
     expand(file.endsWith('.ts') ? stripTypeScriptTypes(text) : text, {
       atomicPoll,
-      runtime: '../playground/runtime/runtime.ts',
+      runtime: '../src/runtime/runtime.ts',
     }),
   );
   return name;

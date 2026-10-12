@@ -1,5 +1,5 @@
-// vp run compare: runs threads-check and the fork's `tsgo own check` on the same
-// projects and compares their diagnostics (file, line, column, code and
+// vp run compare: runs threads-check and the fork's `tsgo own check` on the
+// same projects and compares their diagnostics (file, line, column, code and
 // message).
 //
 // The projects: the cases in test/cases, the playground (with and without
@@ -14,9 +14,9 @@
 // own, and the fork's tests come with the fork.
 //
 // Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (the
-// prototype this grew out of, by default the repository's root, above the
-// playground), MISTAKES (directories, separated by colons, each with a
-// tsconfig.json of programs that import the runtime as threads).
+// prototype this grew out of, by default the repository's root), MISTAKES
+// (directories, separated by colons, each with a tsconfig.json of programs that
+// import the runtime as threads).
 
 import {spawnSync} from 'node:child_process';
 import {
@@ -32,14 +32,15 @@ import {
 import {homedir, tmpdir} from 'node:os';
 import {basename, dirname, join, resolve} from 'node:path';
 import {API} from 'typescript/sync';
-import {check, formatDiagnostic} from '../src/index.ts';
+import {check, formatDiagnostic} from '../index.ts';
 
 const checkerDir = resolve(import.meta.dirname, '..');
-const playground = resolve(checkerDir, '..');
+const repo = resolve(checkerDir, '../..');
+const playground = join(repo, 'playground');
 const forkRoot = process.env.TSGO_FORK ?? join(homedir(), 'src/arv/TypeScript');
 const tsgo = join(forkRoot, 'tsc/built/local/tsgo');
 const forkTests = join(forkRoot, 'tsc/testdata/tests/cases/compiler');
-const prototype = process.env.THREADS_PROTOTYPE ?? resolve(playground, '..');
+const prototype = process.env.THREADS_PROTOTYPE ?? repo;
 const mistakes = (process.env.MISTAKES ?? '')
   .split(':')
   .filter(dir => dir !== '');
@@ -86,8 +87,7 @@ const knownDifferences: Record<string, {missing: string[]; reason: string}> = {
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'threads-check-')));
 const cases: Case[] = [];
 
-// test/cases: marker-mode programs against the playground's
-// runtime/threads.d.ts.
+// test/cases: marker-mode programs against the runtime's threads.d.ts.
 for (const name of readdirSync(join(checkerDir, 'test/cases')).sort()) {
   const dir = join(checkerDir, 'test/cases', name);
   cases.push({

@@ -1,6 +1,6 @@
 {
   // the programs in plain TypeScript on threads (they import its API,
-  // playground/runtime/threads.d.ts, as threads): the tsgo fork checks their ownership and
+  // src/runtime/threads.d.ts, as threads): the tsgo fork checks their ownership and
   // compiles them to build/ts/*.js for the runtime (run them with src/run.ts or
   // src/chrome.ts):
   //   <fork>/built/local/tsgo own check -p tsconfig.programs.json \
@@ -15,7 +15,7 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "build/ts",
-    "paths": {"threads": ["./playground/runtime/threads.d.ts"]}
+    "paths": {"threads": ["./src/runtime/threads.d.ts"]}
   },
   "files": [
     "src/nbody-ts.ts",

@@ -2,7 +2,7 @@ import {writeSync} from 'node:fs';
 // a node worker: the program's main thread, or a pool worker that runs Threads
 // (see run.ts). web-worker.ts is the same for a browser
 import {workerData, parentPort} from 'node:worker_threads';
-import type {Message} from '../playground/runtime/runtime.ts';
+import type {Message} from './runtime/runtime.ts';
 
 // what a coordinator (run.ts, page.ts) starts a worker with
 export interface WorkerData {
@@ -22,7 +22,7 @@ const {sab, program, opts, role, threads}: WorkerData = workerData;
 // it loads
 globalThis.__escapeSab = sab;
 try {
-  const R = await import('../playground/runtime/runtime.ts');
+  const R = await import('./runtime/runtime.ts');
   R.attach(
     sab,
     opts,

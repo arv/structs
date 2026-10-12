@@ -11,12 +11,12 @@
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
     "paths": {
-      "threads": ["./runtime/threads.d.ts"],
-      "threads/heap": ["./runtime/heap.d.ts"],
-      "threads/browser": ["./runtime/browser.d.ts"]
+      "threads": ["../src/runtime/threads.d.ts"],
+      "threads/heap": ["../src/runtime/heap.d.ts"],
+      "threads/browser": ["../src/runtime/browser.d.ts"]
     }
   },
   "include": ["*.ts", "programs/*.ts"],
-  // the Vite config is the runtime's (runtime/tsconfig.json)
+  // the Vite config runs on node, with the runtime: ../tsconfig.json checks it
   "exclude": ["programs/mistakes.ts", "vite.config.ts"]
 }

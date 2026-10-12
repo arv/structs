@@ -3,7 +3,7 @@
 // never blocks (it cannot: Atomics.wait is not allowed on a page's main
 // thread). index.html?program=nbody&threads=1,2,4,8 loads build/<program>.js,
 // which chrome.ts expands from <program>.js
-import {initShared, shutdown, counters} from '../playground/runtime/runtime.ts';
+import {initShared, shutdown, counters} from './runtime/runtime.ts';
 import type {WorkerData, WorkerMessage} from './worker.ts';
 
 // what a page leaves for chrome.ts once its program has finished

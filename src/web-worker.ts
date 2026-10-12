@@ -8,7 +8,7 @@ onmessage = async ({data}) => {
   // before it loads
   globalThis.__escapeSab = sab;
   try {
-    const R = await import('../playground/runtime/runtime.ts');
+    const R = await import('./runtime/runtime.ts');
     R.attach(
       sab,
       opts,

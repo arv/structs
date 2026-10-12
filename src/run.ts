@@ -22,8 +22,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 // program's main runs in a worker, so it may block, and the pool can still grow
 // while it does
 import {Worker} from 'node:worker_threads';
-import {initShared, shutdown, counters} from '../playground/runtime/runtime.ts';
 import {expand} from './expand.ts';
+import {initShared, shutdown, counters} from './runtime/runtime.ts';
 import type {WorkerData} from './worker.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,9 +54,7 @@ fs.writeFileSync(
   out,
   expand(fs.readFileSync(src, 'utf8'), {
     atomicPoll: flag('atomic-poll'),
-    runtime: pathToFileURL(
-      path.join(here, '..', 'playground', 'runtime', 'runtime.ts'),
-    ).href,
+    runtime: pathToFileURL(path.join(here, 'runtime', 'runtime.ts')).href,
   }),
 );
 if (flag('keep')) console.error(`expanded: ${out}`);

@@ -3,10 +3,10 @@
 This walks through [tutorial.ts](src/tutorial.ts): a program that splits 200,000
 random points across threads and counts which of three centers each point is
 nearest to. It is plain TypeScript against
-[threads.d.ts](playground/runtime/threads.d.ts): stock tsc checks its types, the
+[threads.d.ts](src/runtime/threads.d.ts): stock tsc checks its types, the
 ownership checker its ownership, and the tsgo fork (branch `own-shared`)
-compiles it to run on [threads.ts](playground/runtime/threads.ts). The ideas
-behind it are in [README.md](README.md).
+compiles it to run on [threads.ts](src/runtime/threads.ts). The ideas behind it
+are in [README.md](README.md).
 
 You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it),
 TypeScript, and node 22 or later. To run in Chrome as well, you also need

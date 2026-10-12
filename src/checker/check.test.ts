@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {afterAll, describe, expect, it} from 'vite-plus/test';
 import {API, check, formatDiagnostic} from './index.ts';
 
-const checker = fileURLToPath(new URL('..', import.meta.url));
+const checker = fileURLToPath(new URL('.', import.meta.url));
 const cases = join(checker, 'test/cases');
 const api = new API({cwd: checker});
 afterAll(() => api.close());

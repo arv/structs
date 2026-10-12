@@ -18,13 +18,13 @@ export default defineConfig({
     ignorePatterns: [
       // the checker's cases, whose diagnostics are expected at fixed lines and
       // columns
-      'playground/checker/test/cases/**',
-      'playground/checker/test/expected/**',
+      'src/checker/test/cases/**',
+      'src/checker/test/expected/**',
     ],
   },
   test: {
     // tests sit next to what they test
-    include: ['src/**/*.test.ts', 'playground/**/*.test.ts'],
+    include: ['src/**/*.test.ts'],
   },
   lint: {
     jsPlugins: [{name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin'}],
@@ -33,7 +33,7 @@ export default defineConfig({
     ignorePatterns: [
       // programs wrong on purpose: the checker's cases, and the mistakes it
       // catches
-      'playground/checker/test/cases/**',
+      'src/checker/test/cases/**',
       'playground/programs/mistakes.ts',
     ],
   },

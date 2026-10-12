@@ -8,7 +8,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import type {Handle} from '../playground/runtime/runtime.ts';
+import type {Handle} from './runtime/runtime.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..'); // what is built goes in its build/
@@ -70,14 +70,14 @@ if (!variant) {
     return import(pathToFileURL(file).href);
   };
   type Translated = {
-    R: typeof import('../playground/runtime/runtime.ts');
+    R: typeof import('./runtime/runtime.ts');
     mod: unknown;
   };
   // the translation, on the runtime attached to a heap in this thread
   const translated: (name: string) => Promise<Translated> = async name => {
     const sab = new SharedArrayBuffer(512 << 20);
     globalThis.__escapeSab = sab;
-    const R = await import('../playground/runtime/runtime.ts');
+    const R = await import('./runtime/runtime.ts');
     R.initShared(sab);
     R.attach(
       sab,
@@ -92,9 +92,7 @@ if (!variant) {
       file,
       expand(fs.readFileSync(path.join(here, `${name}.js`), 'utf8'), {
         noPoll: variant.endsWith('no polls'),
-        runtime: pathToFileURL(
-          path.join(repo, 'playground', 'runtime', 'runtime.ts'),
-        ).href,
+        runtime: pathToFileURL(path.join(here, 'runtime', 'runtime.ts')).href,
       }),
     );
     return {R, mod: await import(pathToFileURL(file).href)};

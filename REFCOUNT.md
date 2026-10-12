@@ -1,7 +1,7 @@
 # Reference counting for shared structs
 
-> Status: a prototype, in the runtime ([own.ts](playground/runtime/own.ts),
-> [runtime.ts](playground/runtime/runtime.ts)) and the tsgo fork's emit.
+> Status: a prototype, in the runtime ([own.ts](src/runtime/own.ts),
+> [runtime.ts](src/runtime/runtime.ts)) and the tsgo fork's emit.
 > [refcount.ts](src/refcount.ts) tests it,
 > [refcount-hand.ts](src/refcount-hand.ts) is the same test written by hand, and
 > the playground's "Reference counting under a race" runs it in a browser

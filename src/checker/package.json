@@ -6,11 +6,11 @@
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
   "bin": {
-    "threads-check": "./src/cli.ts"
+    "threads-check": "./cli.ts"
   },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./index.ts"
   },
   "scripts": {
     "compare": "node test/compare.ts",

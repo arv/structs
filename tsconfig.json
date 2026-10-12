@@ -1,7 +1,10 @@
 {
-  // the prototype's TypeScript, type-checked by stock tsc (vp run typecheck):
-  // its scripts, programs and tests. Node runs it as it is, its types
-  // stripped. tsconfig.programs.json is what the tsgo fork compiles
+  // src/ (but the checker, which has its own) and the playground's Vite
+  // config, type-checked by stock tsc (vp run typecheck): the runtime, the
+  // prototype's scripts and programs, and the tests. Node runs them as they
+  // are, their types stripped. The playground's page has its own
+  // (playground/tsconfig.json), and tsconfig.programs.json is what the tsgo
+  // fork compiles
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -13,14 +16,17 @@
     "lib": ["es2024", "dom"],
     "types": ["node"],
     "skipLibCheck": true,
-    // the playground's runtime, which the programs here run on: its API, and
-    // its modules, which the hand-written programs import (expand.ts points
-    // them at the runtime's directory)
+    // the runtime's API, and its modules, which the hand-written programs
+    // import (expand.ts points them at the runtime's directory)
     "paths": {
-      "threads": ["./playground/runtime/threads.d.ts"],
-      "threads/own": ["./playground/runtime/own.ts"],
-      "threads/runtime": ["./playground/runtime/runtime.ts"]
+      "threads": ["./src/runtime/threads.d.ts"],
+      "threads/own": ["./src/runtime/own.ts"],
+      "threads/runtime": ["./src/runtime/runtime.ts"]
     }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "playground/vite.config.ts"],
+  "exclude": ["src/checker"],
+  // a glob leaves out a .d.ts beside a .ts of its name: a page's API is checked
+  // as well, by name
+  "files": ["src/runtime/browser.d.ts", "src/runtime/heap.d.ts"]
 }

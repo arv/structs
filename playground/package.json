@@ -10,7 +10,7 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit && tsc -p runtime/tsconfig.json",
+    "typecheck": "tsc --noEmit",
     "own-check": "threads-check -p tsconfig.json --runtime threads"
   },
   "dependencies": {
