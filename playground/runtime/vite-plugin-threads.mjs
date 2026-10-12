@@ -228,8 +228,15 @@ export default function threads(options = {}) {
       }
       return { code, map };
     },
-    // a changed source: compile again and reload the page (its workers hold the old modules)
+    // a changed source: compile again and reload the page (its workers hold the old modules). a
+    // changed runtime file restarts the server instead: Vite would mark the imports of the changed
+    // module with ?t=, and a page or worker that loaded it before would run a second copy of the
+    // runtime (whose threads' output, for one, goes nowhere)
     handleHotUpdate({ file, server }) {
+      if (file.startsWith(RUNTIME_DIR + path.sep)) {
+        server.restart();
+        return [];
+      }
       if (!/\.m?ts$/.test(file) || /\.d\.m?ts$/.test(file)) return;
       emit();
       server.ws.send({ type: 'full-reload' });
