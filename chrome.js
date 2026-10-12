@@ -11,7 +11,7 @@
 //   --check             verify every boxed value word right after storing it, poison freed blocks
 // --wasm=file.wasm instead runs a Porffor program built for wasm32-wasip1-threads (see bench.js)
 // on the playground's runner, in the same browser.
-// needs playwright-core (npm i playwright-core), found normally or through
+// needs playwright-core (a dev dependency of this repository), found normally or through
 // $PLAYWRIGHT_CORE, the path of an install's node_modules/playwright-core
 import http from 'node:http';
 import fs from 'node:fs';

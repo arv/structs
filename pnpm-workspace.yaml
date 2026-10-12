@@ -1,0 +1,16 @@
+packages:
+  - app
+  - playground
+  - playground/checker
+# Vite+ (vp) is the toolchain: its core stands in for vite, for every package that asks for vite
+catalog:
+  typescript: ^7.0.2
+  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
+  vite-plus: 1.1.0
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

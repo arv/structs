@@ -22,15 +22,17 @@ scope(s => { for (let t = 0; t < 8; t++) s.spawn(worker, t * 100, t * 100 + 100,
 
 ## Try it
 
-You need Node 22.13 or later, a recent Chrome (or another browser with SharedArrayBuffer), and, for
+You need Node 22.18 or later (24.11 or later on Node 24), a recent Chrome (or another browser with
+SharedArrayBuffer), and, for
 the compiled JavaScript, a fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`,
 branch `own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in its `tsc/` directory. The
 fork is not published yet. The ownership checker needs no fork: it is [checker/](checker), on stock
-TypeScript 7.1, which `npm install` sets up as a workspace.
+TypeScript 7.1, a package of the repository's pnpm workspace, on [Vite+](https://viteplus.dev) (see
+[its README](../README.md#setup)).
 
 ```sh
-npm install
-TSGO=/path/to/TypeScript/tsc/built/local/tsgo npm run dev
+pnpm install                                               # at the repository's root
+TSGO=/path/to/TypeScript/tsc/built/local/tsgo vp dev       # here, or at the root
 ```
 
 Open the address Vite prints. Pick a program and edit it in Monaco, with TypeScript's hover types,
@@ -43,7 +45,7 @@ completions and errors from the threads API, and see:
   thread, so it may block (`join`, `recv`, a barrier); the page itself never blocks, it only awaits
   `main`'s result.
 
-The dev server compiles, so a production build (`npm run build`) shows the page but cannot compile.
+The dev server compiles, so a production build (`vp build`) shows the page but cannot compile.
 
 ## The model
 
@@ -88,9 +90,9 @@ The whole API, with doc comments, is [runtime/threads.d.ts](runtime/threads.d.ts
 
 ## Three tools
 
-- **tsc** (`npm run typecheck`) checks the types. `Shared<T>` is deeply readonly, so it already rejects
+- **tsc** (`vp run typecheck`) checks the types. `Shared<T>` is deeply readonly, so it already rejects
   most writes to shared values.
-- **The ownership checker**, `threads-check` ([checker/](checker), `npm run own-check`), runs in CI like
+- **The ownership checker**, `threads-check` ([checker/](checker), `vp run own-check`), runs in CI like
   a linter. It reports what tsc cannot see: a use after a value was sent, an alias of something sent,
   sending what the caller still holds, writing to a shared value through a cast, a number that may
   not be an integer stored into an `i32` or a `u8`, a blocking call in an async function. It is built on stock

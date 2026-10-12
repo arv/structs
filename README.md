@@ -30,6 +30,24 @@ the playground carry on from [app/](app) and the files here, and are where the w
 [TUTORIAL.md](TUTORIAL.md) walks through writing, checking and running a small program, and how each
 step works.
 
+## Setup
+
+The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`): the prototype here at the
+root, [playground/](playground) and its checker, and [app/](app). Vite+ brings Vite, Oxlint and a task
+runner, and runs pnpm at the version `packageManager` names. You need Node 22.18 or later (24.11 or
+later on Node 24).
+
+```sh
+pnpm install                # once, at the root
+vp dev                      # the playground; TSGO=<tsgo-fork>/built/local/tsgo for the compiled JavaScript
+vp build                    # the playground's production build
+vp lint                     # Oxlint, type-aware, over the whole workspace
+vp run -r typecheck         # tsc in every package
+```
+
+`vp` is the CLI of the `vite-plus` dev dependency: `pnpm vp <command>`, or plain `vp` with Vite+'s
+[global CLI](https://viteplus.dev/guide/). Formatting (`vp fmt`) is not set up.
+
 ## Running
 
 ```sh
@@ -41,8 +59,8 @@ node bench.js                      # every configuration, median of 5 runs
 node overhead.js                   # the translation against the same code untranslated
 ```
 
-`chrome.js` drives the installed Google Chrome through Playwright: `npm i playwright-core`, or
-point `PLAYWRIGHT_CORE` at an install's `node_modules/playwright-core`. Its `--trace` records a
+`chrome.js` drives the installed Google Chrome through playwright-core, a dev dependency (or the
+install `PLAYWRIGHT_CORE` points at, its `node_modules/playwright-core`). Its `--trace` records a
 DevTools performance trace with every worker's CPU samples, which DevTools' Performance panel opens.
 
 `bench.js`, `overhead.js` and `chrome.js --wasm` compare with Porffor's own builds of the same
@@ -54,7 +72,7 @@ The TypeScript programs (`*.ts`) are checked by stock tsc and by the ownership c
 by the tsgo fork (branch `own-shared`, built with `go build -o built/local/tsgo ./cmd/tsgo`):
 
 ```sh
-tsc -p tsconfig.json --noEmit                                  # types: stock TypeScript
+vp run typecheck                                               # types: stock TypeScript
 <tsgo-fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js   # ownership, for CI
 <tsgo-fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js            # emit build/ts
 node run.js build/ts/nbody-struct.js
@@ -66,8 +84,7 @@ erased), the checker's errors, and run it on Web Workers. Vite's dev server does
 [microlighter](https://github.com/davatron5000/microlighter) colors the code:
 
 ```sh
-npm install --prefix app
-TSGO=<tsgo-fork>/built/local/tsgo npx vite --config app/vite.config.js
+TSGO=<tsgo-fork>/built/local/tsgo vp -C app dev
 ```
 
 ## Files

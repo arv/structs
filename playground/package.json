@@ -7,22 +7,22 @@
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
     "typecheck": "tsc --noEmit",
     "own-check": "threads-check -p tsconfig.json --runtime threads"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vite": "^7.1.12"
+    "threads-check": "workspace:*",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
     "monaco-editor": "^0.57.0"
-  },
-  "workspaces": [
-    "checker"
-  ]
+  }
 }

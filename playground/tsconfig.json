@@ -1,6 +1,6 @@
 {
-  // plain TypeScript: tsc checks the types (npm run typecheck), the tsgo fork the ownership
-  // (npm run own-check), and the Vite plugin compiles with the fork. programs/mistakes.ts is left
+  // plain TypeScript: tsc checks the types (vp run typecheck), threads-check the ownership
+  // (vp run own-check), and the Vite plugin compiles with the fork. programs/mistakes.ts is left
   // out on purpose: it is the playground's example of what the ownership checker catches
   "compilerOptions": {
     "target": "es2022",

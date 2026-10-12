@@ -1,14 +1,15 @@
-// the playground: `TSGO=<tsgo fork>/built/local/tsgo vite --config app/vite.config.js`.
-// it compiles on the dev server, so a production build (`vite build`) shows the page but cannot
+// the playground: `TSGO=<tsgo fork>/built/local/tsgo vp -C app dev` at the repository's root.
+// it compiles on the dev server, so a production build (`vp -C app build`) shows the page but cannot
 // compile. "threads" is the runtime one directory up
 import { fileURLToPath } from 'node:url';
+import { lazyPlugins } from 'vite-plus';
 import threads from '../vite-plugin-threads.js';
 
 const up = file => fileURLToPath(new URL(`../${file}`, import.meta.url));
 
 export default {
   root: fileURLToPath(new URL('.', import.meta.url)),
-  plugins: [ threads({ tsgo: process.env.TSGO, runtime: 'threads', playground: true }) ],
+  plugins: lazyPlugins(() => [ threads({ tsgo: process.env.TSGO, runtime: 'threads', playground: true }) ]),
   resolve: {
     alias: [
       { find: /^threads$/, replacement: up('threads.js') },

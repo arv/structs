@@ -1,11 +1,11 @@
-// npm test: runs threads-check and the fork's `tsgo own check` on the same projects and compares
+// vp run test: runs threads-check and the fork's `tsgo own check` on the same projects and compares
 // their diagnostics (file, line, column, code and message).
 //
 // The projects: the cases in test/cases, the playground (with and without programs/mistakes.ts),
 // the fork's marker-mode compiler tests, the prototype's programs (at the repository's root) and the
 // scratchpad's mistakes. Projects outside this repository are skipped when they are not there.
 // Without the fork (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is compared
-// with its expected output in test/expected, which `npm test -- --update` writes from the fork's
+// with its expected output in test/expected, which `vp run test --update` writes from the fork's
 // output.
 //
 // Only test/cases have stored expectations: the other projects change on their own, and the fork's

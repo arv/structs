@@ -1,11 +1,19 @@
 {
-  "name": "threads-playground",
+  "name": "threads-app",
   "private": true,
   "type": "module",
   "description": "The threads playground: see README.md",
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build"
+  },
   "dependencies": {
     "microlighter": "^2.2.0"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   }
 }
