@@ -1,0 +1,30 @@
+{
+  // the programs in plain TypeScript on threads (they import its API,
+  // playground/runtime/threads.d.ts, as threads): the tsgo fork checks their ownership and
+  // compiles them to build/ts/*.js for the runtime (run them with src/run.ts or
+  // src/chrome.ts):
+  //   <fork>/built/local/tsgo own check -p tsconfig.programs.json \
+  //     --ownRuntime threads
+  //   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "build/ts",
+    "paths": {"threads": ["./playground/runtime/threads.d.ts"]}
+  },
+  "files": [
+    "src/nbody-ts.ts",
+    "src/nbody-struct.ts",
+    "src/tutorial.ts",
+    "src/refcount.ts",
+    "src/mandelbrot-chan.ts",
+    "src/pipeline.ts",
+    "src/nbody-chan.ts",
+    "src/nbody-chan-struct.ts"
+  ]
+}

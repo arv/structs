@@ -169,7 +169,7 @@ export function isConsumeCall(c: Own, expr: Node): boolean {
 }
 
 // The runtime's interface or class of a given name, if it exports one.
-export function getRuntimeType(c: Own, name: string): Type | undefined {
+function getRuntimeType(c: Own, name: string): Type | undefined {
   if (c.runtimeTypes.has(name)) return c.runtimeTypes.get(name);
   let result: Type | undefined;
   for (const file of c.runtimeFiles) {
@@ -245,7 +245,7 @@ export function getStructRegistry(c: Own): Map<Type, Node> {
 
 // The type of the values of the struct a `struct(...)` call declares: T in
 // StructType<T>.
-export function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
+function getStructTypeOfCall(c: Own, call: Node): Type | undefined {
   const t = c.host.typeOf(call);
   if (
     !t ||

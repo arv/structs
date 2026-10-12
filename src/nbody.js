@@ -1,5 +1,5 @@
-// Porffor's threads/playground/presets/3-nbody.js, translated by hand by the
-// rules in README.md. the original is quoted above each function
+// presets/nbody.js, translated by hand by the rules in README.md. the original
+// is quoted above each function
 import {
   $closure,
   $fns,
@@ -11,7 +11,7 @@ import {
   $iter,
   $eq,
   $log,
-} from './runtime.js';
+} from 'threads/runtime';
 
 const FN = $fns({Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body});
 

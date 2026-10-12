@@ -188,7 +188,7 @@ export function getChannelElementType(
 
 // Reports whether a for-of statement receives counted values from a channel:
 // its variable owns each.
-export function isChannelReceiveLoop(c: Own, loop: Node): boolean {
+function isChannelReceiveLoop(c: Own, loop: Node): boolean {
   return (
     loop.kind === K.ForOfStatement &&
     isCellType(c, getChannelElementType(c, c.host.typeOf(loop.expression)))

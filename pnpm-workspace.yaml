@@ -1,8 +1,10 @@
 packages:
   - playground
   - playground/checker
-# Vite+ (vp) is the toolchain: its core stands in for vite, for every package that asks for vite
+# Vite+ (vp) is the toolchain: its core stands in for vite, for every package
+# that asks for vite
 catalog:
+  '@types/node': ^24.19.2
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
   vite-plus: 1.1.0

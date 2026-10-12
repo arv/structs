@@ -1,5 +1,5 @@
-// Porffor's threads/playground/presets/2-mandelbrot.js, translated by hand by
-// the rules in README.md. the original is quoted above each function
+// presets/mandelbrot.js, translated by hand by the rules in README.md. the
+// original is quoted above each function
 import {
   $closure,
   $fns,
@@ -9,7 +9,7 @@ import {
   $iter,
   $eq,
   $log,
-} from './runtime.js';
+} from 'threads/runtime';
 
 const FN = $fns({worker});
 

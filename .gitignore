@@ -1,3 +1,7 @@
-# programs expanded for the browser (node chrome.js), and the tsgo fork's emit (build/ts)
+# programs expanded for the browser (node src/chrome.ts), and the tsgo fork's
+# emit (build/ts)
 /build
+# the playground's production build (vp build)
+/playground/dist
 node_modules/
+.DS_Store

@@ -84,7 +84,7 @@ async function squares(input: Channel<number>, out: Channel<number>) {
 
 // main is async too, so it waits as the others do: the playground runs it on a
 // worker among them
-export async function main(threadCounts: readonly number[]) {
+export async function main() {
   const db = new Db(),
     r = new Replica();
   db.done = new Channel<void>();

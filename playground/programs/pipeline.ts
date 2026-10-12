@@ -1,4 +1,4 @@
-// goroutines and channels (chan.js) in plain TypeScript on threads.js, and what
+// goroutines and channels (chan.ts) in plain TypeScript on threads.ts, and what
 // they cost: an unbuffered ping-pong, a buffered producer and consumer, two
 // producers merged with select, and big arrays sent as copies and as
 // SharedArrays, which move by address.
@@ -45,7 +45,7 @@ const ROUNDS = 10000,
   BUFFERS = 200,
   BIG = 100000;
 
-export function main(threadCounts: readonly number[]) {
+export function main() {
   // one value back and forth: each send waits for its receiver
   const ping = new Channel<number>(),
     pong = new Channel<number>();

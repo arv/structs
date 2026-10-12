@@ -13,14 +13,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types test/compare.ts",
+    "compare": "node test/compare.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "typescript": "7.1.0-dev.20261011.1"
   },
   "devDependencies": {
-    "@types/node": "22.20.4"
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
   },
   "engines": {
     "node": ">=22.13"

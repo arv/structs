@@ -18,18 +18,17 @@ question is what to do with objects. Two designs are here:
   deeply immutable and copied once per thread that reads it, or an explicit
   cell. Ordinary code is plain JS with nothing per access, and N-body on 8
   threads runs 4x faster than plain single-threaded JS. Programs are plain
-  TypeScript against [threads.d.ts](src/threads.d.ts); a checker built on a fork
-  of tsgo proves the ownership rules in CI, and a bundler plugin compiles shared
-  structs to typed-array accesses.
+  TypeScript against [threads.d.ts](playground/runtime/threads.d.ts); a checker
+  built on a fork of tsgo proves the ownership rules in CI, and a bundler plugin
+  compiles shared structs to typed-array accesses.
 
 Measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and
 Chrome 154.
 
 This started in Porffor's repository, as `threads/escape-proto` on top of its
-threads work. The own and shared design grew into [playground/](playground): its
-runtime, the threads-check checker and the playground carry on from the files
-here (and from `app/`, the playground's first page, in this repository's
-history), and are where the work goes on.
+threads work. The own and shared design grew into [playground/](playground),
+where the work goes on: the runtime both designs run on, the threads-check
+checker and the playground.
 
 [porffor-threads]:
   https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads
@@ -56,8 +55,12 @@ vp build                    # the playground's production build
 vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # formatting, lint and types, as CI would
+vp test                     # the unit tests, as CI would
 vp run -r typecheck         # tsc in every package
 ```
+
+The code is TypeScript, and node runs it as it is, its types stripped. Tests sit
+next to what they test (`*.test.ts`), and run on Vitest.
 
 `vp` is the CLI of the `vite-plus` dev dependency: `pnpm vp <command>`, or plain
 `vp` with Vite+'s [global CLI](https://viteplus.dev/guide/).
@@ -65,24 +68,21 @@ vp run -r typecheck         # tsc in every package
 ## Running
 
 ```sh
-node src/run.js nbody                  # on node: nbody, mandelbrot, basic, nbody-own
-node src/run.js nbody --threads=1,1,8  # the thread counts the program runs with
-node src/chrome.js nbody-own           # in Chrome, on Web Workers (needs playwright-core)
-node src/chrome.js nbody --trace=t.json && node src/trace-summary.js t.json
-node src/bench.js                      # every configuration, median of 5 runs
-node src/overhead.js                   # the translation against the same code untranslated
+node src/run.ts nbody                  # on node: nbody, mandelbrot, basic, nbody-own
+node src/run.ts nbody --threads=1,1,8  # the thread counts the program runs with
+node src/chrome.ts nbody-own           # in Chrome, on Web Workers (needs playwright-core)
+node src/chrome.ts nbody --trace=t.json && node src/trace-summary.ts t.json
+node src/bench.ts                      # every configuration, median of 5 runs
+node src/overhead.ts                   # the translation against the same code untranslated
 ```
 
-`chrome.js` drives the installed Google Chrome through playwright-core, a dev
+`chrome.ts` drives the installed Google Chrome through playwright-core, a dev
 dependency (or the install `PLAYWRIGHT_CORE` points at, its
 `node_modules/playwright-core`). Its `--trace` records a DevTools performance
 trace with every worker's CPU samples, which DevTools' Performance panel opens.
 
-`bench.js`, `overhead.js` and `chrome.js --wasm` compare with Porffor's own
-builds of the same programs, so they need a Porffor checkout on branch
-`arv/shared-everything-threads` of
-[arv/porffor](https://github.com/arv/porffor): `PORFFOR=/path/to/porffor`, or
-`../porffor` beside this repository.
+`bench.ts` and `overhead.ts` measure against the original programs in
+[src/presets/](src/presets), which Porffor's playground has as presets.
 
 The TypeScript programs (`*.ts`) are checked by stock tsc and by the ownership
 checker, and compiled by the tsgo fork (branch `own-shared`, built with
@@ -90,34 +90,36 @@ checker, and compiled by the tsgo fork (branch `own-shared`, built with
 
 ```sh
 vp run typecheck                                               # types: stock TypeScript
-<tsgo-fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js   # ownership, for CI
-<tsgo-fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js            # emit build/ts
-node src/run.js build/ts/nbody-struct.js
+<tsgo-fork>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime threads   # ownership, for CI
+<tsgo-fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads            # emit build/ts
+node src/run.ts build/ts/nbody-struct.js
 ```
 
 ## Files
 
-The code is in [src/](src):
+The prototype's code is in [src/](src), and it runs on the playground's runtime,
+[playground/runtime/](playground/runtime):
 
-| File                                                                         | What it is                                                                                                                          |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [`playground/`](playground)                                                  | the own and shared design as it goes on: runtime, checker, playground ([its README](playground/README.md))                          |
-| `runtime.js`                                                                 | the shared heap: allocator, value words, strings, shapes, handles, ownership and handover, Lock, Condition, the worker pool         |
-| `expand.js`                                                                  | turns the access macros of a hand translation into what a transform would emit                                                      |
-| `nbody.js`, `mandelbrot.js`, `basic.js`                                      | the playground's presets, and a small example, translated by hand for publish on escape                                             |
-| `threads.js`, `threads.d.ts`                                                 | the API programs import: own and shared values, shared structs, channels, in plain TypeScript                                       |
-| `own.js`, `own.d.ts`                                                         | own and shared values on top of the runtime, and the types of the earlier syntax                                                    |
-| `nbody-own.js`                                                               | N-body written by hand for own and shared values                                                                                    |
-| `nbody-cells.js`                                                             | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step                              |
-| `nbody-struct.ts`                                                            | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap                             |
-| `nbody-ts.ts`, `tsconfig.json`                                               | the same with ordinary objects, moved and shared                                                                                    |
-| `chan.js`, `chan.d.ts`                                                       | Go-style goroutines and channels on own and shared values, and the types of the earlier syntax                                      |
-| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | the presets with channels (N-body copying plain objects, and over shared structs), and a small example of what channels cost        |
-| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.js`                             | reference counting for shared structs and SharedArrays: the design, its test, and the test written by hand as the compiler emits it |
-| `tutorial.ts`                                                                | the example of [TUTORIAL.md](TUTORIAL.md)                                                                                           |
-| `run.js`, `worker.js`                                                        | run a program on node `worker_threads`                                                                                              |
-| `chrome.js`, `index.html`, `page.js`, `web-worker.js`, `wasm.html`           | run a program, or a Porffor Wasm build, in Chrome                                                                                   |
-| `bench.js`, `overhead.js`, `trace-summary.js`                                | the measurements                                                                                                                    |
+| File                                                                         | What it is                                                                                                                                     |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`playground/`](playground)                                                  | the own and shared design as it goes on: runtime, checker, playground ([its README](playground/README.md))                                     |
+| `presets/`                                                                   | the original programs, plain JavaScript with threads: what the hand translations translate, and what the measurements compare with             |
+| `playground/runtime/runtime.ts`                                              | the shared heap: allocator, value words, strings, shapes, handles, ownership and handover, Lock, Condition, the worker pool                    |
+| `playground/runtime/threads.ts`, `threads.d.ts`                              | the API programs import: own and shared values, shared structs, channels, in plain TypeScript                                                  |
+| `playground/runtime/own.ts`                                                  | own and shared values on top of the runtime                                                                                                    |
+| `playground/runtime/chan.ts`                                                 | Go-style goroutines and channels on own and shared values                                                                                      |
+| `expand.ts`                                                                  | turns the access macros of a hand translation into what a transform would emit                                                                 |
+| `nbody.js`, `mandelbrot.js`, `basic.js`                                      | the playground's presets, and a small example, translated by hand for publish on escape, in expand.ts's macros (so JavaScript, not TypeScript) |
+| `nbody-own.ts`                                                               | N-body written by hand for own and shared values                                                                                               |
+| `nbody-cells.ts`                                                             | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step                                         |
+| `nbody-struct.ts`                                                            | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap                                        |
+| `nbody-ts.ts`, `tsconfig.programs.json`                                      | the same with ordinary objects, moved and shared                                                                                               |
+| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | the presets with channels (N-body copying plain objects, and over shared structs), and a small example of what channels cost                   |
+| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.ts`                             | reference counting for shared structs and SharedArrays: the design, its test, and the test written by hand as the compiler emits it            |
+| `tutorial.ts`                                                                | the example of [TUTORIAL.md](TUTORIAL.md)                                                                                                      |
+| `run.ts`, `worker.ts`                                                        | run a program on node `worker_threads`                                                                                                         |
+| `chrome.ts`, `index.html`, `page.ts`, `web-worker.ts`                        | run a program in Chrome                                                                                                                        |
+| `bench.ts`, `overhead.ts`, `trace-summary.ts`                                | the measurements                                                                                                                               |
 
 ## Shared everything, publish on escape
 
@@ -156,7 +158,7 @@ the loop.
 ## Own and shared values
 
 ```js
-import {fns, spawn, share, Barrier, Slots} from './own.js';
+import {fns, spawn, share, Barrier, Slots} from './own.ts';
 
 const t = spawn(worker, id, slice, board, barrier); // slice moves to the thread; cells pass by reference
 const back = t.join(); // the thread's result moves back
@@ -169,7 +171,7 @@ slice[0].x; // after the move: throws "own: used after move"
 A moved value is copied into the shared heap once, and the sender's objects are
 revoked. A shared value is written once, and each thread that reads it makes its
 own frozen copy on first use. Cells (`Barrier`, `Slots`, shared structs) live in
-the shared heap and synchronize. The ownership checker proves what `own.js`
+the shared heap and synchronize. The ownership checker proves what `own.ts`
 checks at run time (moved objects unused, shared ones unchanged). The compiler
 emits the function table `spawn` needs (`__register`) and lowers shared structs
 (`__sharedStruct`).
@@ -186,9 +188,9 @@ function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barr
 function count(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> { ... }
 ```
 
-The model is plain TypeScript ([threads.d.ts](src/threads.d.ts)), so tsc,
-editors, linters and formatters take programs as they are. `Sending<T>` (to
-TypeScript, just T) marks a value whose ownership moves, `Shared<T>` (deeply
+The model is plain TypeScript ([threads.d.ts](playground/runtime/threads.d.ts)),
+so tsc, editors, linters and formatters take programs as they are. `Sending<T>`
+(to TypeScript, just T) marks a value whose ownership moves, `Shared<T>` (deeply
 readonly, so tsc already rejects most writes) a value every thread may read,
 `consume(x)` the end of a variable's life, and the `Cell` interface the shared,
 mutable kinds: Barrier, Slots, Channel, Thread, SharedArray and structs,
@@ -201,7 +203,7 @@ struct that refers to itself). Two tools add what the types cannot say:
   of something sent, a write to a shared value, sending what the caller still
   holds) and leaves type errors to tsc.
 - **The bundler plugin** (the playground's
-  [runtime/vite-plugin-threads.js](playground/runtime/vite-plugin-threads.js),
+  [runtime/vite-plugin-threads.ts](playground/runtime/vite-plugin-threads.ts),
   for Vite) compiles each module with the tsgo fork: struct fields become
   typed-array accesses on shared memory, struct references are counted, and
   every module registers the functions threads may run, keyed by its path so the
@@ -213,9 +215,9 @@ views need at load), then calls `await run(f, ...args)`: f runs on a pool of Web
 Workers and its result moves back, and the page's own thread, which may not
 block, waits asynchronously. A worker loads a thread's module the first time a
 thread needs it, so the page's own entry module never runs there. That side of a
-page is the playground's ([runtime/heap.js](playground/runtime/heap.js),
-[runtime/browser.js](playground/runtime/browser.js)), on a runtime that grew out
-of the files here.
+page is the playground's ([runtime/heap.ts](playground/runtime/heap.ts),
+[runtime/browser.ts](playground/runtime/browser.ts)), on the same runtime as the
+programs here.
 
 **With the types only erased** (node's type stripping, no compiler), a program
 still runs, given one added line that registers its top-level functions, which
@@ -237,14 +239,15 @@ for (let y = 0; y < H; y++) jobs.send(y);
 jobs.close(); // workers' `for (const y of jobs)` ends
 ```
 
-[chan.js](src/chan.js) is Go's model on own and shared values: `go`, buffered
-and unbuffered channels, `close`, range over a channel, and `select`. A channel
-is a cell, and a value sent on it moves, so the checker proves the sender never
-uses it again, as it does for `spawn`. Threads share nothing but channels: no
-data races, unlike Go, whose goroutines share memory. The receiver frees each
-message, so nothing in the shared heap outlives it and no collector is needed. A
-goroutine is a whole worker, so it is heavy, and one blocked on a channel holds
-its worker. One that throws prints its error, since nothing joins it.
+[chan.ts](playground/runtime/chan.ts) is Go's model on own and shared values:
+`go`, buffered and unbuffered channels, `close`, range over a channel, and
+`select`. A channel is a cell, and a value sent on it moves, so the checker
+proves the sender never uses it again, as it does for `spawn`. Threads share
+nothing but channels: no data races, unlike Go, whose goroutines share memory.
+The receiver frees each message, so nothing in the shared heap outlives it and
+no collector is needed. A goroutine is a whole worker, so it is heavy, and one
+blocked on a channel holds its worker. One that throws prints its error, since
+nothing joins it.
 
 A plain object is copied into its message, since V8 objects cannot cross
 workers. A shared struct or SharedArray is sent as its address: the compiler
@@ -290,6 +293,9 @@ warmed up), ms:
 | Porffor Wasm, Chrome                                               | 883 | 455 | 231 | 130 |
 | Plain V8, no threads                                               | 25  |     |     |     |
 
+The Porffor rows are Porffor's own builds of the presets, measured in its
+repository; `bench.ts` does not build them.
+
 Mandelbrot, which computes on thread-local numbers, ms:
 
 | Threads                         | 1    | 2   | 4   | 8   |
@@ -329,7 +335,7 @@ neither `A` nor `i` assigned anywhere else, as in N-body's inner loop.
   typed arrays. All three hold in V8 today; the JS memory model does not promise
   any of them.
 - **Only part of the language.** Shared `Map` and `Set` are missing. Typed
-  arrays are limited to `Int32Array` over a shared buffer. `own.js` cannot send
+  arrays are limited to `Int32Array` over a shared buffer. `own.ts` cannot send
   cycles, and shared struct fields are numbers only.
 
 ## License

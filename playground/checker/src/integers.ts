@@ -37,7 +37,7 @@ import type {Node} from './syntax.ts';
 
 // The kind of integer, "i" or "u", a value that flows into a place of type t
 // becomes (looking through null and undefined), or "".
-export function getIntegerTargetKind(c: Own, t: Type | undefined): FieldKind {
+function getIntegerTargetKind(c: Own, t: Type | undefined): FieldKind {
   if (!t) return '';
   const members = nonNullishMembers(c, t);
   return members.length === 1 ? getIntegerKind(c, members[0]!) : '';
@@ -97,7 +97,7 @@ function isIntegerType(c: Own, t: Type): boolean {
 // Reports whether an expression's value is an integer. A cast is one by its
 // type: a cast to an integer type is reported by itself, where it flows into
 // one.
-export function isIntegerExpression(c: Own, expr: Node): boolean {
+function isIntegerExpression(c: Own, expr: Node): boolean {
   expr = skipParentheses(expr);
   if (isIntegerType(c, c.host.typeOf(expr))) return true;
   switch (expr.kind) {

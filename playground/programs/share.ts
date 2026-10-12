@@ -19,7 +19,7 @@ function convert(
 
 // main runs on a worker too: the playground starts it as a thread, so it may
 // block (scope waits for the threads it started)
-export function main(threadCounts: readonly number[]) {
+export function main() {
   const rates = share<Rates>({USD: 1, EUR: 0.92, SEK: 10.5});
   const currencies = ['USD', 'EUR', 'SEK'];
   scope(s => {

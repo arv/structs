@@ -16,7 +16,7 @@ function squares(input: Channel<number>, out: Channel<number>) {
 // main runs on a worker too: the playground starts it as a thread, so three
 // threads run here (main, numbers, squares), and main may block like the
 // others: its loop waits for each square
-export function main(threadCounts: readonly number[]) {
+export function main() {
   const naturals = new Channel<number>(16),
     squared = new Channel<number>(16);
   go(numbers, 1000, naturals);

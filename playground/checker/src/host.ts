@@ -33,14 +33,7 @@ import {
 } from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-export {
-  IndexKind,
-  ModuleKind,
-  ObjectFlags,
-  SignatureKind,
-  SymbolFlags,
-  TypeFlags,
-};
+export {IndexKind, ModuleKind, ObjectFlags, SymbolFlags, TypeFlags};
 export type {NodeHandle, Signature, TsSymbol, Type};
 
 export class Host {

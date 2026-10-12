@@ -14,7 +14,7 @@ function total(order: Sending<Order>): Sending<number> {
 
 // main runs on a worker too: the playground starts it as a thread, so it may
 // block (join waits)
-export function main(threadCounts: readonly number[]) {
+export function main() {
   const order: Order = {id: 1, items: [10, 20, 30]};
   const thread = spawn(total, order); // order moves to the thread
   log(`total: ${thread.join()}`);

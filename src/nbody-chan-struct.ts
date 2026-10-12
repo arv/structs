@@ -1,20 +1,12 @@
-// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels
-// over shared memory: the bodies are a SharedArray of shared structs, as in
-// nbody-struct.ts, which every goroutine reads and writes in place, each only
-// its own slice. Channels take the barriers' place: after each phase a
-// goroutine reports on `done` and waits for main on its `next` , which is Go's
-// way (share memory, and order it with channels). Nothing is copied.
-//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
-//   node run.js build/ts/nbody-chan-struct.js
-import {
-  Channel,
-  f64,
-  go,
-  log,
-  SharedArray,
-  struct,
-  type Struct,
-} from './threads.js';
+// presets/nbody.js with goroutines and channels over shared memory: the bodies
+// are a SharedArray of shared structs, as in nbody-struct.ts, which every
+// goroutine reads and writes in place, each only its own slice. Channels take
+// the barriers' place: after each phase a goroutine reports on `done` and waits
+// for main on its `next` , which is Go's way (share memory, and order it with
+// channels). Nothing is copied.
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   node src/run.ts build/ts/nbody-chan-struct.js
+import {Channel, f64, go, log, SharedArray, struct, type Struct} from 'threads';
 
 const Body = struct({
   x: f64,
@@ -137,7 +129,7 @@ function simulate(threads: number): number {
   return energy(bodies);
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// the thread counts come from the runner (run.ts, chrome.ts), so a benchmark
 // can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0;

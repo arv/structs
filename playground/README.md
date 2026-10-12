@@ -121,10 +121,10 @@ The whole API, with doc comments, is
   replaces. The playground's dev server runs it too, with one TypeScript session
   kept open.
 - **The compile** (the fork, through the Vite plugin,
-  [runtime/vite-plugin-threads.js](runtime/vite-plugin-threads.js)) erases the
+  [runtime/vite-plugin-threads.ts](runtime/vite-plugin-threads.ts)) erases the
   types and leaves the code alone, except that struct fields become typed-array
   reads (`b.x` is `__F64[(b >> 3) + 1]`), references to structs are counted so
-  shared memory is freed ([docs/refcount.md](docs/refcount.md)), and top-level
+  shared memory is freed ([REFCOUNT.md](../REFCOUNT.md)), and top-level
   functions are registered so a worker can find the one a thread runs.
 
 With the types only erased, a program still runs, given that one registration
@@ -170,10 +170,10 @@ Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
 | Path                                                 | What                                                                                                                                            |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtime/threads.js`, `threads.d.ts`                 | the API                                                                                                                                         |
-| `runtime/own.js`, `chan.js`, `runtime.js`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
-| `runtime/heap.js`, `browser.js`, `threads-worker.js` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
-| `runtime/vite-plugin-threads.js`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
+| `runtime/threads.ts`, `threads.d.ts`                 | the API                                                                                                                                         |
+| `runtime/own.ts`, `chan.ts`, `runtime.ts`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
+| `runtime/heap.ts`, `browser.ts`, `threads-worker.ts` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
+| `runtime/vite-plugin-threads.ts`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
 | `checker/`                                           | threads-check, the ownership checker, on TypeScript 7.1's API                                                                                   |
 | `index.html`, `main.ts`                              | the playground, on [Monaco](https://github.com/microsoft/monaco-editor)                                                                         |
 
@@ -199,4 +199,5 @@ prototypes at [the root of this repository](../README.md).
 
 ## License
 
-Copyright 2026 Erik Arvidsson. Licensed under the [Apache License 2.0](LICENSE).
+Copyright 2026 Erik Arvidsson. Licensed under the
+[Apache License 2.0](../LICENSE).

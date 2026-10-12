@@ -1,4 +1,4 @@
-// vp run test: runs threads-check and the fork's `tsgo own check` on the same
+// vp run compare: runs threads-check and the fork's `tsgo own check` on the same
 // projects and compares their diagnostics (file, line, column, code and
 // message).
 //
@@ -8,7 +8,7 @@
 // outside this repository are skipped when they are not there. Without the fork
 // (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is
 // compared with its expected output in test/expected, which
-// `vp run test --update` writes from the fork's output.
+// `vp run compare --update` writes from the fork's output.
 //
 // Only test/cases have stored expectations: the other projects change on their
 // own, and the fork's tests come with the fork.
@@ -16,7 +16,7 @@
 // Environment: TSGO_FORK (the fork's repository), THREADS_PROTOTYPE (the
 // prototype this grew out of, by default the repository's root, above the
 // playground), MISTAKES (directories, separated by colons, each with a
-// tsconfig.json of programs that import the runtime as ./threads.js).
+// tsconfig.json of programs that import the runtime as threads).
 
 import {spawnSync} from 'node:child_process';
 import {
@@ -157,11 +157,11 @@ for (const test of [
   });
 }
 
-if (existsSync(join(prototype, 'tsconfig.json'))) {
+if (existsSync(join(prototype, 'tsconfig.programs.json'))) {
   cases.push({
     name: 'prototype',
-    tsconfig: join(prototype, 'tsconfig.json'),
-    runtime: './threads.js',
+    tsconfig: join(prototype, 'tsconfig.programs.json'),
+    runtime: 'threads',
     cwd: prototype,
   });
 }
@@ -170,7 +170,7 @@ for (const dir of mistakes) {
     cases.push({
       name: `mistakes/${basename(dir)}`,
       tsconfig: join(dir, 'tsconfig.json'),
-      runtime: './threads.js',
+      runtime: 'threads',
       cwd: dir,
     });
   }

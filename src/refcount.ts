@@ -1,8 +1,8 @@
 // Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler
 // counts the references to shared structs, so a block is freed (and its memory
 // reused) when nothing refers to it any more.
-//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
-//   node run.js build/ts/refcount.js
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   node src/run.ts build/ts/refcount.js
 // churn: builds and drops a 1000-node list 200 times on one thread; the heap
 // stops growing once the free lists hold a list's worth of blocks. race: one
 // thread keeps replacing box.item with a fresh node while the others read
@@ -18,7 +18,7 @@ import {
   struct,
   type Struct,
   type Thread,
-} from './threads.js';
+} from 'threads';
 
 interface Node {
   value: number;
@@ -128,7 +128,7 @@ function race(readers: number) {
   );
 }
 
-// the thread counts come from the runner (run.js, chrome.js): a race per count,
+// the thread counts come from the runner (run.ts, chrome.ts): a race per count,
 // with a writer and count - 1 readers
 export function main(threadCounts: readonly number[]) {
   churn();

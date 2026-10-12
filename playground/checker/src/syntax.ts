@@ -200,7 +200,7 @@ export const OEK = {
   All: 1 | 2 | 4 | 8 | 16 | 32,
 } as const;
 
-export function isOuterExpression(node: Node, kinds: number): boolean {
+function isOuterExpression(node: Node, kinds: number): boolean {
   switch (node.kind) {
     case K.ParenthesizedExpression:
       return (kinds & OEK.Parentheses) !== 0;
@@ -232,7 +232,7 @@ export function walkUpParenthesizedExpressions(
   return node;
 }
 
-export function findAncestor(
+function findAncestor(
   node: Node | undefined,
   test: (n: Node) => boolean,
 ): Node | undefined {
@@ -411,7 +411,7 @@ function isPartOfTypeNodeInParent(node: Node): boolean {
 }
 
 // ast.IsPartOfTypeNode
-export function isPartOfTypeNode(node: Node): boolean {
+function isPartOfTypeNode(node: Node): boolean {
   const kind = node.kind;
   if (kind >= K.FirstTypeNode && kind <= K.LastTypeNode) return true;
   switch (kind) {
@@ -712,7 +712,7 @@ export function errorStart(sourceFile: SourceFile, node: Node): number {
 }
 
 // scanner.SkipTrivia (whitespace and comments).
-export function skipTrivia(text: string, pos: number): number {
+function skipTrivia(text: string, pos: number): number {
   for (;;) {
     const ch = text.charCodeAt(pos);
     if (

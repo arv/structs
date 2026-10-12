@@ -2,10 +2,11 @@
 
 This walks through [tutorial.ts](src/tutorial.ts): a program that splits 200,000
 random points across threads and counts which of three centers each point is
-nearest to. It is plain TypeScript against [threads.d.ts](src/threads.d.ts):
-stock tsc checks its types, the ownership checker its ownership, and the tsgo
-fork (branch `own-shared`) compiles it to run on [threads.js](src/threads.js).
-The ideas behind it are in [README.md](README.md).
+nearest to. It is plain TypeScript against
+[threads.d.ts](playground/runtime/threads.d.ts): stock tsc checks its types, the
+ownership checker its ownership, and the tsgo fork (branch `own-shared`)
+compiles it to run on [threads.ts](playground/runtime/threads.ts). The ideas
+behind it are in [README.md](README.md).
 
 You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it),
 TypeScript, and node 22 or later. To run in Chrome as well, you also need
@@ -81,8 +82,8 @@ const totals = scope(s => {
 
 ```sh
 tsc -p tsconfig.json --noEmit                                       # types
-/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js
-/path/to/tsgo-own/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
+/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime threads
+/path/to/tsgo-own/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
 ```
 
 The first is stock TypeScript. The second is the ownership checker, which runs
@@ -119,8 +120,8 @@ import of its helpers, and a table of the module's functions so a thread can
 find the one it should run:
 
 ```js
-import { __register } from "./threads.js";
-import { log, partition, scope, share, take } from "./threads.js";
+import { __register } from "threads";
+import { log, partition, scope, share, take } from "threads";
 function countNearest(points, centers) {
     const counts = centers.map(() => 0);
     ...
@@ -135,7 +136,7 @@ would have written.
 ## 4. Run it
 
 ```sh
-node src/run.js build/ts/tutorial.js --threads=1,2,4
+node src/run.ts build/ts/tutorial.js --threads=1,2,4
 ```
 
 ```
@@ -144,11 +145,11 @@ node src/run.js build/ts/tutorial.js --threads=1,2,4
 4 threads: 56336 56064 87600
 ```
 
-The same counts on every thread count. `chrome.js` runs the same module in
+The same counts on every thread count. `chrome.ts` runs the same module in
 Chrome, on real Web Workers:
 
 ```sh
-node src/chrome.js build/ts/tutorial.js --threads=1,2,4
+node src/chrome.ts build/ts/tutorial.js --threads=1,2,4
 ```
 
 ## How it works
@@ -165,7 +166,7 @@ share(centers) -- write once ---->  shared values      -- first use ->  frozen c
   full speed.
 - **Moving copies.** `spawn` writes its arguments into the SharedArrayBuffer in
   a compact binary form, once. The thread reads them back as plain objects of
-  its own. `join` does the same in the other direction. `own.js` also revokes
+  its own. `join` does the same in the other direction. `own.ts` also revokes
   the sender's moved objects (any use throws), as a safety net for code the
   checker did not see.
 - **Sharing copies once per reader.** `share` writes a value once; each thread

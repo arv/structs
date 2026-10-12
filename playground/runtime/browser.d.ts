@@ -1,6 +1,6 @@
 // A page's side of threads: a pool of Web Workers, and functions run on it. The
 // page's entry module imports "threads/heap" first.
-import type {Sending} from './threads.js';
+import type {Sending} from 'threads';
 
 /**
  * Starts the pool of workers (by default one per core); run() starts it if

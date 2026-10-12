@@ -203,7 +203,7 @@ function isSuppressed(file: SourceFile, pos: number): boolean {
 }
 
 // compiler.SortAndDeduplicateDiagnostics: by file, position, code and message.
-export function sortAndDeduplicate(diagnostics: Diagnostic[]): Diagnostic[] {
+function sortAndDeduplicate(diagnostics: Diagnostic[]): Diagnostic[] {
   const sorted = [...diagnostics].sort(
     (a, b) =>
       compare(a.file ?? '', b.file ?? '') ||

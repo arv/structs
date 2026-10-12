@@ -139,7 +139,7 @@ run, and sets the cross-origin isolation headers that `SharedArrayBuffer` needs
 on the dev and preview servers.
 
 ```js
-// vite.config.js
+// vite.config.ts
 import threads from 'own-threads/vite';
 
 export default {

@@ -17,5 +17,6 @@
     }
   },
   "include": ["*.ts", "programs/*.ts"],
-  "exclude": ["programs/mistakes.ts"]
+  // the Vite config is the runtime's (runtime/tsconfig.json)
+  "exclude": ["programs/mistakes.ts", "vite.config.ts"]
 }

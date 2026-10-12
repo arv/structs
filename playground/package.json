@@ -10,13 +10,14 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p runtime/tsconfig.json",
     "own-check": "threads-check -p tsconfig.json --runtime threads"
   },
   "dependencies": {
     "monaco-editor": "^0.57.0"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "threads-check": "workspace:*",
     "typescript": "catalog:",
     "vite": "catalog:",

@@ -1,28 +1,26 @@
 {
-  // programs in plain TypeScript on threads.js: stock tsc type-checks them, and
-  // the tsgo fork checks ownership and emits build/ts/*.js for the runtime (run
-  // them with src/run.js or src/chrome.js):
-  //   <fork>/built/local/tsgo own check -p tsconfig.json \
-  //     --ownRuntime ./threads.js
-  //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
+  // the prototype's TypeScript, type-checked by stock tsc (vp run typecheck):
+  // its scripts, programs and tests. Node runs it as it is, its types
+  // stripped. tsconfig.programs.json is what the tsgo fork compiles
   "compilerOptions": {
-    "target": "es2022",
+    "target": "es2024",
     "module": "esnext",
     "moduleResolution": "bundler",
     "strict": true,
-    "lib": ["es2022", "dom"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "lib": ["es2024", "dom"],
+    "types": ["node"],
     "skipLibCheck": true,
-    "rootDir": "src",
-    "outDir": "build/ts"
+    // the playground's runtime, which the programs here run on: its API, and
+    // its modules, which the hand-written programs import (expand.ts points
+    // them at the runtime's directory)
+    "paths": {
+      "threads": ["./playground/runtime/threads.d.ts"],
+      "threads/own": ["./playground/runtime/own.ts"],
+      "threads/runtime": ["./playground/runtime/runtime.ts"]
+    }
   },
-  "files": [
-    "src/nbody-ts.ts",
-    "src/nbody-struct.ts",
-    "src/tutorial.ts",
-    "src/refcount.ts",
-    "src/mandelbrot-chan.ts",
-    "src/pipeline.ts",
-    "src/nbody-chan.ts",
-    "src/nbody-chan-struct.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

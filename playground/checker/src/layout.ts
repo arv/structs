@@ -63,10 +63,7 @@ const structCell = (kind: CellKind, s: StructInfo): CellType => ({
 
 // The shared struct whose instances have type t, if any: a `struct(...)` call
 // (whose values' type may be intersected with Cell).
-export function getStructOfType(
-  c: Own,
-  t: Type | undefined,
-): StructInfo | undefined {
+function getStructOfType(c: Own, t: Type | undefined): StructInfo | undefined {
   if (!t) return undefined;
   if (c.structOfType.has(t)) return c.structOfType.get(t);
   let result: StructInfo | undefined;
@@ -127,14 +124,14 @@ function isNullishOnly(c: Own, t: Type): boolean {
 
 // Reports whether a field or element of type t is a boolean: `boolean` , `true`
 // or `false` (not a union with anything else).
-export function isBooleanType(t: Type): boolean {
+function isBooleanType(t: Type): boolean {
   return !!(t.flags & (TypeFlags.Boolean | TypeFlags.BooleanLiteral));
 }
 
 // Reports whether a field or element of type t is a string: `string` , a string
 // literal type, or a union of them (`"a" | "b"`), but not with null or
 // undefined.
-export function isStringType(c: Own, t: Type): boolean {
+function isStringType(c: Own, t: Type): boolean {
   if (t.flags & TypeFlags.Union)
     return c.host.memberTypes(t).every(m => !!(m.flags & TypeFlags.StringLike));
   return !!(t.flags & TypeFlags.StringLike);
@@ -176,7 +173,7 @@ export function getIntegerKind(c: Own, t: Type): FieldKind {
 
 // Reports whether a field of type t holds a channel: the runtime's Channel,
 // possibly with null or undefined (isOwnChannelFieldType).
-export function isChannelFieldType(c: Own, t: Type): boolean {
+function isChannelFieldType(c: Own, t: Type): boolean {
   const members = nonNullishMembers(c, t);
   if (members.length !== 1 || !(members[0]!.flags & TypeFlags.Object))
     return false;
@@ -270,7 +267,7 @@ export function isCellExpression(c: Own, expr: Node | undefined): boolean {
 
 // Checks the element type of a SharedArray type reference (or of a `new` of
 // one): numbers, booleans, strings or a shared struct.
-export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
+function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   if (node.flags & NodeFlags.Ambient) return;
   const element = getSharedArrayElementType(c, t);
   if (

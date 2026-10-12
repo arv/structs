@@ -6,9 +6,10 @@
   "author": "Erik Arvidsson",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "playwright-core": "^1.64.0",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

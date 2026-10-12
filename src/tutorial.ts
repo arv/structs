@@ -11,7 +11,7 @@ import {
   type Shared,
   take,
   type Thread,
-} from './threads.js';
+} from 'threads';
 
 type Point = {x: number; y: number};
 

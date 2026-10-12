@@ -1,8 +1,7 @@
-// Porffor's threads/playground/presets/3-nbody.js in plain TypeScript on
-// threads.js. The tsgo fork checks it (no ownership errors) and emits plain
-// JavaScript for the runtime:
-//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
-//   node run.js build/ts/nbody-ts.js
+// presets/nbody.js in plain TypeScript on threads.ts. The tsgo fork checks it
+// (no ownership errors) and emits plain JavaScript for the runtime:
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   node src/run.ts build/ts/nbody-ts.js
 // Each thread owns its slice of the bodies; every step it shares a snapshot of
 // its positions, and the others read their own copies. The hot loops are plain
 // TypeScript on plain objects.
@@ -17,7 +16,7 @@ import {
   Slots,
   take,
   type Thread,
-} from './threads.js';
+} from 'threads';
 
 type Body = {
   x: number;
@@ -125,7 +124,7 @@ function simulate(threads: number): number {
   });
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// the thread counts come from the runner (run.ts, chrome.ts), so a benchmark
 // can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0;

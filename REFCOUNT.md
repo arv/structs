@@ -1,10 +1,13 @@
 # Reference counting for shared structs
 
-> Status: a prototype, in the runtime (own.js, runtime.js) and the tsgo fork's
-> emit; [refcount.ts](src/refcount.ts) tests it, and
-> [refcount-hand.js](src/refcount-hand.js) is the same test written by hand.
-> Shared structs and SharedArrays are freed when nothing refers to them; other
-> cells (`Barrier`, `Slots`) and moved or shared values are still never freed.
+> Status: a prototype, in the runtime ([own.ts](playground/runtime/own.ts),
+> [runtime.ts](playground/runtime/runtime.ts)) and the tsgo fork's emit.
+> [refcount.ts](src/refcount.ts) tests it,
+> [refcount-hand.ts](src/refcount-hand.ts) is the same test written by hand, and
+> the playground's "Reference counting under a race" runs it in a browser
+> ([programs/refcount.ts](playground/programs/refcount.ts)). Shared structs and
+> SharedArrays are freed when nothing refers to them; other cells (`Barrier`,
+> `Slots`) and moved or shared values are still never freed.
 
 A shared struct or SharedArray is an address in the shared heap, passed around
 as a plain number, so V8's collector cannot see who holds one. Each block counts
@@ -47,10 +50,20 @@ load and store; numeric loops get none). A thread blocked in a wait counts as
 quiescent throughout. A thread that runs long without one delays reclaiming
 (memory grows), never correctness.
 
+Async functions share a thread: a worker that hosts async goroutines runs one at
+a time, each until its next `await`. The compiler holds no uncounted address
+across an `await` (an `await` counts as a call, and an async function's counted
+parameters are owned), so when one of them resumes from the runtime's waits
+(`recvAsync`, `sendAsync`, `selectAsync`, `joinAsync`, `Barrier.waitAsync`),
+every other one is suspended with nothing uncounted, and that is a quiescent
+point for the thread; so is each turn of the host's loop. A host whose async
+functions all wait passes none, so a thread with many decrements queued rings
+the bells of the hosts behind it, and each passes one.
+
 This is quiescent-state-based reclamation: a global epoch, and a word per thread
 with the epoch it last saw at a quiescent point.
 
-## Runtime (own.js)
+## Runtime (own.ts)
 
 | Function                                   | Does                                                                                                                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -77,7 +90,8 @@ is one of:
 
 - **owned (+1)**: `new S()`, `new SharedArray(...)`, `__retain(E)`, a call to a
   function compiled here whose declared return type is counted, and a call to a
-  declared function whose result is `sending` (a channel's `recv()`, `join()`);
+  declared function whose result is `Sending<T>` (a channel's `recv()`,
+  `join()`);
 - **a stable borrow**: a parameter, a counted local that is never reassigned,
   `A[i]` where A is a stable borrow, `__unbox(v)`;
 - **an unstable borrow**: a reference field read `e.f`, `A[i]` where A is one,
@@ -107,7 +121,7 @@ Rules:
    E if owned, else `__retain(E)`. If `e` is an unstable borrow and E contains a
    call, `e` is retained first.
 6. **Field reads.** `e.f` is `__I32[(e >> 2) + 2 + 2k]`.
-7. **Threads and channels.** A counted argument to a `sending` parameter of a
+7. **Threads and channels.** A counted argument to a `Sending<T>` parameter of a
    declared function (`spawn`, `s.spawn`, `go`, a channel's `send`) is passed as
    `__ref(E)`. A channel's `send` also moves it: using the variable, or a local
    alias of it, afterwards is an error. A thread's arguments share it instead,

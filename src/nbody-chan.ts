@@ -1,11 +1,11 @@
-// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels
-// (chan.js). Each goroutine owns its slice of the bodies. Every step it sends
-// its positions to main, and main sends everyone's back, shared once; at the
-// end each slice moves back to main. No barrier and no shared mutable state:
-// the channels order everything. Messages are tagged with the sender, so the
-// positions keep body order and the arithmetic is the preset's.
-//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
-//   node run.js build/ts/nbody-chan.js
+// presets/nbody.js with goroutines and channels (chan.ts). Each goroutine owns
+// its slice of the bodies. Every step it sends its positions to main, and main
+// sends everyone's back, shared once; at the end each slice moves back to main.
+// No barrier and no shared mutable state: the channels order everything.
+// Messages are tagged with the sender, so the positions keep body order and the
+// arithmetic is the preset's.
+//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime threads
+//   node src/run.ts build/ts/nbody-chan.js
 import {
   Channel,
   go,
@@ -15,7 +15,7 @@ import {
   share,
   type Shared,
   take,
-} from './threads.js';
+} from 'threads';
 
 type Body = {
   x: number;
@@ -141,7 +141,7 @@ function simulate(threads: number): number {
   return energy(slices.flat());
 }
 
-// the thread counts come from the runner (run.js, chrome.js), so a benchmark
+// the thread counts come from the runner (run.ts, chrome.ts), so a benchmark
 // can repeat them
 export function main(threadCounts: readonly number[]) {
   let base = 0;
