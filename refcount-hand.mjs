@@ -1,5 +1,5 @@
 // reference counting (REFCOUNT.md), written by hand as the compiler emits it, to test the runtime:
-//   node threads/escape-proto/run.mjs refcount-hand --check
+//   node run.mjs refcount-hand --check
 // --check poisons freed blocks, so a read after free shows up as a bad value.
 //
 //   shared struct Node { value: number; check: number; next: Node | null }

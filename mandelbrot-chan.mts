@@ -1,8 +1,8 @@
-// threads/playground/presets/2-mandelbrot.js with goroutines and channels (chan.mjs): a job channel
+// Porffor's threads/playground/presets/2-mandelbrot.js with goroutines and channels (chan.mjs): a job channel
 // of rows to draw, and a result channel of drawn rows. The workers share nothing but the two
 // channels; a drawn row moves back to main.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/mandelbrot-chan.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/mandelbrot-chan.mjs
 import { Channel, go, log } from "./threads.mjs";
 
 const W = 80, H = 32, SAMPLES = 18, MAX_ITER = 2000;

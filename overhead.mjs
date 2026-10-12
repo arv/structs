@@ -1,5 +1,5 @@
 // what the translation costs over plain JS, one thread, the same work:
-//   node threads/escape-proto/overhead.mjs [--reps=15]
+//   node overhead.mjs [--reps=15]
 // the presets' own functions (plain JS) against their translations, on local objects (nothing
 // shared: only the $fwd checks) and on objects in the shared heap. each variant runs in a fresh
 // process, so the JIT sees only that variant's objects
@@ -9,7 +9,13 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '../..');
+// a Porffor checkout (github.com/arv/porffor, branch arv/shared-everything-threads): $PORFFOR, or
+// ../porffor beside this repository. its presets are the programs compared, and it builds them
+const root = path.resolve(process.env.PORFFOR ?? path.join(here, '..', 'porffor'));
+if (!fs.existsSync(path.join(root, 'threads', 'playground', 'presets'))) {
+  console.error(`no Porffor checkout at ${root}: set PORFFOR to one, on branch arv/shared-everything-threads`);
+  process.exit(1);
+}
 const args = process.argv.slice(2);
 const opt = (n, d) => args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
 const reps = Number(opt('reps', 15));

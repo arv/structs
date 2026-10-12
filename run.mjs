@@ -1,5 +1,5 @@
 // runs a hand-translated program on worker threads sharing one SharedArrayBuffer heap
-//   node threads/escape-proto/run.mjs <program> [options]
+//   node run.mjs <program> [options]
 //   <program>: a program in this directory by name (mandelbrot, nbody, nbody-own...), or the path
 //   of a module, such as one the tsgo fork emitted (build/ts/nbody-ts.mjs)
 //   --threads=1,2,4,8   the thread counts the program runs its work with
@@ -25,7 +25,7 @@ const opt = (n, d) => args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? 
 const flag = n => args.includes(`--${n}`);
 const name = args.find(a => !a.startsWith('--'));
 if (!name) {
-  console.error('usage: node threads/escape-proto/run.mjs <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]');
+  console.error('usage: node run.mjs <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]');
   process.exit(1);
 }
 

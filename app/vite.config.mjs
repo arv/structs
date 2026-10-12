@@ -1,4 +1,4 @@
-// the playground: `TSGO=<tsgo fork>/built/local/tsgo vite --config threads/escape-proto/app/vite.config.mjs`.
+// the playground: `TSGO=<tsgo fork>/built/local/tsgo vite --config app/vite.config.mjs`.
 // it compiles on the dev server, so a production build (`vite build`) shows the page but cannot
 // compile. "threads" is the runtime one directory up
 import { fileURLToPath } from 'node:url';

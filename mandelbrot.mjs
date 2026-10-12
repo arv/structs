@@ -1,4 +1,4 @@
-// threads/playground/presets/2-mandelbrot.js, translated by hand by the rules in README.md.
+// Porffor's threads/playground/presets/2-mandelbrot.js, translated by hand by the rules in README.md.
 // the original is quoted above each function
 import { $closure, $fns, $newThread, $newSAB, $newTA, $iter, $eq, $log } from './runtime.mjs';
 

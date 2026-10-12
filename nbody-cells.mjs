@@ -1,4 +1,4 @@
-// threads/playground/presets/3-nbody.js for own and shared values (own.mjs), with the positions in a
+// Porffor's threads/playground/presets/3-nbody.js for own and shared values (own.mjs), with the positions in a
 // shared Float64Array cell instead of shared snapshots: plain JS, no translation. each thread owns
 // its slice of the bodies (moved in, moved back by join). every step it writes its bodies' positions
 // into the cell, and after a barrier everyone reads all of them in place: nothing is copied per step

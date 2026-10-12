@@ -57,9 +57,9 @@ const totals = scope(s => {
 ## 2. Check it and compile it
 
 ```sh
-tsc -p threads/escape-proto/tsconfig.json --noEmit                                       # types
-/path/to/tsgo-own/built/local/tsgo own check -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-/path/to/tsgo-own/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
+tsc -p tsconfig.json --noEmit                                       # types
+/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.mjs
+/path/to/tsgo-own/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
 ```
 
 The first is stock TypeScript. The second is the ownership checker, which runs in CI like a linter:
@@ -108,7 +108,7 @@ The loops are untouched: the compiled `countNearest` is the plain JavaScript you
 ## 4. Run it
 
 ```sh
-node threads/escape-proto/run.mjs threads/escape-proto/build/ts/tutorial.mjs --threads=1,2,4
+node run.mjs build/ts/tutorial.mjs --threads=1,2,4
 ```
 ```
 1 threads: 56336 56064 87600
@@ -120,7 +120,7 @@ The same counts on every thread count. `chrome.mjs` runs the same module in Chro
 Workers:
 
 ```sh
-node threads/escape-proto/chrome.mjs threads/escape-proto/build/ts/tutorial.mjs --threads=1,2,4
+node chrome.mjs build/ts/tutorial.mjs --threads=1,2,4
 ```
 
 ## How it works

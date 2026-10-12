@@ -1,5 +1,5 @@
 // compares the hand-translated programs with Porffor's own builds of the same presets
-//   node threads/escape-proto/bench.mjs [--runs=5] [--programs=mandelbrot,nbody] [--only=js-node,...]
+//   node bench.mjs [--runs=5] [--programs=mandelbrot,nbody] [--only=js-node,...]
 // configurations (each a fresh process or browser per run; the median of --runs):
 //   native      Porffor's native build (clang)
 //   wasm        Porffor's wasm32-wasip1-threads build on the playground's runner, in Chrome
@@ -33,7 +33,13 @@ import { fileURLToPath } from 'node:url';
 import { runInChrome, expandForChrome } from './chrome.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '../..');
+// a Porffor checkout (github.com/arv/porffor, branch arv/shared-everything-threads): $PORFFOR, or
+// ../porffor beside this repository. its presets are the programs compared, and it builds them
+const root = path.resolve(process.env.PORFFOR ?? path.join(here, '..', 'porffor'));
+if (!fs.existsSync(path.join(root, 'threads', 'playground', 'presets'))) {
+  console.error(`no Porffor checkout at ${root}: set PORFFOR to one, on branch arv/shared-everything-threads`);
+  process.exit(1);
+}
 const args = process.argv.slice(2);
 const opt = (n, d) => args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
 const runs = Number(opt('runs', 5));

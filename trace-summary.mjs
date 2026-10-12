@@ -1,6 +1,6 @@
 // summarizes a DevTools performance trace (chrome.mjs --trace=...): for each thread that ran
 // JS, its sampled CPU time and the functions that took it (self time)
-//   node threads/escape-proto/trace-summary.mjs trace.json [--top=12]
+//   node trace-summary.mjs trace.json [--top=12]
 import fs from 'node:fs';
 
 const file = process.argv[2];

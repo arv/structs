@@ -1,6 +1,6 @@
 // runs a hand-translated program in Chrome (the installed Google Chrome, through Playwright),
 // on real Web Workers sharing one SharedArrayBuffer heap
-//   node threads/escape-proto/chrome.mjs <mandelbrot|nbody> [options]
+//   node chrome.mjs <mandelbrot|nbody> [options]
 //   --threads=1,2,4,8   the thread counts the program runs its work with
 //   --pool=N            workers started up front (default: the browser's hardwareConcurrency)
 //   --trace=file.json   record a DevTools performance trace (CPU samples of every thread);
@@ -21,7 +21,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expand } from './expand.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '../..');
+// wasm.html runs a Porffor build on Porffor's playground runner, served from a Porffor checkout
+// (github.com/arv/porffor, branch arv/shared-everything-threads) under /porffor/: $PORFFOR, or
+// ../porffor beside this repository
+const porffor = path.resolve(process.env.PORFFOR ?? path.join(here, '..', 'porffor'));
 
 const loadChromium = async () => {
   const pw = await (process.env.PLAYWRIGHT_CORE
@@ -30,11 +33,14 @@ const loadChromium = async () => {
   return pw.chromium ?? pw.default.chromium; // a CommonJS module, imported
 };
 
-// the repository, cross-origin isolated (SharedArrayBuffer needs COOP and COEP)
+// this repository, and a Porffor checkout under /porffor/, cross-origin isolated (SharedArrayBuffer
+// needs COOP and COEP)
 const types = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.wasm': 'application/wasm' };
 const serve = async () => {
   const server = http.createServer((req, res) => {
-    const file = path.join(root, decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
+    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    const root = pathname.startsWith('/porffor/') ? porffor : here;
+    const file = path.join(root, root === porffor ? pathname.slice('/porffor'.length) : pathname);
     if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404).end(); return; }
     res.writeHead(200, {
       'content-type': types[path.extname(file)] ?? 'application/octet-stream',
@@ -75,7 +81,7 @@ export const runInChrome = async ({ page: pageName = 'index.html', query = {}, t
       path: path.resolve(trace),
       categories: [ '__metadata', 'toplevel', 'devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8.execute', 'disabled-by-default-v8.cpu_profiler', 'blink.user_timing' ]
     });
-    await page.goto(`http://127.0.0.1:${server.address().port}/threads/escape-proto/${pageName}?${new URLSearchParams(query)}`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/${pageName}?${new URLSearchParams(query)}`);
     const result = await page.waitForFunction(() => window.__escapeResult, null, { timeout: 0, polling: 100 }).then(h => h.jsonValue());
     if (trace) await browser.stopTracing();
     return { ...result, version: browser.version() };
@@ -92,7 +98,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const name = args.find(a => !a.startsWith('--'));
   const wasm = opt('wasm');
   if (!name && !wasm) {
-    console.error('usage: node threads/escape-proto/chrome.mjs <mandelbrot|nbody> [--threads=1,2,4,8] [--trace=file.json] [--headed]');
+    console.error('usage: node chrome.mjs <mandelbrot|nbody> [--threads=1,2,4,8] [--trace=file.json] [--headed]');
     process.exit(1);
   }
   const query = {};

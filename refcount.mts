@@ -1,7 +1,7 @@
 // Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler counts the references to
 // shared structs, so a block is freed (and its memory reused) when nothing refers to it any more.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/refcount.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/refcount.mjs
 // churn: builds and drops a 1000-node list 200 times on one thread; the heap stops growing once the
 // free lists hold a list's worth of blocks. race: one thread keeps replacing box.item with a fresh
 // node while the others read box.item and its fields, pass it to a function, and now and then hold

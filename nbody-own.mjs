@@ -1,4 +1,4 @@
-// threads/playground/presets/3-nbody.js written for own and shared values (own.mjs): plain JS,
+// Porffor's threads/playground/presets/3-nbody.js written for own and shared values (own.mjs): plain JS,
 // no translation. each thread owns its slice of the bodies (moved in, moved back by join).
 // every step each thread shares a frozen snapshot of its positions; the others read their own
 // copies of it. the board of snapshots and the barrier are the only shared mutable state

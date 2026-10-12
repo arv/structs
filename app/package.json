@@ -2,7 +2,7 @@
   "name": "threads-playground",
   "private": true,
   "type": "module",
-  "description": "The threads playground: see threads/escape-proto/README.md",
+  "description": "The threads playground: see README.md",
   "dependencies": {
     "microlighter": "^2.2.0"
   }

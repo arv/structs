@@ -2,7 +2,7 @@
 // V8 objects while one thread can reach them. one moves into the shared heap (a SharedArrayBuffer)
 // when its owner stores it somewhere another thread can reach: the owner copies it there, and the
 // local object turns into a view of the copy. shared objects follow the threads design of
-// threads/README.md: one value word per slot, readers never lock, thread-local ownership with
+// Porffor's threads/README.md: one value word per slot, readers never lock, thread-local ownership with
 // handover at clean points, and a lock per object once it is really shared.
 //
 // a shared object is reached through a handle: a JS object whose prototype (one per shape) has
@@ -508,7 +508,7 @@ const newSlots = cap => {
   return b;
 };
 
-// ---- thread-local ownership (threads/README.md; render.js porf_ttl_* and porf_rlock) ----
+// ---- thread-local ownership (Porffor's threads/README.md; its render.js porf_ttl_* and porf_rlock) ----
 function releaseMine() { // holding the stw lock
   const len = I32[ME + T_LEN];
   if (len === 0) return;

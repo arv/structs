@@ -1,8 +1,8 @@
 // goroutines and channels (chan.mjs) in plain TypeScript on threads.mjs, and what they cost:
 // an unbuffered ping-pong, a buffered producer and consumer, two producers merged with select, and
 // big arrays sent as copies and as SharedArrays, which move by address.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/pipeline.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/pipeline.mjs
 import { Channel, go, log, select, SharedArray } from "./threads.mjs";
 
 type Item = { id: number; label: string };

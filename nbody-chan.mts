@@ -1,10 +1,10 @@
-// threads/playground/presets/3-nbody.js with goroutines and channels (chan.mjs). Each goroutine owns
+// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels (chan.mjs). Each goroutine owns
 // its slice of the bodies. Every step it sends its positions to main, and main sends everyone's back,
 // shared once; at the end each slice moves back to main. No barrier and no shared mutable state:
 // the channels order everything. Messages are tagged with the sender, so the positions keep body
 // order and the arithmetic is the preset's.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-chan.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/nbody-chan.mjs
 import { Channel, go, log, partition, type Sending, share, type Shared, take } from "./threads.mjs";
 
 type Body = { x: number; y: number; z: number; vx: number; vy: number; vz: number; m: number };

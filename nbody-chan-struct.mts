@@ -1,10 +1,10 @@
-// threads/playground/presets/3-nbody.js with goroutines and channels over shared memory: the bodies
+// Porffor's threads/playground/presets/3-nbody.js with goroutines and channels over shared memory: the bodies
 // are a SharedArray of shared structs, as in nbody-struct.mts, which every goroutine reads and writes
 // in place, each only its own slice. Channels take the barriers' place: after each phase a goroutine
 // reports on `done` and waits for main on its `next`, which is Go's way (share memory, and order it
 // with channels). Nothing is copied.
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-chan-struct.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/nbody-chan-struct.mjs
 import { Channel, f64, go, log, SharedArray, struct, type Struct } from "./threads.mjs";
 
 const Body = struct({ x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, m: f64 });

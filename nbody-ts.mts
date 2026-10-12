@@ -1,7 +1,7 @@
-// threads/playground/presets/3-nbody.js in plain TypeScript on threads.mjs. The tsgo fork checks it
+// Porffor's threads/playground/presets/3-nbody.js in plain TypeScript on threads.mjs. The tsgo fork checks it
 // (no ownership errors) and emits plain JavaScript for the runtime:
-//   <fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs
-//   node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-ts.mjs
+//   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs
+//   node run.mjs build/ts/nbody-ts.mjs
 // Each thread owns its slice of the bodies; every step it shares a snapshot of its positions, and the
 // others read their own copies. The hot loops are plain TypeScript on plain objects.
 import { Barrier, log, partition, scope, type Sending, share, type Shared, Slots, take, type Thread } from "./threads.mjs";

@@ -1,15 +1,14 @@
 # JS-to-JS threads on workers
 
-> **Disclaimer:** this was mostly done iterating with the help of Claude Code (Claude Opus 5.5),
-> disclosed per Porffor's [AI policy](../../AI_POLICY.md).
+> **Disclaimer:** this was mostly done iterating with the help of Claude Code (Claude Opus 5.5).
 
 Prototypes of compiling JavaScript to JavaScript for threads, running on Web Workers and node
 `worker_threads` with a SharedArrayBuffer, instead of compiling it to C and then to WebAssembly as
-[threads](../README.md) and the [playground](../playground) do. V8 objects cannot cross workers,
-so the question is what to do with objects. Two designs are here:
+[Porffor's threads][porffor-threads] and its [playground][porffor-playground] do. V8 objects cannot
+cross workers, so the question is what to do with objects. Two designs are here:
 
-- **Shared everything, publish on escape:** the threads model of [threads/README.md](../README.md).
-  An object stays an ordinary V8 object until another thread can reach it, then moves into a
+- **Shared everything, publish on escape:** the threads model of Porffor's
+  [threads/README.md][porffor-threads-readme]. An object stays an ordinary V8 object until another thread can reach it, then moves into a
   SharedArrayBuffer heap. Code that shares nothing runs at plain V8 speed, but reading a shared
   object costs about 17x.
 - **Own and shared values:** a value is owned by one thread and moved across, deeply immutable and
@@ -20,32 +19,45 @@ so the question is what to do with objects. Two designs are here:
 
 Measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and Chrome 154.
 
+This started in Porffor's repository, as `threads/escape-proto` on top of its threads work. The own
+and shared design grew into [threads-playground](https://github.com/arv/threads-playground): its
+runtime, checker and playground carry on from [app/](app) and the files here.
+
+[porffor-threads]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads
+[porffor-playground]: https://github.com/arv/porffor/tree/arv/shared-everything-threads/threads/playground
+[porffor-threads-readme]: https://github.com/arv/porffor/blob/arv/shared-everything-threads/threads/README.md
+
 [TUTORIAL.md](TUTORIAL.md) walks through writing, checking and running a small program, and how each
 step works.
 
 ## Running
 
 ```sh
-node threads/escape-proto/run.mjs nbody                  # on node: nbody, mandelbrot, basic, nbody-own
-node threads/escape-proto/run.mjs nbody --threads=1,1,8  # the thread counts the program runs with
-node threads/escape-proto/chrome.mjs nbody-own           # in Chrome, on Web Workers (needs playwright-core)
-node threads/escape-proto/chrome.mjs nbody --trace=t.json && node threads/escape-proto/trace-summary.mjs t.json
-node threads/escape-proto/bench.mjs                      # every configuration, median of 5 runs
-node threads/escape-proto/overhead.mjs                   # the translation against the same code untranslated
+node run.mjs nbody                  # on node: nbody, mandelbrot, basic, nbody-own
+node run.mjs nbody --threads=1,1,8  # the thread counts the program runs with
+node chrome.mjs nbody-own           # in Chrome, on Web Workers (needs playwright-core)
+node chrome.mjs nbody --trace=t.json && node trace-summary.mjs t.json
+node bench.mjs                      # every configuration, median of 5 runs
+node overhead.mjs                   # the translation against the same code untranslated
 ```
 
 `chrome.mjs` drives the installed Google Chrome through Playwright: `npm i playwright-core`, or
 point `PLAYWRIGHT_CORE` at an install's `node_modules/playwright-core`. Its `--trace` records a
 DevTools performance trace with every worker's CPU samples, which DevTools' Performance panel opens.
 
+`bench.mjs`, `overhead.mjs` and `chrome.mjs --wasm` compare with Porffor's own builds of the same
+programs, so they need a Porffor checkout on branch `arv/shared-everything-threads` of
+[arv/porffor](https://github.com/arv/porffor): `PORFFOR=/path/to/porffor`, or `../porffor` beside
+this repository.
+
 The TypeScript programs (`*.mts`) are checked by stock tsc and by the ownership checker, and compiled
 by the tsgo fork (branch `own-shared`, built with `go build -o built/local/tsgo ./cmd/tsgo`):
 
 ```sh
-tsc -p threads/escape-proto/tsconfig.json --noEmit                                  # types: stock TypeScript
-<tsgo-fork>/built/local/tsgo own check -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs   # ownership, for CI
-<tsgo-fork>/built/local/tsgo -p threads/escape-proto/tsconfig.json --ownRuntime ./threads.mjs            # emit build/ts
-node threads/escape-proto/run.mjs threads/escape-proto/build/ts/nbody-struct.mjs
+tsc -p tsconfig.json --noEmit                                  # types: stock TypeScript
+<tsgo-fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.mjs   # ownership, for CI
+<tsgo-fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.mjs            # emit build/ts
+node run.mjs build/ts/nbody-struct.mjs
 ```
 
 [app/](app) is a playground in a web page, on Vite and [vite-plugin-threads.mjs](vite-plugin-threads.mjs):
@@ -54,8 +66,8 @@ erased), the checker's errors, and run it on Web Workers. Vite's dev server does
 [microlighter](https://github.com/davatron5000/microlighter) colors the code:
 
 ```sh
-npm install --prefix threads/escape-proto/app
-TSGO=<tsgo-fork>/built/local/tsgo npx vite --config threads/escape-proto/app/vite.config.mjs
+npm install --prefix app
+TSGO=<tsgo-fork>/built/local/tsgo npx vite --config app/vite.config.mjs
 ```
 
 ## Files
