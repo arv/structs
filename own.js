@@ -8,7 +8,7 @@
 //   a cell   shared and mutable, explicitly: Lock, Condition (runtime.js), Barrier, Slots. their
 //            state lives in the shared heap and they synchronize
 // ordinary code reads and writes ordinary objects: nothing per access, everything at the crossings
-import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask, setBeforeTask,
+import { $alloc, $intern, $str, $h, $log, ADDR, K_THREAD, spawnThread, threadJoin, threadJoinAsync, setThreadEntry, setAfterTask,
   $allocBlock, $freeBlock, $defer, $quiescent, $waitBegin, $waitEnd, setDeferHandler, $drain, $heapStats } from './runtime.js';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -509,16 +509,6 @@ setThreadEntry(t => {
 });
 // between threads, a worker yields to its event loop when handles or closures wait to be finalized
 setAfterTask(() => finalizable > 0);
-// in a page's worker pool (threads-worker.js), a worker loads a thread's module the first time a
-// thread needs it: a key is `${module}#${name}`, and the loader maps a module to its import
-let moduleLoader = null;
-export function setModuleLoader(load) {
-  moduleLoader = load;
-  setBeforeTask(async t => {
-    const base = I32[(t + 16) >> 2], key = get(base, I32[base >> 2] + 1, false); // the blob's [key, ...args]
-    if (!byKey.has(key)) await moduleLoader(key.slice(0, key.lastIndexOf('#')));
-  });
-}
 class Thread {
   constructor(t) { this.t = t; this.joined = false; }
   join() {

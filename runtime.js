@@ -1053,7 +1053,3 @@ export function counters(sab) {
   out.heapBytes = i32[C_ALLOC] - CTRL_BYTES;
   return out;
 }
-
-// a page makes the heap itself (heap.js) and has no coordinator to set it up: the first runtime to
-// load on a fresh heap does. a coordinator (run.js, page.js) calls initShared before any worker starts
-if (SAB && Atomics.compareExchange(I32, C_ALLOC, 0, -1) === 0) initShared(SAB);

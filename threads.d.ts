@@ -4,9 +4,9 @@
 // accept it as it is. Two tools add what the types cannot say:
 //   - the ownership checker (`tsgo own check`, from the tsgo fork) runs in CI like a linter and
 //     proves the rules below: nothing is used after it is sent, and shared values never change;
-//   - the bundler plugin (vite-plugin-threads.js) compiles shared structs and SharedArrays to
-//     typed-array accesses on shared memory, counts their references, and registers the functions
-//     threads run.
+//   - the bundler plugin (playground/runtime/vite-plugin-threads.js) compiles shared structs and
+//     SharedArrays to typed-array accesses on shared memory, counts their references, and registers
+//     the functions threads run.
 //
 // Every value a thread touches is one of three kinds:
 //   - owned, the default: an ordinary object only one thread can reach. `Sending<T>` moves it: the

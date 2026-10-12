@@ -1,6 +1,6 @@
 // threads for JavaScript in plain TypeScript (types: threads.d.ts): the API programs import, over
 // own.js (own and shared values, cells, shared structs, reference counts) and chan.js (goroutines
-// and channels). The bundler plugin (vite-plugin-threads.js) compiles what imports it; the helpers
+// and channels). The bundler plugin (the playground's) compiles what imports it; the helpers
 // it emits (__F64, __retain, ...) come from here too
 import { __sharedStruct, __heapStats } from './own.js';
 

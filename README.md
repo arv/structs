@@ -88,8 +88,6 @@ node run.js build/ts/nbody-struct.js
 | `expand.js` | turns the access macros of a hand translation into what a transform would emit |
 | `nbody.js`, `mandelbrot.js`, `basic.js` | the playground's presets, and a small example, translated by hand for publish on escape |
 | `threads.js`, `threads.d.ts` | the API programs import: own and shared values, shared structs, channels, in plain TypeScript |
-| `vite-plugin-threads.js` | the bundler plugin: compiles with the tsgo fork, registers thread functions, sets cross-origin isolation |
-| `heap.js`, `browser.js`, `threads-worker.js` | a web page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers |
 | `own.js`, `own.d.ts` | own and shared values on top of the runtime, and the types of the earlier syntax |
 | `nbody-own.js` | N-body written by hand for own and shared values |
 | `nbody-cells.js` | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step |
@@ -173,18 +171,19 @@ types cannot say:
 - **The ownership checker,** `tsgo own check -p tsconfig.json --ownRuntime <the runtime module>`,
   runs in CI like a linter. It reports only ownership errors (use after send, an alias of something
   sent, a write to a shared value, sending what the caller still holds) and leaves type errors to tsc.
-- **The bundler plugin** ([vite-plugin-threads.js](vite-plugin-threads.js), Vite, on Rollup's hooks)
-  compiles each module with the tsgo fork: struct fields become typed-array accesses on shared
-  memory, struct references are counted, and every module registers the functions threads may run,
-  keyed by its path so the page's bundle and the workers' agree. It sets the headers that make the
-  page cross-origin isolated on the dev and preview servers.
+- **The bundler plugin** (the playground's
+  [runtime/vite-plugin-threads.js](playground/runtime/vite-plugin-threads.js), for Vite) compiles
+  each module with the tsgo fork: struct fields become typed-array accesses on shared memory, struct
+  references are counted, and every module registers the functions threads may run, keyed by its
+  path so the page's bundle and the workers' agree. It sets the headers that make the page
+  cross-origin isolated on the dev and preview servers.
 
 A page imports `threads/heap` first (the shared memory, which the runtime's views need at load), then
-calls `await run(f, ...args)` ([browser.js](browser.js)): f runs on a pool of Web Workers and its
-result moves back, and the page's own thread, which may not block, waits asynchronously. A worker
-loads a thread's module the first time a thread needs it, so the page's own entry module never runs
-there. The playground ([playground/](playground)) runs programs this way, on a runtime that grew out
-of these files.
+calls `await run(f, ...args)`: f runs on a pool of Web Workers and its result moves back, and the
+page's own thread, which may not block, waits asynchronously. A worker loads a thread's module the
+first time a thread needs it, so the page's own entry module never runs there. That side of a page is
+the playground's ([runtime/heap.js](playground/runtime/heap.js),
+[runtime/browser.js](playground/runtime/browser.js)), on a runtime that grew out of the files here.
 
 **With the types only erased** (node's type stripping, no compiler), a program still runs, given one
 added line that registers its top-level functions, which is how a thread finds the one it runs. The
