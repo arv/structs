@@ -1,0 +1,3 @@
+# formatting only: git blame --ignore-revs-file .git-blame-ignore-revs (GitHub reads this file itself)
+# Format with vp fmt
+ba3127c8f9c53c065affd2bddf066c1d6175e947
