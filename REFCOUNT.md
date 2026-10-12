@@ -13,10 +13,10 @@ emits none, because borrowed addresses are not counted.
 
 ## Layout
 
-| Block | Words (i32) |
-|---|---|
-| struct | `[kind][count]`, then field k in slot k (8 bytes at byte 8 + 8k) |
-| SharedArray | `[kind = 23][length][element size][count]`, then the elements from byte 16 |
+| Block                           | Words (i32)                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| struct                          | `[kind][count]`, then field k in slot k (8 bytes at byte 8 + 8k)                                                 |
+| SharedArray                     | `[kind = 23][length][element size][count]`, then the elements from byte 16                                       |
 | struct element of a SharedArray | `[kind][back]`: back = the array's address minus the element's (negative); the element's lifetime is its array's |
 
 A number field is an f64 (`__F64[(p >> 3) + 1 + k]`). A reference field (a struct or SharedArray,
@@ -45,19 +45,19 @@ it last saw at a quiescent point.
 
 ## Runtime (own.js)
 
-| Function | Does |
-|---|---|
-| `__sharedStruct(name, fields, refs)` | `refs`: the indexes of the reference fields |
-| `__newStruct(T)`, `__newSharedArray(T, n)` | a zeroed block with count 1, owned by the caller |
-| `__retain(p)` | +1, returns p; nothing for 0 |
-| `__release(p)` | −1, frees at 0 and releases its reference fields; nothing for 0 |
-| `__store(i, v)` | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v |
-| `__ref(v)` | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
-| `__quiescent()` | a quiescent point |
-| `__box(p)` | this thread's handle for p, which holds a count of its own; a FinalizationRegistry releases it when the handle is collected |
-| `__unbox(v)` | the handle's address, borrowed |
-| `__hold(fn, ...ps)` | retains each address for a closure that captures them; released when the closure is collected |
-| `__heapStats()` | heap bytes in use, blocks allocated and freed, decrements pending |
+| Function                                   | Does                                                                                                                                                                         |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `__sharedStruct(name, fields, refs)`       | `refs`: the indexes of the reference fields                                                                                                                                  |
+| `__newStruct(T)`, `__newSharedArray(T, n)` | a zeroed block with count 1, owned by the caller                                                                                                                             |
+| `__retain(p)`                              | +1, returns p; nothing for 0                                                                                                                                                 |
+| `__release(p)`                             | −1, frees at 0 and releases its reference fields; nothing for 0                                                                                                              |
+| `__store(i, v)`                            | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v                                                                          |
+| `__ref(v)`                                 | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
+| `__quiescent()`                            | a quiescent point                                                                                                                                                            |
+| `__box(p)`                                 | this thread's handle for p, which holds a count of its own; a FinalizationRegistry releases it when the handle is collected                                                  |
+| `__unbox(v)`                               | the handle's address, borrowed                                                                                                                                               |
+| `__hold(fn, ...ps)`                        | retains each address for a closure that captures them; released when the closure is collected                                                                                |
+| `__heapStats()`                            | heap bytes in use, blocks allocated and freed, decrements pending                                                                                                            |
 
 Freed blocks go to free lists by size (a per-thread cache over global lists), and allocation takes
 from them before bumping. Large blocks are reused only at the same size.

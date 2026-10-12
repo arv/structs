@@ -6,18 +6,27 @@ that shows what they compile to.
 > Written iterating with Claude Code (Claude Opus 5.5).
 
 ```ts
-import { Barrier, f64, scope, SharedArray, struct, type Struct } from "threads";
+import {Barrier, f64, scope, SharedArray, struct, type Struct} from 'threads';
 
-const Body = struct({ x: f64, y: f64, vx: f64, vy: f64, m: f64 }); // in shared memory
+const Body = struct({x: f64, y: f64, vx: f64, vy: f64, m: f64}); // in shared memory
 type Body = Struct<typeof Body>;
 
-function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barrier) {
-  for (let i = lo; i < hi; i++) bodies[i].vx += bodies[i].x;      // every thread, the same memory
+function worker(
+  lo: number,
+  hi: number,
+  bodies: SharedArray<Body>,
+  barrier: Barrier,
+) {
+  for (let i = lo; i < hi; i++) bodies[i].vx += bodies[i].x; // every thread, the same memory
   barrier.wait();
 }
 
-const bodies = new SharedArray(Body, 800), barrier = new Barrier(8);
-scope(s => { for (let t = 0; t < 8; t++) s.spawn(worker, t * 100, t * 100 + 100, bodies, barrier); });
+const bodies = new SharedArray(Body, 800),
+  barrier = new Barrier(8);
+scope(s => {
+  for (let t = 0; t < 8; t++)
+    s.spawn(worker, t * 100, t * 100 + 100, bodies, barrier);
+});
 ```
 
 ## Try it
@@ -52,11 +61,11 @@ The dev server compiles, so a production build (`vp build`) shows the page but c
 Each thread is a worker with its own JavaScript heap, and objects cannot cross between heaps. So every
 value is one of three kinds:
 
-| Kind | In types | Crosses threads by | For |
-|---|---|---|---|
-| Owned | ordinary types; `Sending<T>` where it moves | moving: copied once, the sender loses it | work a thread does alone, and its result |
-| Shared | `Shared<T>`, deeply readonly | copied once per reader; never changes | tables, settings |
-| Cell | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory | data many threads read and write, and what orders them |
+| Kind   | In types                                                                         | Crosses threads by                       | For                                                    |
+| ------ | -------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------ |
+| Owned  | ordinary types; `Sending<T>` where it moves                                      | moving: copied once, the sender loses it | work a thread does alone, and its result               |
+| Shared | `Shared<T>`, deeply readonly                                                     | copied once per reader; never changes    | tables, settings                                       |
+| Cell   | `Cell`: structs from `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory    | data many threads read and write, and what orders them |
 
 A struct's fields are numbers (`f64`), 32-bit integers (`i32`), bytes (`u8`), booleans (`bool`),
 strings (`str`) and references to other structs, SharedArrays and Channels (`ref<T>()`); a
@@ -133,21 +142,21 @@ ASCII string is stored a byte per char, a long one written with `TextEncoder.enc
 
 Measured on an Apple M5 Pro, ms on 1/2/4/8 threads:
 
-| | Compiled | Types erased |
-|---|---|---|
-| N-body, shared structs (plain V8, 1 thread: 25) | 29 / 15 / 8 / 6 | 1820 / 971 / 498 / 301 |
-| Mandelbrot, channels | 712 / 341 / 180 / 97 | 713 / 349 / 180 / 99 |
+|                                                 | Compiled             | Types erased           |
+| ----------------------------------------------- | -------------------- | ---------------------- |
+| N-body, shared structs (plain V8, 1 thread: 25) | 29 / 15 / 8 / 6      | 1820 / 971 / 498 / 301 |
+| Mandelbrot, channels                            | 712 / 341 / 180 / 97 | 713 / 349 / 180 / 99   |
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `runtime/threads.js`, `threads.d.ts` | the API |
-| `runtime/own.js`, `chan.js`, `runtime.js` | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool |
-| `runtime/heap.js`, `browser.js`, `threads-worker.js` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers |
-| `runtime/vite-plugin-threads.js` | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
-| `checker/` | threads-check, the ownership checker, on TypeScript 7.1's API |
-| `index.html`, `main.ts` | the playground, on [Monaco](https://github.com/microsoft/monaco-editor) |
+| Path                                                 | What                                                                                                                                            |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime/threads.js`, `threads.d.ts`                 | the API                                                                                                                                         |
+| `runtime/own.js`, `chan.js`, `runtime.js`            | own and shared values and cells; goroutines and channels; the shared heap, its allocator and the worker pool                                    |
+| `runtime/heap.js`, `browser.js`, `threads-worker.js` | a page's side: its shared memory, `start()` and `await run(f, ...args)`, its pool of Web Workers                                                |
+| `runtime/vite-plugin-threads.js`                     | compiles with the fork, registers thread functions, serves the playground's compiles (with threads-check's errors), sets cross-origin isolation |
+| `checker/`                                           | threads-check, the ownership checker, on TypeScript 7.1's API                                                                                   |
+| `index.html`, `main.ts`                              | the playground, on [Monaco](https://github.com/microsoft/monaco-editor)                                                                         |
 
 ## Limits
 

@@ -2,14 +2,45 @@
 // gives cached by node, symbol and type, and fetched a file at a time in batches (one round trip
 // for the types of all of a file's expressions, one for its call signatures, and so on).
 
-import { API, IndexKind, ModuleKind, ObjectFlags, SignatureKind, SymbolFlags, TypeFlags } from "typescript/sync";
-import type { Checker, NodeHandle, Program, Signature, Snapshot, Symbol as TsSymbol, Type } from "typescript/sync";
-import type { SourceFile } from "typescript/ast";
-import { forEachChild, isDeclarationName, isExpression, isExpressionNode, isOwnValueReference, isTypeNode, K } from "./syntax.ts";
-import type { Node } from "./syntax.ts";
+import type {SourceFile} from 'typescript/ast';
+import {
+  API,
+  IndexKind,
+  ModuleKind,
+  ObjectFlags,
+  SignatureKind,
+  SymbolFlags,
+  TypeFlags,
+} from 'typescript/sync';
+import type {
+  Checker,
+  NodeHandle,
+  Program,
+  Signature,
+  Snapshot,
+  Symbol as TsSymbol,
+  Type,
+} from 'typescript/sync';
+import {
+  forEachChild,
+  isDeclarationName,
+  isExpression,
+  isExpressionNode,
+  isOwnValueReference,
+  isTypeNode,
+  K,
+} from './syntax.ts';
+import type {Node} from './syntax.ts';
 
-export { IndexKind, ModuleKind, ObjectFlags, SignatureKind, SymbolFlags, TypeFlags };
-export type { NodeHandle, Signature, TsSymbol, Type };
+export {
+  IndexKind,
+  ModuleKind,
+  ObjectFlags,
+  SignatureKind,
+  SymbolFlags,
+  TypeFlags,
+};
+export type {NodeHandle, Signature, TsSymbol, Type};
 
 export class Host {
   readonly api: API;
@@ -29,10 +60,18 @@ export class Host {
   private readonly typeStrings = new Map<Type, string>();
   private readonly libraryPaths = new Map<string, boolean>();
   private readonly symbolIds = new Map<TsSymbol, number>();
-  private readonly contextualSignatures = new Map<Node, Signature | undefined>();
+  private readonly contextualSignatures = new Map<
+    Node,
+    Signature | undefined
+  >();
   private readonly unknownSymbolChecked = new Map<TsSymbol, boolean>();
 
-  constructor(api: API, snapshot: Snapshot, program: Program, checker: Checker) {
+  constructor(
+    api: API,
+    snapshot: Snapshot,
+    program: Program,
+    checker: Checker,
+  ) {
     this.api = api;
     this.snapshot = snapshot;
     this.program = program;
@@ -54,26 +93,41 @@ export class Host {
         case K.Identifier:
           if (isOwnValueReference(node)) references.push(node);
           break;
-        case K.CallExpression: case K.NewExpression:
+        case K.CallExpression:
+        case K.NewExpression:
           calls.push(node);
           break;
-        case K.VariableDeclaration: case K.Parameter: case K.BindingElement: case K.PropertyDeclaration:
+        case K.VariableDeclaration:
+        case K.Parameter:
+        case K.BindingElement:
+        case K.PropertyDeclaration:
         case K.PropertySignature:
           declarations.push(node);
           break;
       }
-      if (isExpression(node) && isExpressionNode(node) && isTypeQueried(node)) expressions.push(node);
-      forEachChild(node, (child) => visit(child));
+      if (isExpression(node) && isExpressionNode(node) && isTypeQueried(node))
+        expressions.push(node);
+      forEachChild(node, child => visit(child));
     };
-    forEachChild(file as Node, (child) => visit(child));
+    forEachChild(file as Node, child => visit(child));
 
-    const types = expressions.length ? this.checker.getTypeAtLocation(expressions) : [];
+    const types = expressions.length
+      ? this.checker.getTypeAtLocation(expressions)
+      : [];
     expressions.forEach((node, i) => this.types.set(node, types[i]!));
-    const resolved = this.api.batch(...references.map((id) => this.checker.getResolvedSymbol.gen(id as any)));
-    references.forEach((id, i) => this.resolved.set(id, this.known(resolved[i])));
-    const signatures = this.api.batch(...calls.map((call) => this.checker.getResolvedSignature.gen(call)));
+    const resolved = this.api.batch(
+      ...references.map(id => this.checker.getResolvedSymbol.gen(id as any)),
+    );
+    references.forEach((id, i) =>
+      this.resolved.set(id, this.known(resolved[i])),
+    );
+    const signatures = this.api.batch(
+      ...calls.map(call => this.checker.getResolvedSignature.gen(call)),
+    );
     calls.forEach((call, i) => this.signatures.set(call, signatures[i]!));
-    const declared = this.api.batch(...declarations.map((d) => this.checker.getSymbolOfNode.gen(d)));
+    const declared = this.api.batch(
+      ...declarations.map(d => this.checker.getSymbolOfNode.gen(d)),
+    );
     declarations.forEach((d, i) => this.declarationSymbols.set(d, declared[i]));
 
     const unique = new Set<TsSymbol>();
@@ -132,7 +186,8 @@ export class Host {
   }
 
   symbolOfDeclaration(decl: Node): TsSymbol | undefined {
-    if (this.declarationSymbols.has(decl)) return this.declarationSymbols.get(decl);
+    if (this.declarationSymbols.has(decl))
+      return this.declarationSymbols.get(decl);
     const symbol = this.checker.getSymbolOfNode(decl);
     this.declarationSymbols.set(decl, symbol);
     return symbol;
@@ -183,7 +238,7 @@ export class Host {
   }
 
   declarationOf(handle: NodeHandle | undefined): Node | undefined {
-    return handle ? handle.resolve() as Node | undefined : undefined;
+    return handle ? (handle.resolve() as Node | undefined) : undefined;
   }
 
   valueDeclaration(symbol: TsSymbol): Node | undefined {
@@ -193,7 +248,8 @@ export class Host {
   isDefaultLibraryPath(path: string): boolean {
     let result = this.libraryPaths.get(path);
     if (result === undefined) {
-      result = !!this.program.getSourceFileMetadataByPath(path as any)?.isDefaultLibrary;
+      result = !!this.program.getSourceFileMetadataByPath(path as any)
+        ?.isDefaultLibrary;
       this.libraryPaths.set(path, result);
     }
     return result;
@@ -255,21 +311,31 @@ export class Host {
   // checker.getContextualSignatureForFunctionLikeDeclaration (for function expressions, arrow
   // functions and object literal methods).
   contextualSignature(fn: Node): Signature | undefined {
-    if (this.contextualSignatures.has(fn)) return this.contextualSignatures.get(fn);
+    if (this.contextualSignatures.has(fn))
+      return this.contextualSignatures.get(fn);
     let result: Signature | undefined;
     let t: Type | undefined;
     if (fn.kind === K.MethodDeclaration) {
       // An object literal method: the type of its property in the literal's contextual type.
       const literalType = this.checker.getContextualType(fn.parent as any);
       const name = fn.name?.text as string | undefined;
-      if (literalType && name !== undefined) t = this.checker.getTypeOfPropertyOfType(this.checker.getApparentType(literalType), name);
+      if (literalType && name !== undefined)
+        t = this.checker.getTypeOfPropertyOfType(
+          this.checker.getApparentType(literalType),
+          name,
+        );
     } else {
       t = this.checker.getContextualType(fn as any);
     }
     if (t) {
       const members = t.flags & TypeFlags.Union ? this.memberTypes(t) : [t];
       for (const member of members) {
-        const signatures = this.checker.getSignaturesOfType(member.flags & TypeFlags.TypeParameter ? this.checker.getApparentType(member) : member, SignatureKind.Call);
+        const signatures = this.checker.getSignaturesOfType(
+          member.flags & TypeFlags.TypeParameter
+            ? this.checker.getApparentType(member)
+            : member,
+          SignatureKind.Call,
+        );
         if (signatures.length === 1) {
           result ??= signatures[0];
         } else if (signatures.length > 1 && members.length === 1) {
@@ -288,16 +354,21 @@ export class Host {
 function isTypeQueried(node: Node): boolean {
   const parent = node.parent as Node | undefined;
   switch (node.kind) {
-    case K.PostfixUnaryExpression: case K.PrefixUnaryExpression: case K.ConditionalExpression: case K.ParenthesizedExpression:
+    case K.PostfixUnaryExpression:
+    case K.PrefixUnaryExpression:
+    case K.ConditionalExpression:
+    case K.ParenthesizedExpression:
       return false;
     case K.Identifier:
       if (isDeclarationName(node)) return false;
       switch (parent?.kind) {
         case K.PropertyAccessExpression:
           return parent.name !== node;
-        case K.CallExpression: case K.NewExpression:
+        case K.CallExpression:
+        case K.NewExpression:
           return parent.expression !== node;
-        case K.PostfixUnaryExpression: case K.PrefixUnaryExpression:
+        case K.PostfixUnaryExpression:
+        case K.PrefixUnaryExpression:
           return false;
         case K.BinaryExpression:
           return isQueriedOperator(parent.operatorToken.kind);
@@ -308,18 +379,31 @@ function isTypeQueried(node: Node): boolean {
 
 function isQueriedOperator(op: K): boolean {
   switch (op) {
-    case K.PlusToken: case K.PlusEqualsToken: case K.EqualsToken: case K.BarBarEqualsToken: case K.AmpersandAmpersandEqualsToken:
-    case K.QuestionQuestionEqualsToken: case K.EqualsEqualsEqualsToken: case K.ExclamationEqualsEqualsToken: case K.EqualsEqualsToken:
-    case K.ExclamationEqualsToken: case K.BarBarToken: case K.AmpersandAmpersandToken: case K.QuestionQuestionToken: case K.CommaToken:
-    case K.InKeyword: case K.InstanceOfKeyword:
+    case K.PlusToken:
+    case K.PlusEqualsToken:
+    case K.EqualsToken:
+    case K.BarBarEqualsToken:
+    case K.AmpersandAmpersandEqualsToken:
+    case K.QuestionQuestionEqualsToken:
+    case K.EqualsEqualsEqualsToken:
+    case K.ExclamationEqualsEqualsToken:
+    case K.EqualsEqualsToken:
+    case K.ExclamationEqualsToken:
+    case K.BarBarToken:
+    case K.AmpersandAmpersandToken:
+    case K.QuestionQuestionToken:
+    case K.CommaToken:
+    case K.InKeyword:
+    case K.InstanceOfKeyword:
       return true;
   }
   return false;
 }
 
 export function createHost(api: API, tsconfig: string): Host {
-  const snapshot = api.createSnapshot({ openProjects: [tsconfig] });
-  const project = snapshot.getConfiguredProject(tsconfig) ?? snapshot.getProjects()[0];
+  const snapshot = api.createSnapshot({openProjects: [tsconfig]});
+  const project =
+    snapshot.getConfiguredProject(tsconfig) ?? snapshot.getProjects()[0];
   if (!project) {
     snapshot.dispose();
     throw new Error(`cannot open the project of ${tsconfig}`);

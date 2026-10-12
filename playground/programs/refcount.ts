@@ -5,11 +5,24 @@
 // node while the others read box.item and its fields, pass it to a function, and now and then hold
 // one in a local across a call that reaches quiescent points. A node whose check is not twice its
 // value was freed and reused under its reader.
-import { f64, heapStats, log, ref, scope, struct, type Struct, type Thread } from "threads";
+import {
+  f64,
+  heapStats,
+  log,
+  ref,
+  scope,
+  struct,
+  type Struct,
+  type Thread,
+} from 'threads';
 
-interface Node { value: number; check: number; next: Node | null }
-const Node = struct<Node>({ value: f64, check: f64, next: ref<Node>() });
-const Box = struct({ item: ref<Node>() });
+interface Node {
+  value: number;
+  check: number;
+  next: Node | null;
+}
+const Node = struct<Node>({value: f64, check: f64, next: ref<Node>()});
+const Box = struct({item: ref<Node>()});
 type Box = Struct<typeof Box>;
 
 function makeList(n: number): Node | null {
@@ -36,10 +49,15 @@ function churn() {
   for (let round = 0; round < 200; round++) {
     const list = makeList(1000);
     total += sum(list);
-    if (round % 20 === 0 || round === 199) log(`churn round ${String(round).padStart(3)}: heap ${heapStats().heapBytes >> 10} KiB`);
+    if (round % 20 === 0 || round === 199)
+      log(
+        `churn round ${String(round).padStart(3)}: heap ${heapStats().heapBytes >> 10} KiB`,
+      );
   }
   const after = heapStats();
-  log(`churn: sum ${total}, blocks allocated ${after.allocated - before.allocated}, freed ${after.freed - before.freed}`);
+  log(
+    `churn: sum ${total}, blocks allocated ${after.allocated - before.allocated}, freed ${after.freed - before.freed}`,
+  );
 }
 
 // replaces box.item with a fresh node, `rounds` times: the old node's decrement waits for every
@@ -50,7 +68,10 @@ function writer(box: Box, rounds: number): number {
     node.value = i;
     node.check = 2 * i;
     box.item = node;
-    if (i % 50000 === 0) log(`writer at ${i}: heap ${heapStats().heapBytes >> 10} KiB, decrements pending ${heapStats().pending}`);
+    if (i % 50000 === 0)
+      log(
+        `writer at ${i}: heap ${heapStats().heapBytes >> 10} KiB, decrements pending ${heapStats().pending}`,
+      );
   }
   return 0;
 }
@@ -70,10 +91,11 @@ function spin(box: Box, k: number): number {
 function reader(box: Box, rounds: number): number {
   let errors = 0;
   for (let i = 0; i < rounds; i++) {
-    const item = box.item;                // retained: the local owns a count
+    const item = box.item; // retained: the local owns a count
     if (item !== null && item.check !== 2 * item.value) errors++;
-    errors += broken(box.item);           // retained around the call
-    if (i % 128 === 0 && item !== null) { // held across quiescent points
+    errors += broken(box.item); // retained around the call
+    if (i % 128 === 0 && item !== null) {
+      // held across quiescent points
       const v = item.value;
       spin(box, 8);
       if (item.check !== 2 * v) errors++;
@@ -96,7 +118,9 @@ function race(readers: number) {
   });
   box.item = null;
   const after = heapStats();
-  log(`race, ${readers} readers: errors ${errors}, heap grew ${(after.heapBytes - before.heapBytes) >> 10} KiB, blocks allocated ${after.allocated - before.allocated}, freed ${after.freed - before.freed}, decrements pending ${after.pending}`);
+  log(
+    `race, ${readers} readers: errors ${errors}, heap grew ${(after.heapBytes - before.heapBytes) >> 10} KiB, blocks allocated ${after.allocated - before.allocated}, freed ${after.freed - before.freed}, decrements pending ${after.pending}`,
+  );
 }
 
 // the thread counts come from the runner (the playground): a race per count, with a writer and
@@ -105,5 +129,7 @@ export function main(threadCounts: readonly number[]) {
   churn();
   for (const threads of threadCounts) race(Math.max(1, threads - 1));
   const s = heapStats();
-  log(`end: blocks allocated ${s.allocated}, freed ${s.freed}, allocated - freed ${s.allocated - s.freed}, decrements pending ${s.pending}`);
+  log(
+    `end: blocks allocated ${s.allocated}, freed ${s.freed}, allocated - freed ${s.allocated - s.freed}, decrements pending ${s.pending}`,
+  );
 }

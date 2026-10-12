@@ -16,7 +16,7 @@ Every value a thread touches is one of three kinds, and the types say which:
 - **Owned**, the default: an ordinary object only one thread can reach. `Sending<T>` moves ownership.
   The caller gives the value up, and the receiver owns it.
 - **Shared**: `Shared<T>`, deeply immutable, so any number of threads may read it at once.
-- **A cell**: shared *and* mutable, but only through what synchronizes it (`Barrier`, `Slots`, a
+- **A cell**: shared _and_ mutable, but only through what synchronizes it (`Barrier`, `Slots`, a
   `Channel`), or in place for shared structs and SharedArrays, ordered by one of those.
 
 To TypeScript, `Sending<T>` is just `T` and `Shared<T>` is a deeply readonly `T`, so the program is
@@ -25,9 +25,16 @@ ordinary TypeScript.
 The thread function takes its own points and reads the shared centers:
 
 ```ts
-function countNearest(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> {
+function countNearest(
+  points: Sending<Point[]>,
+  centers: Shared<Point[]>,
+): Sending<number[]> {
   const counts = centers.map(() => 0);
-  for (const p of points) { /* plain loops over plain objects: find the nearest center */ counts[best]++; }
+  for (const p of points) {
+    /* plain loops over plain objects: find the nearest center */ counts[
+      best
+    ]++;
+  }
   return counts;
 }
 ```
@@ -35,13 +42,21 @@ function countNearest(points: Sending<Point[]>, centers: Shared<Point[]>): Sendi
 `main` makes the data and hands it out:
 
 ```ts
-const centers = share([{ x: 0.25, y: 0.25 }, { x: 0.75, y: 0.25 }, { x: 0.5, y: 0.75 }]);
+const centers = share([
+  {x: 0.25, y: 0.25},
+  {x: 0.75, y: 0.25},
+  {x: 0.5, y: 0.75},
+]);
 const totals = scope(s => {
   const parts = partition(randomPoints(200_000), threads); // one owned array per thread
   const ts: Thread<number[]>[] = [];
-  for (let t = 0; t < threads; t++) ts.push(s.spawn(countNearest, take(parts, t), centers));
+  for (let t = 0; t < threads; t++)
+    ts.push(s.spawn(countNearest, take(parts, t), centers));
   const sums = centers.map(() => 0);
-  for (const th of ts) th.join().forEach((n, c) => { sums[c] += n; });
+  for (const th of ts)
+    th.join().forEach((n, c) => {
+      sums[c] += n;
+    });
   return sums;
 });
 ```
@@ -72,9 +87,9 @@ mistakes:
 ```ts
 const points = randomPoints(1000);
 s.spawn(countNearest, points, centers);
-log(points.length);                    // 1. points moved to the thread
-(centers[0] as Point).x = 0.5;         // 2. centers is shared
-s.spawn(countNearest, mine, centers);  // 3. mine belongs to the caller
+log(points.length); // 1. points moved to the thread
+(centers[0] as Point).x = 0.5; // 2. centers is shared
+s.spawn(countNearest, mine, centers); // 3. mine belongs to the caller
 ```
 
 ```
@@ -110,6 +125,7 @@ The loops are untouched: the compiled `countNearest` is the plain JavaScript you
 ```sh
 node run.js build/ts/tutorial.js --threads=1,2,4
 ```
+
 ```
 1 threads: 56336 56064 87600
 2 threads: 56336 56064 87600

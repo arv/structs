@@ -13,27 +13,55 @@
 //   - an atomic operation acts on an i32 field named by a string literal, or on an element of a
 //     SharedArray<i32> (96028, reported with the struct calls, in refcount.ts).
 
-import { CellKind, Conversion, isArrayKind } from "./context.ts";
-import type { CellType, FieldKind, Own, StructInfo } from "./context.ts";
-import { IndexKind, ObjectFlags, SymbolFlags, TypeFlags } from "./host.ts";
-import type { Type } from "./host.ts";
-import { checkIntegerCompoundAssignment, checkIntegerTarget } from "./integers.ts";
-import { getRuntimeExportName, getStructOfCall, getStructRegistry } from "./markers.ts";
-import { Messages } from "./messages.ts";
+import type {SourceFile} from 'typescript/ast';
+import {CellKind, Conversion, isArrayKind} from './context.ts';
+import type {CellType, FieldKind, Own, StructInfo} from './context.ts';
+import {IndexKind, ObjectFlags, SymbolFlags, TypeFlags} from './host.ts';
+import type {Type} from './host.ts';
 import {
-  FunctionFlags, forEachChild, getAssignmentTarget, getContainingFunction, getFunctionFlags, isAssignmentTarget, isBindingPattern, isExpression,
-  isFunctionExpressionOrArrowFunction, isFunctionLike, isObjectLiteralMethod, isOptionalChain, isTypeNode, K, NodeFlags, skipParentheses,
-} from "./syntax.ts";
-import type { Node } from "./syntax.ts";
-import type { SourceFile } from "typescript/ast";
+  checkIntegerCompoundAssignment,
+  checkIntegerTarget,
+} from './integers.ts';
+import {
+  getRuntimeExportName,
+  getStructOfCall,
+  getStructRegistry,
+} from './markers.ts';
+import {Messages} from './messages.ts';
+import {
+  FunctionFlags,
+  forEachChild,
+  getAssignmentTarget,
+  getContainingFunction,
+  getFunctionFlags,
+  isAssignmentTarget,
+  isBindingPattern,
+  isExpression,
+  isFunctionExpressionOrArrowFunction,
+  isFunctionLike,
+  isObjectLiteralMethod,
+  isOptionalChain,
+  isTypeNode,
+  K,
+  NodeFlags,
+  skipParentheses,
+} from './syntax.ts';
+import type {Node} from './syntax.ts';
 
-const noCell: CellType = { kind: CellKind.None, fields: [], kinds: [] };
-const arrayOf = (kind: CellKind): CellType => ({ kind, fields: [], kinds: [] });
-const structCell = (kind: CellKind, s: StructInfo): CellType => ({ kind, fields: s.fields, kinds: s.kinds });
+const noCell: CellType = {kind: CellKind.None, fields: [], kinds: []};
+const arrayOf = (kind: CellKind): CellType => ({kind, fields: [], kinds: []});
+const structCell = (kind: CellKind, s: StructInfo): CellType => ({
+  kind,
+  fields: s.fields,
+  kinds: s.kinds,
+});
 
 // The shared struct whose instances have type t, if any: a `struct(...)` call (whose values' type
 // may be intersected with Cell).
-export function getStructOfType(c: Own, t: Type | undefined): StructInfo | undefined {
+export function getStructOfType(
+  c: Own,
+  t: Type | undefined,
+): StructInfo | undefined {
   if (!t) return undefined;
   if (c.structOfType.has(t)) return c.structOfType.get(t);
   let result: StructInfo | undefined;
@@ -51,13 +79,27 @@ export function getStructOfType(c: Own, t: Type | undefined): StructInfo | undef
 }
 
 // The element type of a SharedArray type, if t is one.
-export function getSharedArrayElementType(c: Own, t: Type | undefined): Type | undefined {
-  if (!t || !(t.flags & TypeFlags.Object) || !((t as any).objectFlags & ObjectFlags.Reference)) return undefined;
+export function getSharedArrayElementType(
+  c: Own,
+  t: Type | undefined,
+): Type | undefined {
+  if (
+    !t ||
+    !(t.flags & TypeFlags.Object) ||
+    !((t as any).objectFlags & ObjectFlags.Reference)
+  )
+    return undefined;
   if (c.sharedArrayElements.has(t)) return c.sharedArrayElements.get(t);
   let result: Type | undefined;
   const target = c.host.typeTarget(t);
   const symbol = target && c.host.typeSymbol(target);
-  if (symbol && symbol.name === "SharedArray" && symbol.declarations.some((d) => d.kind === K.InterfaceDeclaration && c.isRuntimePath(d.path))) {
+  if (
+    symbol &&
+    symbol.name === 'SharedArray' &&
+    symbol.declarations.some(
+      d => d.kind === K.InterfaceDeclaration && c.isRuntimePath(d.path),
+    )
+  ) {
     result = c.host.typeArguments(t)[0];
   }
   c.sharedArrayElements.set(t, result);
@@ -66,13 +108,16 @@ export function getSharedArrayElementType(c: Own, t: Type | undefined): Type | u
 
 // The non-nullish members of a type.
 export function nonNullishMembers(c: Own, t: Type): Type[] {
-  if (t.flags & TypeFlags.Union) return c.host.memberTypes(t).filter((m) => !(m.flags & TypeFlags.Nullable));
+  if (t.flags & TypeFlags.Union)
+    return c.host.memberTypes(t).filter(m => !(m.flags & TypeFlags.Nullable));
   if (t.flags & TypeFlags.Nullable) return [];
   return [t];
 }
 
 function isNullishOnly(c: Own, t: Type): boolean {
-  return !!(t.flags & TypeFlags.Nullable) && nonNullishMembers(c, t).length === 0;
+  return (
+    !!(t.flags & TypeFlags.Nullable) && nonNullishMembers(c, t).length === 0
+  );
 }
 
 // Reports whether a field or element of type t is a boolean: `boolean`, `true` or `false` (not a
@@ -84,7 +129,8 @@ export function isBooleanType(t: Type): boolean {
 // Reports whether a field or element of type t is a string: `string`, a string literal type, or a
 // union of them (`"a" | "b"`), but not with null or undefined.
 export function isStringType(c: Own, t: Type): boolean {
-  if (t.flags & TypeFlags.Union) return c.host.memberTypes(t).every((m) => !!(m.flags & TypeFlags.StringLike));
+  if (t.flags & TypeFlags.Union)
+    return c.host.memberTypes(t).every(m => !!(m.flags & TypeFlags.StringLike));
   return !!(t.flags & TypeFlags.StringLike);
 }
 
@@ -92,19 +138,29 @@ export function isStringType(c: Own, t: Type): boolean {
 // phantom brand, `number & { readonly [int32Brand]?: never }`, recognized by the brand's declaration
 // in the runtime module (getOwnIntegerKind).
 export function getIntegerKind(c: Own, t: Type): FieldKind {
-  if (!(t.flags & TypeFlags.Intersection)) return "";
+  if (!(t.flags & TypeFlags.Intersection)) return '';
   let kind = c.integerKinds.get(t);
   if (kind !== undefined) return kind;
-  kind = "";
+  kind = '';
   search: for (const member of c.host.memberTypes(t)) {
     if (!(member.flags & TypeFlags.Object)) continue;
     for (const property of c.host.checker.getPropertiesOfType(member as any)) {
       const handle = property.valueDeclaration;
       if (!handle || !c.isRuntimePath(handle.path)) continue;
       const name = c.host.declarationOf(handle)?.name as Node | undefined;
-      if (name?.kind !== K.ComputedPropertyName || name.expression.kind !== K.Identifier) continue;
-      if (name.expression.text === "int32Brand") { kind = "i"; break search; }
-      if (name.expression.text === "uint8Brand") { kind = "u"; break search; }
+      if (
+        name?.kind !== K.ComputedPropertyName ||
+        name.expression.kind !== K.Identifier
+      )
+        continue;
+      if (name.expression.text === 'int32Brand') {
+        kind = 'i';
+        break search;
+      }
+      if (name.expression.text === 'uint8Brand') {
+        kind = 'u';
+        break search;
+      }
     }
   }
   c.integerKinds.set(t, kind);
@@ -115,29 +171,40 @@ export function getIntegerKind(c: Own, t: Type): FieldKind {
 // undefined (isOwnChannelFieldType).
 export function isChannelFieldType(c: Own, t: Type): boolean {
   const members = nonNullishMembers(c, t);
-  if (members.length !== 1 || !(members[0]!.flags & TypeFlags.Object)) return false;
+  if (members.length !== 1 || !(members[0]!.flags & TypeFlags.Object))
+    return false;
   const target = c.host.typeTarget(members[0]!);
   const symbol = target && c.host.typeSymbol(target);
-  return !!symbol && symbol.name === "Channel" && getRuntimeExportName(c, symbol) === "Channel";
+  return (
+    !!symbol &&
+    symbol.name === 'Channel' &&
+    getRuntimeExportName(c, symbol) === 'Channel'
+  );
 }
 
 // The kind of a field of type t: an f64 for a number (and for a type no field may have, which is
 // reported), an i32 or a u8, a boolean, a string, a reference, or a channel (getOwnFieldKind).
 export function getFieldKind(c: Own, t: Type): FieldKind {
   const integer = getIntegerKind(c, t);
-  if (integer !== "") return integer;
-  if (isChannelFieldType(c, t)) return "c";
-  if (isBooleanType(t)) return "b";
-  if (isStringType(c, t)) return "s";
-  if (isCellType(c, t)) return "r";
-  return "f";
+  if (integer !== '') return integer;
+  if (isChannelFieldType(c, t)) return 'c';
+  if (isBooleanType(t)) return 'b';
+  if (isStringType(c, t)) return 's';
+  if (isCellType(c, t)) return 'r';
+  return 'f';
 }
 
 // Reports whether a shared struct may have a field of type t: a number (or an i32 or a u8), a boolean,
 // a string, or a reference (a shared struct or a SharedArray, possibly with null or undefined).
 export function isFieldType(c: Own, t: Type): boolean {
-  return !!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union) || getIntegerKind(c, t) !== "" || isBooleanType(t) ||
-    isStringType(c, t) || nonNullishMembers(c, t).length === 1 && isCellType(c, t) || isChannelFieldType(c, t);
+  return (
+    (!!(t.flags & TypeFlags.Number) && !(t.flags & TypeFlags.Union)) ||
+    getIntegerKind(c, t) !== '' ||
+    isBooleanType(t) ||
+    isStringType(c, t) ||
+    (nonNullishMembers(c, t).length === 1 && isCellType(c, t)) ||
+    isChannelFieldType(c, t)
+  );
 }
 
 // Classifies a type for the layout emit: a shared struct (or a union of them), a SharedArray of
@@ -157,9 +224,10 @@ export function getCellType(c: Own, t: Type | undefined): CellType {
   const element = getSharedArrayElementType(c, m);
   if (element) {
     const integer = getIntegerKind(c, element);
-    if (integer === "i") return arrayOf(CellKind.ArrayOfI32);
-    if (integer === "u") return arrayOf(CellKind.ArrayOfU8);
-    if (element.flags & TypeFlags.Number) return arrayOf(CellKind.ArrayOfNumber);
+    if (integer === 'i') return arrayOf(CellKind.ArrayOfI32);
+    if (integer === 'u') return arrayOf(CellKind.ArrayOfU8);
+    if (element.flags & TypeFlags.Number)
+      return arrayOf(CellKind.ArrayOfNumber);
     if (isBooleanType(element)) return arrayOf(CellKind.ArrayOfBoolean);
     if (isStringType(c, element)) return arrayOf(CellKind.ArrayOfString);
     const es = getStructOfType(c, element);
@@ -175,7 +243,13 @@ export function isCellType(c: Own, t: Type | undefined): boolean {
   let result = c.cellTypes.get(t);
   if (result !== undefined) return result;
   const members = nonNullishMembers(c, t);
-  result = members.length > 0 && members.every((m) => getStructOfType(c, m) !== undefined || getSharedArrayElementType(c, m) !== undefined);
+  result =
+    members.length > 0 &&
+    members.every(
+      m =>
+        getStructOfType(c, m) !== undefined ||
+        getSharedArrayElementType(c, m) !== undefined,
+    );
   c.cellTypes.set(t, result);
   return result;
 }
@@ -189,16 +263,26 @@ export function isCellExpression(c: Own, expr: Node | undefined): boolean {
 export function checkSharedArrayElementType(c: Own, node: Node, t: Type): void {
   if (node.flags & NodeFlags.Ambient) return;
   const element = getSharedArrayElementType(c, t);
-  if (!element || element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union) || getIntegerKind(c, element) !== "" ||
-    isBooleanType(element) || isStringType(c, element) ||
-    getStructOfType(c, element)) return;
+  if (
+    !element ||
+    (element.flags & TypeFlags.Number && !(element.flags & TypeFlags.Union)) ||
+    getIntegerKind(c, element) !== '' ||
+    isBooleanType(element) ||
+    isStringType(c, element) ||
+    getStructOfType(c, element)
+  )
+    return;
   c.error(node, Messages.SharedArrayElement);
 }
 
 // The layout of a union of shared structs, given its non-nullish members, or undefined if they are
 // not all shared structs: a field where it is at the same place, stored the same way, in every
 // member, and "" in the other slots.
-function getStructOfUnion(c: Own, t: Type, members: Type[]): StructInfo | undefined {
+function getStructOfUnion(
+  c: Own,
+  t: Type,
+  members: Type[],
+): StructInfo | undefined {
   if (c.structUnions.has(t)) return c.structUnions.get(t);
   const structs: StructInfo[] = [];
   for (const m of members) {
@@ -212,12 +296,17 @@ function getStructOfUnion(c: Own, t: Type, members: Type[]): StructInfo | undefi
   let n = structs[0]!.fields.length;
   for (const s of structs.slice(1)) n = Math.min(n, s.fields.length);
   const first = structs[0]!;
-  const info: StructInfo = { decl: undefined, name: "", fields: first.fields.slice(0, n), kinds: first.kinds.slice(0, n) };
+  const info: StructInfo = {
+    decl: undefined,
+    name: '',
+    fields: first.fields.slice(0, n),
+    kinds: first.kinds.slice(0, n),
+  };
   for (const s of structs.slice(1)) {
     for (let k = 0; k < n; k++) {
       if (s.fields[k] !== info.fields[k] || s.kinds[k] !== info.kinds[k]) {
-        info.fields[k] = "";
-        info.kinds[k] = "";
+        info.fields[k] = '';
+        info.kinds[k] = '';
       }
     }
   }
@@ -229,7 +318,10 @@ function getStructOfUnion(c: Own, t: Type, members: Type[]): StructInfo | undefi
 function checkStructUnionField(c: Own, access: Node, t: Type): void {
   const members = nonNullishMembers(c, t);
   const name = access.name.text as string;
-  if (members.length > 1 && members.every((m) => getStructOfType(c, m)?.fields.includes(name))) {
+  if (
+    members.length > 1 &&
+    members.every(m => getStructOfType(c, m)?.fields.includes(name))
+  ) {
     c.error(access.name, Messages.UnionField, name);
   }
 }
@@ -246,7 +338,11 @@ export function isNarrowedReference(c: Own, expr: Node): boolean {
   } else if (expr.kind === K.PropertyAccessExpression) {
     symbol = c.host.symbolAt(expr.name);
   }
-  if (!symbol || !(symbol.flags & (SymbolFlags.Variable | SymbolFlags.Property))) return false;
+  if (
+    !symbol ||
+    !(symbol.flags & (SymbolFlags.Variable | SymbolFlags.Property))
+  )
+    return false;
   return !isCellType(c, c.host.typeOfSymbol(symbol));
 }
 
@@ -264,7 +360,9 @@ function setTarget(c: Own, expr: Node | undefined, targetRaw: boolean): void {
       return;
     case K.BinaryExpression:
       switch (expr.operatorToken.kind) {
-        case K.AmpersandAmpersandToken: case K.BarBarToken: case K.QuestionQuestionToken:
+        case K.AmpersandAmpersandToken:
+        case K.BarBarToken:
+        case K.QuestionQuestionToken:
           setTarget(c, expr.left, targetRaw);
           setTarget(c, expr.right, targetRaw);
           return;
@@ -318,8 +416,13 @@ export function computeConversions(c: Own, file: SourceFile): void {
 }
 
 function checkTypeReferences(c: Own, node: Node): void {
-  if (node.kind === K.TypeReference) checkSharedArrayElementType(c, node, c.host.checker.getTypeFromTypeNode(node as any));
-  forEachChild(node, (child) => {
+  if (node.kind === K.TypeReference)
+    checkSharedArrayElementType(
+      c,
+      node,
+      c.host.checker.getTypeFromTypeNode(node as any),
+    );
+  forEachChild(node, child => {
     checkTypeReferences(c, child);
   });
 }
@@ -327,12 +430,22 @@ function checkTypeReferences(c: Own, node: Node): void {
 function computeConversion(c: Own, node: Node): void {
   const host = c.host;
   switch (node.kind) {
-    case K.CallExpression: case K.NewExpression: {
-      if (node.kind === K.NewExpression) checkSharedArrayElementType(c, node, host.typeOf(node));
+    case K.CallExpression:
+    case K.NewExpression: {
+      if (node.kind === K.NewExpression)
+        checkSharedArrayElementType(c, node, host.typeOf(node));
       const args = node.arguments as Node[] | undefined;
-      if (!args || args.length === 0 || node.kind === K.CallExpression && node.expression.kind === K.ImportKeyword) return;
+      if (
+        !args ||
+        args.length === 0 ||
+        (node.kind === K.CallExpression &&
+          node.expression.kind === K.ImportKeyword)
+      )
+        return;
       const signature = host.signatureOf(node);
-      const unresolved = !signature.declaration && signature.parameters.length === 0 || host.checker.isUnknownSignature(signature);
+      const unresolved =
+        (!signature.declaration && signature.parameters.length === 0) ||
+        host.checker.isUnknownSignature(signature);
       args.forEach((arg, i) => {
         if (arg.kind === K.SpreadElement) {
           setTarget(c, arg.expression, false);
@@ -346,15 +459,22 @@ function computeConversion(c: Own, node: Node): void {
       });
       return;
     }
-    case K.VariableDeclaration: case K.PropertyDeclaration: case K.Parameter: {
+    case K.VariableDeclaration:
+    case K.PropertyDeclaration:
+    case K.Parameter: {
       const init = node.initializer as Node | undefined;
       if (isBindingPattern(node.name)) {
         if (init) {
           setTarget(c, init, false); // destructured through the handle
-        } else if (node.kind === K.Parameter || node.kind === K.VariableDeclaration && node.parent?.parent?.kind === K.ForOfStatement) {
+        } else if (
+          node.kind === K.Parameter ||
+          (node.kind === K.VariableDeclaration &&
+            node.parent?.parent?.kind === K.ForOfStatement)
+        ) {
           // A parameter or loop variable cannot be boxed before it is destructured.
           const t = host.typeOf(node.name);
-          if (isCellType(c, t)) c.error(node.name, Messages.Destructured, host.typeToString(t));
+          if (isCellType(c, t))
+            c.error(node.name, Messages.Destructured, host.typeToString(t));
         }
         return;
       }
@@ -368,10 +488,16 @@ function computeConversion(c: Own, node: Node): void {
       computeBinaryConversion(c, node);
       return;
     case K.ReturnStatement:
-      if (node.expression) setTargetType(c, node.expression, getReturnTargetType(c, getContainingFunction(node)));
+      if (node.expression)
+        setTargetType(
+          c,
+          node.expression,
+          getReturnTargetType(c, getContainingFunction(node)),
+        );
       return;
     case K.ArrowFunction:
-      if (node.body && node.body.kind !== K.Block) setTargetType(c, node.body, getReturnTargetType(c, node));
+      if (node.body && node.body.kind !== K.Block)
+        setTargetType(c, node.body, getReturnTargetType(c, node));
       return;
     case K.ArrayLiteralExpression: {
       if (isAssignmentTarget(node)) return;
@@ -384,33 +510,56 @@ function computeConversion(c: Own, node: Node): void {
         if (element.kind === K.OmittedExpression) return;
         let target: Target = host.checker.getContextualType(element as any);
         if (!target) {
-          if (host.checker.isTupleType(literalType)) target = host.typeArguments(literalType)[i];
-          else target = host.checker.getIndexTypeOfType(literalType, IndexKind.Number);
+          if (host.checker.isTupleType(literalType))
+            target = host.typeArguments(literalType)[i];
+          else
+            target = host.checker.getIndexTypeOfType(
+              literalType,
+              IndexKind.Number,
+            );
         }
         setTargetType(c, element, target);
       });
       return;
     }
     case K.PropertyAssignment:
-      if (!isAssignmentTarget(node.parent)) setTargetType(c, node.initializer, host.checker.getContextualType(node.initializer));
+      if (!isAssignmentTarget(node.parent))
+        setTargetType(
+          c,
+          node.initializer,
+          host.checker.getContextualType(node.initializer),
+        );
       return;
     case K.ShorthandPropertyAssignment:
-      if (!isAssignmentTarget(node.parent)) setTargetType(c, node.name, host.checker.getContextualType(node.name));
+      if (!isAssignmentTarget(node.parent))
+        setTargetType(c, node.name, host.checker.getContextualType(node.name));
       return;
-    case K.SpreadAssignment: case K.TemplateSpan: case K.TypeOfExpression:
+    case K.SpreadAssignment:
+    case K.TemplateSpan:
+    case K.TypeOfExpression:
       setTarget(c, node.expression, false);
       return;
-    case K.AsExpression: case K.TypeAssertionExpression:
-      setTargetType(c, node.expression, host.checker.getTypeFromTypeNode(node.type));
+    case K.AsExpression:
+    case K.TypeAssertionExpression:
+      setTargetType(
+        c,
+        node.expression,
+        host.checker.getTypeFromTypeNode(node.type),
+      );
       return;
-    case K.ForOfStatement: case K.ForInStatement:
+    case K.ForOfStatement:
+    case K.ForInStatement:
       setTarget(c, node.expression, false);
       return;
     case K.CaseClause: {
       // `case null:` against an address compares with 0.
       const switchExpression = (node.parent!.parent as Node).expression as Node;
-      if (isCellExpression(c, switchExpression) && !isNarrowedReference(c, switchExpression)) {
-        if (isNullishOnly(c, host.typeOf(node.expression))) setTarget(c, node.expression, true);
+      if (
+        isCellExpression(c, switchExpression) &&
+        !isNarrowedReference(c, switchExpression)
+      ) {
+        if (isNullishOnly(c, host.typeOf(node.expression)))
+          setTarget(c, node.expression, true);
       }
       return;
     }
@@ -429,12 +578,13 @@ function computeConversion(c: Own, node: Node): void {
           // A field is read through the layout; anything else through the handle.
           const k = cell.fields.indexOf(name);
           if (k < 0) checkStructUnionField(c, node, t);
-          if (cell.kinds[k] === "s" || cell.kinds[k] === "c") checkConvertedTarget(c, node);
+          if (cell.kinds[k] === 's' || cell.kinds[k] === 'c')
+            checkConvertedTarget(c, node);
           setTarget(c, object, k >= 0);
           break;
         }
         default:
-          setTarget(c, object, isArrayKind(cell.kind) && name === "length");
+          setTarget(c, object, isArrayKind(cell.kind) && name === 'length');
       }
       return;
     }
@@ -459,8 +609,17 @@ function computeConversion(c: Own, node: Node): void {
 // only where it is assigned on its own.
 function checkConvertedTarget(c: Own, access: Node): void {
   const target = getAssignmentTarget(access);
-  if (!target || target.kind === K.PrefixUnaryExpression || target.kind === K.PostfixUnaryExpression) return; // `++` on a string is a type error already
-  if (target.kind === K.BinaryExpression && skipParentheses(target.left) === access) return;
+  if (
+    !target ||
+    target.kind === K.PrefixUnaryExpression ||
+    target.kind === K.PostfixUnaryExpression
+  )
+    return; // `++` on a string is a type error already
+  if (
+    target.kind === K.BinaryExpression &&
+    skipParentheses(target.left) === access
+  )
+    return;
   c.error(access, Messages.StringTarget);
 }
 
@@ -471,29 +630,52 @@ function computeBinaryConversion(c: Own, node: Node): void {
   const right = node.right as Node;
   switch (op) {
     case K.EqualsToken:
-      if (left.kind === K.ArrayLiteralExpression || left.kind === K.ObjectLiteralExpression) {
+      if (
+        left.kind === K.ArrayLiteralExpression ||
+        left.kind === K.ObjectLiteralExpression
+      ) {
         setTarget(c, right, false); // destructured through the handle
         return;
       }
-      if (left.kind === K.ElementAccessExpression && getCellType(c, host.typeOf(left.expression)).kind === CellKind.ArrayOfStruct) {
+      if (
+        left.kind === K.ElementAccessExpression &&
+        getCellType(c, host.typeOf(left.expression)).kind ===
+          CellKind.ArrayOfStruct
+      ) {
         c.error(left, Messages.InlineStructElement);
         return;
       }
       setTargetType(c, right, getAssignmentTargetType(c, left));
       return;
-    case K.BarBarEqualsToken: case K.AmpersandAmpersandEqualsToken: case K.QuestionQuestionEqualsToken:
+    case K.BarBarEqualsToken:
+    case K.AmpersandAmpersandEqualsToken:
+    case K.QuestionQuestionEqualsToken:
       setTargetType(c, right, getAssignmentTargetType(c, left));
       return;
-    case K.PlusToken: case K.PlusEqualsToken:
+    case K.PlusToken:
+    case K.PlusEqualsToken:
       // String concatenation (arithmetic on a struct is already a type error).
-      if (isCellExpression(c, left) && op === K.PlusToken) setTarget(c, left, false);
+      if (isCellExpression(c, left) && op === K.PlusToken)
+        setTarget(c, left, false);
       if (isCellExpression(c, right)) setTarget(c, right, false);
-      if (op === K.PlusEqualsToken) checkIntegerCompoundAssignment(c, node, getAssignmentTargetType(c, left));
+      if (op === K.PlusEqualsToken)
+        checkIntegerCompoundAssignment(
+          c,
+          node,
+          getAssignmentTargetType(c, left),
+        );
       return;
-    case K.MinusEqualsToken: case K.AsteriskEqualsToken: case K.SlashEqualsToken: case K.PercentEqualsToken: case K.AsteriskAsteriskEqualsToken:
+    case K.MinusEqualsToken:
+    case K.AsteriskEqualsToken:
+    case K.SlashEqualsToken:
+    case K.PercentEqualsToken:
+    case K.AsteriskAsteriskEqualsToken:
       checkIntegerCompoundAssignment(c, node, getAssignmentTargetType(c, left));
       return;
-    case K.EqualsEqualsEqualsToken: case K.ExclamationEqualsEqualsToken: case K.EqualsEqualsToken: case K.ExclamationEqualsToken: {
+    case K.EqualsEqualsEqualsToken:
+    case K.ExclamationEqualsEqualsToken:
+    case K.EqualsEqualsToken:
+    case K.ExclamationEqualsToken: {
       const leftType = host.typeOf(left);
       const rightType = host.typeOf(right);
       const leftCell = isCellType(c, leftType);
@@ -528,13 +710,19 @@ function getReturnTargetType(c: Own, fn: Node | undefined): Target {
   const flags = getFunctionFlags(fn);
   if (flags & FunctionFlags.Generator) return undefined;
   const host = c.host;
-  const unwrap = (t: Type): Target => flags & FunctionFlags.Async ? host.checker.getAwaitedType(t) ?? null : t;
+  const unwrap = (t: Type): Target =>
+    flags & FunctionFlags.Async ? (host.checker.getAwaitedType(t) ?? null) : t;
   if (fn.type) return unwrap(host.checker.getTypeFromTypeNode(fn.type));
   if (isFunctionExpressionOrArrowFunction(fn) || isObjectLiteralMethod(fn)) {
     const signature = host.contextualSignature(fn);
-    if (signature) return unwrap(host.checker.getReturnTypeOfSignature(signature));
+    if (signature)
+      return unwrap(host.checker.getReturnTypeOfSignature(signature));
   }
-  return unwrap(host.checker.getReturnTypeOfSignature(host.checker.getSignatureFromDeclaration(fn)));
+  return unwrap(
+    host.checker.getReturnTypeOfSignature(
+      host.checker.getSignatureFromDeclaration(fn),
+    ),
+  );
 }
 
 // The declared type of an assignment target.

@@ -2,9 +2,9 @@
 // Here each thread counts the primes in its own range into its own tally, one of a SharedArray of
 // them, and main adds the tallies up once scope has joined the threads (joining orders the threads'
 // writes before main's reads).
-import { f64, log, scope, SharedArray, struct, type Struct } from "threads";
+import {f64, log, scope, SharedArray, struct, type Struct} from 'threads';
 
-const Tally = struct({ primes: f64, largest: f64 });
+const Tally = struct({primes: f64, largest: f64});
 type Tally = Struct<typeof Tally>;
 
 function isPrime(n: number): boolean {
@@ -29,15 +29,25 @@ const N = 2_000_000;
 // the threads it started)
 export function main(threadCounts: readonly number[]) {
   for (const threads of threadCounts) {
-    const tallies = new SharedArray(Tally, threads), t0 = performance.now();
+    const tallies = new SharedArray(Tally, threads),
+      t0 = performance.now();
     scope(s => {
-      for (let t = 0; t < threads; t++) s.spawn(count, tallies[t], Math.floor(N * t / threads), Math.floor(N * (t + 1) / threads));
+      for (let t = 0; t < threads; t++)
+        s.spawn(
+          count,
+          tallies[t],
+          Math.floor((N * t) / threads),
+          Math.floor((N * (t + 1)) / threads),
+        );
     });
-    let primes = 0, largest = 0;
+    let primes = 0,
+      largest = 0;
     for (let t = 0; t < threads; t++) {
       primes += tallies[t].primes;
       largest = Math.max(largest, tallies[t].largest);
     }
-    log(`${threads} thread${threads === 1 ? "" : "s"}: ${primes} primes below ${N}, the largest ${largest}, in ${(performance.now() - t0).toFixed(0)} ms`);
+    log(
+      `${threads} thread${threads === 1 ? '' : 's'}: ${primes} primes below ${N}, the largest ${largest}, in ${(performance.now() - t0).toFixed(0)} ms`,
+    );
   }
 }

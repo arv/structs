@@ -83,25 +83,25 @@ node run.js build/ts/nbody-struct.js
 
 ## Files
 
-| File | What it is |
-|---|---|
-| [`playground/`](playground) | the own and shared design as it goes on: runtime, checker, playground ([its README](playground/README.md)) |
-| `runtime.js` | the shared heap: allocator, value words, strings, shapes, handles, ownership and handover, Lock, Condition, the worker pool |
-| `expand.js` | turns the access macros of a hand translation into what a transform would emit |
-| `nbody.js`, `mandelbrot.js`, `basic.js` | the playground's presets, and a small example, translated by hand for publish on escape |
-| `threads.js`, `threads.d.ts` | the API programs import: own and shared values, shared structs, channels, in plain TypeScript |
-| `own.js`, `own.d.ts` | own and shared values on top of the runtime, and the types of the earlier syntax |
-| `nbody-own.js` | N-body written by hand for own and shared values |
-| `nbody-cells.js` | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step |
-| `nbody-struct.ts` | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap |
-| `nbody-ts.ts`, `tsconfig.json` | the same with ordinary objects, moved and shared |
-| `chan.js`, `chan.d.ts` | Go-style goroutines and channels on own and shared values, and the types of the earlier syntax |
-| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | the presets with channels (N-body copying plain objects, and over shared structs), and a small example of what channels cost |
-| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.js` | reference counting for shared structs and SharedArrays: the design, its test, and the test written by hand as the compiler emits it |
-| `tutorial.ts` | the example of [TUTORIAL.md](TUTORIAL.md) |
-| `run.js`, `worker.js` | run a program on node `worker_threads` |
-| `chrome.js`, `index.html`, `page.js`, `web-worker.js`, `wasm.html` | run a program, or a Porffor Wasm build, in Chrome |
-| `bench.js`, `overhead.js`, `trace-summary.js` | the measurements |
+| File                                                                         | What it is                                                                                                                          |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [`playground/`](playground)                                                  | the own and shared design as it goes on: runtime, checker, playground ([its README](playground/README.md))                          |
+| `runtime.js`                                                                 | the shared heap: allocator, value words, strings, shapes, handles, ownership and handover, Lock, Condition, the worker pool         |
+| `expand.js`                                                                  | turns the access macros of a hand translation into what a transform would emit                                                      |
+| `nbody.js`, `mandelbrot.js`, `basic.js`                                      | the playground's presets, and a small example, translated by hand for publish on escape                                             |
+| `threads.js`, `threads.d.ts`                                                 | the API programs import: own and shared values, shared structs, channels, in plain TypeScript                                       |
+| `own.js`, `own.d.ts`                                                         | own and shared values on top of the runtime, and the types of the earlier syntax                                                    |
+| `nbody-own.js`                                                               | N-body written by hand for own and shared values                                                                                    |
+| `nbody-cells.js`                                                             | the same with the positions in a shared typed-array cell instead of snapshots: nothing copied per step                              |
+| `nbody-struct.ts`                                                            | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap                             |
+| `nbody-ts.ts`, `tsconfig.json`                                               | the same with ordinary objects, moved and shared                                                                                    |
+| `chan.js`, `chan.d.ts`                                                       | Go-style goroutines and channels on own and shared values, and the types of the earlier syntax                                      |
+| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | the presets with channels (N-body copying plain objects, and over shared structs), and a small example of what channels cost        |
+| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.js`                             | reference counting for shared structs and SharedArrays: the design, its test, and the test written by hand as the compiler emits it |
+| `tutorial.ts`                                                                | the example of [TUTORIAL.md](TUTORIAL.md)                                                                                           |
+| `run.js`, `worker.js`                                                        | run a program on node `worker_threads`                                                                                              |
+| `chrome.js`, `index.html`, `page.js`, `web-worker.js`, `wasm.html`           | run a program, or a Porffor Wasm build, in Chrome                                                                                   |
+| `bench.js`, `overhead.js`, `trace-summary.js`                                | the measurements                                                                                                                    |
 
 ## Shared everything, publish on escape
 
@@ -121,11 +121,11 @@ The hand translations follow the rules a transform would apply:
 Shared objects follow the threads design: one 8-byte value word per slot, readers that never lock, a
 lock word per object owned by the thread that made it, and handover at clean points.
 
-| one thread, against plain V8 | cost |
-|---|---|
-| N-body on local objects | 1.04x (1.00x without the clean-point polls) |
-| Mandelbrot | 0.91x (top-level constants are inlined) |
-| N-body on shared objects | 16.8x |
+| one thread, against plain V8 | cost                                        |
+| ---------------------------- | ------------------------------------------- |
+| N-body on local objects      | 1.04x (1.00x without the clean-point polls) |
+| Mandelbrot                   | 0.91x (top-level constants are inlined)     |
+| N-body on shared objects     | 16.8x                                       |
 
 Shared reads are slow mostly because TurboFan stops inlining the getters once a function's inlining
 budget runs out; with a larger budget (a V8 flag) N-body on shared objects is 6.8x. A clean-point
@@ -135,13 +135,14 @@ TurboFan from peeling the loop.
 ## Own and shared values
 
 ```js
-import { fns, spawn, share, Barrier, Slots } from './own.js';
+import {fns, spawn, share, Barrier, Slots} from './own.js';
 
 const t = spawn(worker, id, slice, board, barrier); // slice moves to the thread; cells pass by reference
-const back = t.join();                              // the thread's result moves back
-const snap = share(obj);                            // obj is deeply frozen now; any thread reads its own copy
-board.set(i, snap); barrier.wait();                 // cells: the explicit shared, mutable state
-slice[0].x;                                         // after the move: throws "own: used after move"
+const back = t.join(); // the thread's result moves back
+const snap = share(obj); // obj is deeply frozen now; any thread reads its own copy
+board.set(i, snap);
+barrier.wait(); // cells: the explicit shared, mutable state
+slice[0].x; // after the move: throws "own: used after move"
 ```
 
 A moved value is copied into the shared heap once, and the sender's objects are revoked. A shared
@@ -198,10 +199,11 @@ and the checker what makes ownership safe before the program runs.
 ## Goroutines and channels
 
 ```ts
-const jobs = new Channel<number>(H), results = new Channel<Drawn>(H);
-for (let t = 0; t < threads; t++) go(worker, jobs, results);  // goroutines: pool threads, never joined
+const jobs = new Channel<number>(H),
+  results = new Channel<Drawn>(H);
+for (let t = 0; t < threads; t++) go(worker, jobs, results); // goroutines: pool threads, never joined
 for (let y = 0; y < H; y++) jobs.send(y);
-jobs.close();                                                // workers' `for (const y of jobs)` ends
+jobs.close(); // workers' `for (const y of jobs)` ends
 ```
 
 [chan.js](chan.js) is Go's model on own and shared values: `go`, buffered and unbuffered channels,
@@ -232,36 +234,36 @@ shared data, and channels can order those too.
 
 N-body, 800 bodies, 30 steps, median of 5 runs, warm pass (each worker's JIT warmed up), ms:
 
-| Threads | 1 | 2 | 4 | 8 |
-|---|---|---|---|---|
-| TypeScript, `SharedArray` of shared structs (typed layout), node | 28 | 15 | 8 | 6 |
-| TypeScript, `SharedArray` of shared structs (typed layout), Chrome | 31 | 17 | 8 | 6 |
-| Own and shared values, positions in a shared cell, node | 27 | 14 | 8 | 6 |
-| Own and shared values, positions in a shared cell, Chrome | 28 | 15 | 7 | 5 |
-| TypeScript, moved and shared objects, compiled by the fork, Chrome | 35 | 21 | 11 | 14 |
-| Own and shared values, Chrome | 35 | 21 | 12 | 13 |
-| Own and shared values, node | 32 | 20 | 16 | 16 |
-| Goroutines and channels over shared structs, node | 29 | 15 | 8 | 10 |
-| Goroutines and channels over shared structs, Chrome | 29 | 17 | 10 | 9 |
-| Goroutines and channels, copying plain objects, Chrome | 92 | 52 | 30 | 24 |
-| Goroutines and channels, copying plain objects, node | 99 | 60 | 45 | 28 |
-| Shared everything, Chrome | 426 | 223 | 126 | 85 |
-| Shared everything, node | 443 | 227 | 123 | 81 |
-| Porffor native | 143 | 76 | 40 | 29 |
-| Porffor Wasm, Chrome | 883 | 455 | 231 | 130 |
-| Plain V8, no threads | 25 | | | |
+| Threads                                                            | 1   | 2   | 4   | 8   |
+| ------------------------------------------------------------------ | --- | --- | --- | --- |
+| TypeScript, `SharedArray` of shared structs (typed layout), node   | 28  | 15  | 8   | 6   |
+| TypeScript, `SharedArray` of shared structs (typed layout), Chrome | 31  | 17  | 8   | 6   |
+| Own and shared values, positions in a shared cell, node            | 27  | 14  | 8   | 6   |
+| Own and shared values, positions in a shared cell, Chrome          | 28  | 15  | 7   | 5   |
+| TypeScript, moved and shared objects, compiled by the fork, Chrome | 35  | 21  | 11  | 14  |
+| Own and shared values, Chrome                                      | 35  | 21  | 12  | 13  |
+| Own and shared values, node                                        | 32  | 20  | 16  | 16  |
+| Goroutines and channels over shared structs, node                  | 29  | 15  | 8   | 10  |
+| Goroutines and channels over shared structs, Chrome                | 29  | 17  | 10  | 9   |
+| Goroutines and channels, copying plain objects, Chrome             | 92  | 52  | 30  | 24  |
+| Goroutines and channels, copying plain objects, node               | 99  | 60  | 45  | 28  |
+| Shared everything, Chrome                                          | 426 | 223 | 126 | 85  |
+| Shared everything, node                                            | 443 | 227 | 123 | 81  |
+| Porffor native                                                     | 143 | 76  | 40  | 29  |
+| Porffor Wasm, Chrome                                               | 883 | 455 | 231 | 130 |
+| Plain V8, no threads                                               | 25  |     |     |     |
 
 Mandelbrot, which computes on thread-local numbers, ms:
 
-| Threads | 1 | 2 | 4 | 8 |
-|---|---|---|---|---|
-| Shared everything, node | 675 | 345 | 177 | 92 |
-| Goroutines and channels, node | 712 | 341 | 180 | 97 |
-| Goroutines and channels, Chrome | 750 | 383 | 196 | 103 |
-| Shared everything, Chrome | 689 | 352 | 177 | 93 |
-| Porffor native | 657 | 328 | 167 | 88 |
-| Porffor Wasm, Chrome | 1130 | 573 | 293 | 156 |
-| Plain V8, no threads | 737 | | | |
+| Threads                         | 1    | 2   | 4   | 8   |
+| ------------------------------- | ---- | --- | --- | --- |
+| Shared everything, node         | 675  | 345 | 177 | 92  |
+| Goroutines and channels, node   | 712  | 341 | 180 | 97  |
+| Goroutines and channels, Chrome | 750  | 383 | 196 | 103 |
+| Shared everything, Chrome       | 689  | 352 | 177 | 93  |
+| Porffor native                  | 657  | 328 | 167 | 88  |
+| Porffor Wasm, Chrome            | 1130 | 573 | 293 | 156 |
+| Plain V8, no threads            | 737  |     |     |     |
 
 With snapshots, own and shared N-body stops scaling past 4 threads: every thread copies all 800
 positions each step, which does not shrink with more threads. Shared typed layouts copy nothing: the

@@ -14,27 +14,43 @@
 //
 // The approximations are those of the fork, which this follows rule for rule; see ownership.go.
 
-import type { Own } from "./context.ts";
-import { SymbolFlags, TypeFlags } from "./host.ts";
-import type { NodeHandle, Signature, TsSymbol, Type } from "./host.ts";
-import { getSharedArrayElementType, isCellType } from "./layout.ts";
-import { getTypeMarker, isCellBranded, isConsumeCall } from "./markers.ts";
-import { Messages } from "./messages.ts";
-import type { Message } from "./messages.ts";
-import { getChannelElementType } from "./refcount.ts";
+import type {SourceFile} from 'typescript/ast';
+import type {Own} from './context.ts';
+import {SymbolFlags, TypeFlags} from './host.ts';
+import type {NodeHandle, Signature, TsSymbol, Type} from './host.ts';
+import {getSharedArrayElementType, isCellType} from './layout.ts';
+import {getTypeMarker, isCellBranded, isConsumeCall} from './markers.ts';
+import {Messages} from './messages.ts';
+import type {Message} from './messages.ts';
+import {getChannelElementType} from './refcount.ts';
 import {
-  forEachChild, getCombinedNodeFlags, isAssignmentOperator, isBindingPattern, isClassLike, isExpression,
-  isFunctionExpressionOrArrowFunction, isFunctionLike, isObjectLiteralMethod, isOwnValueReference, isThisParameter, isTypeNode,
-  isWithin, K, NodeFlags, OEK, skipOuterExpressions, skipParentheses, walkUpParenthesizedExpressions,
-} from "./syntax.ts";
-import type { Node } from "./syntax.ts";
-import type { SourceFile } from "typescript/ast";
+  forEachChild,
+  getCombinedNodeFlags,
+  isAssignmentOperator,
+  isBindingPattern,
+  isClassLike,
+  isExpression,
+  isFunctionExpressionOrArrowFunction,
+  isFunctionLike,
+  isObjectLiteralMethod,
+  isOwnValueReference,
+  isThisParameter,
+  isTypeNode,
+  isWithin,
+  K,
+  NodeFlags,
+  OEK,
+  skipOuterExpressions,
+  skipParentheses,
+  walkUpParenthesizedExpressions,
+} from './syntax.ts';
+import type {Node} from './syntax.ts';
 
 const maxLoopIterations = 4;
 
 type Region = number;
 
-const ValueKind = { Shared: 0, InRegion: 1, Consumed: 2 } as const;
+const ValueKind = {Shared: 0, InRegion: 1, Consumed: 2} as const;
 type ValueKind = (typeof ValueKind)[keyof typeof ValueKind];
 
 interface Value {
@@ -44,13 +60,13 @@ interface Value {
   readonly maybe: boolean; // for Consumed: consumed on some paths only
 }
 
-const sharedValue: Value = { kind: ValueKind.Shared, region: 0, maybe: false };
+const sharedValue: Value = {kind: ValueKind.Shared, region: 0, maybe: false};
 
 function regionValue(r: Region): Value {
-  return { kind: ValueKind.InRegion, region: r, maybe: false };
+  return {kind: ValueKind.InRegion, region: r, maybe: false};
 }
 
-const RegionFlags = { Caller: 1, Outer: 2, Counted: 4 } as const;
+const RegionFlags = {Caller: 1, Outer: 2, Counted: 4} as const;
 
 // A send (or consume) of a region.
 interface Send {
@@ -66,7 +82,7 @@ interface RegionInfo {
   readonly maybe: boolean; // sent on some paths only
 }
 
-const noInfo: RegionInfo = { flags: 0, sent: undefined, maybe: false };
+const noInfo: RegionInfo = {flags: 0, sent: undefined, maybe: false};
 
 // The abstract state at a program point. Region infos are immutable, so copies share them.
 class State {
@@ -117,14 +133,14 @@ class State {
   addFlags(r: Region, flags: number): void {
     r = this.find(r);
     const inf = this.infoOf(r);
-    this.info.set(r, { ...inf, flags: inf.flags | flags });
+    this.info.set(r, {...inf, flags: inf.flags | flags});
   }
 
   addSend(r: Region, send: Send, maybe: boolean): void {
     r = this.find(r);
     const inf = this.infoOf(r);
-    if (!inf.sent || inf.maybe && !maybe) {
-      this.info.set(r, { ...inf, sent: send, maybe });
+    if (!inf.sent || (inf.maybe && !maybe)) {
+      this.info.set(r, {...inf, sent: send, maybe});
     } else {
       this.info.set(r, inf);
     }
@@ -143,9 +159,9 @@ class State {
     }
     this.parent.set(rb, ra);
     this.info.delete(rb);
-    let merged: RegionInfo = { ...ia, flags: ia.flags | ib.flags };
-    if (ib.sent && (!merged.sent || merged.maybe && !ib.maybe)) {
-      merged = { ...merged, sent: ib.sent, maybe: ib.maybe };
+    let merged: RegionInfo = {...ia, flags: ia.flags | ib.flags};
+    if (ib.sent && (!merged.sent || (merged.maybe && !ib.maybe))) {
+      merged = {...merged, sent: ib.sent, maybe: ib.maybe};
     }
     this.info.set(ra, merged);
     return ra;
@@ -163,7 +179,8 @@ class State {
 
   // Merges two values into one: the union of their regions.
   mergeValues(a: Value, b: Value): Value {
-    if (a.kind === ValueKind.InRegion && b.kind === ValueKind.InRegion) return regionValue(this.union(a.region, b.region));
+    if (a.kind === ValueKind.InRegion && b.kind === ValueKind.InRegion)
+      return regionValue(this.union(a.region, b.region));
     if (a.kind === ValueKind.InRegion) return a;
     if (b.kind === ValueKind.InRegion) return b;
     return sharedValue;
@@ -171,28 +188,45 @@ class State {
 
   joinValues(a: Value, b: Value): Value {
     if (a.kind === ValueKind.Consumed && b.kind === ValueKind.Consumed) {
-      return { kind: ValueKind.Consumed, region: 0, consumed: a.consumed, maybe: a.maybe || b.maybe };
+      return {
+        kind: ValueKind.Consumed,
+        region: 0,
+        consumed: a.consumed,
+        maybe: a.maybe || b.maybe,
+      };
     }
-    if (a.kind === ValueKind.Consumed) return { kind: ValueKind.Consumed, region: 0, consumed: a.consumed, maybe: true };
-    if (b.kind === ValueKind.Consumed) return { kind: ValueKind.Consumed, region: 0, consumed: b.consumed, maybe: true };
+    if (a.kind === ValueKind.Consumed)
+      return {
+        kind: ValueKind.Consumed,
+        region: 0,
+        consumed: a.consumed,
+        maybe: true,
+      };
+    if (b.kind === ValueKind.Consumed)
+      return {
+        kind: ValueKind.Consumed,
+        region: 0,
+        consumed: b.consumed,
+        maybe: true,
+      };
     return this.mergeValues(a, b);
   }
 
   // A canonical description of the state, used to detect that a loop has reached a fixpoint.
   signature(idOf: (symbol: TsSymbol) => number): string {
-    if (this.unreachable) return "unreachable";
+    if (this.unreachable) return 'unreachable';
     const symbols = [...this.vars.keys()].sort((a, b) => idOf(a) - idOf(b));
     const roots = new Map<Region, number>();
-    let out = "";
+    let out = '';
     for (const symbol of symbols) {
       const v = this.vars.get(symbol)!;
       out += idOf(symbol);
       switch (v.kind) {
         case ValueKind.Shared:
-          out += "=s;";
+          out += '=s;';
           break;
         case ValueKind.Consumed:
-          out += v.maybe ? "=c?;" : "=c;";
+          out += v.maybe ? '=c?;' : '=c;';
           break;
         case ValueKind.InRegion: {
           const [r, inf] = this.root(v);
@@ -201,7 +235,7 @@ class State {
             index = roots.size;
             roots.set(r, index);
           }
-          out += `=r${index}f${inf.flags}${inf.sent ? (inf.maybe ? "s?" : "s") : ""};`;
+          out += `=r${index}f${inf.flags}${inf.sent ? (inf.maybe ? 's?' : 's') : ''};`;
         }
       }
     }
@@ -259,8 +293,13 @@ export function checkOwnership(c: Own, file: SourceFile): void {
 // Function-like declarations whose body the analysis visits.
 function isFunctionBody(node: Node): boolean {
   switch (node.kind) {
-    case K.FunctionDeclaration: case K.FunctionExpression: case K.ArrowFunction: case K.MethodDeclaration:
-    case K.Constructor: case K.GetAccessor: case K.SetAccessor:
+    case K.FunctionDeclaration:
+    case K.FunctionExpression:
+    case K.ArrowFunction:
+    case K.MethodDeclaration:
+    case K.Constructor:
+    case K.GetAccessor:
+    case K.SetAccessor:
       return !!node.body;
     case K.ClassStaticBlockDeclaration:
       return true;
@@ -268,7 +307,7 @@ function isFunctionBody(node: Node): boolean {
   return false;
 }
 
-const ReportKind = { Use: 0, Send: 1, Return: 2, Write: 3 } as const;
+const ReportKind = {Use: 0, Send: 1, Return: 2, Write: 3} as const;
 
 interface FunctionResult {
   returnsFresh: boolean; // every returned value is shared or in a region not linked to the caller or outer scopes
@@ -280,7 +319,7 @@ interface Captures {
   usesThis: boolean; // an arrow function (or a closure nested in one) uses the enclosing `this`
 }
 
-const ReturnKind = { Ordinary: 0, Sending: 1, Shared: 2 } as const;
+const ReturnKind = {Ordinary: 0, Sending: 1, Shared: 2} as const;
 type ReturnKind = (typeof ReturnKind)[keyof typeof ReturnKind];
 
 interface Target {
@@ -291,7 +330,17 @@ interface Target {
   continues: State[];
 }
 
-const arrayMutators = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
+const arrayMutators = new Set([
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'splice',
+  'sort',
+  'reverse',
+  'fill',
+  'copyWithin',
+]);
 
 class Analyzer {
   readonly c: Own;
@@ -306,7 +355,7 @@ class Analyzer {
 
   constructor(c: Own) {
     this.c = c;
-    this.idOf = (symbol) => c.host.symbolId(symbol);
+    this.idOf = symbol => c.host.symbolId(symbol);
   }
 
   newRegion(): Region {
@@ -332,7 +381,7 @@ class Analyzer {
   analyzeFunction(node: Node): FunctionResult {
     const existing = this.results.get(node);
     if (existing) return existing;
-    const r: FunctionResult = { returnsFresh: true };
+    const r: FunctionResult = {returnsFresh: true};
     this.results.set(node, r);
     const f = new FunctionAnalysis(this, node, r);
     const s = new State();
@@ -367,7 +416,13 @@ class Analyzer {
 
   // Reporting
 
-  report(node: Node, kind: number, at: Node, message: Message, ...args: (string | number)[]): boolean {
+  report(
+    node: Node,
+    kind: number,
+    at: Node,
+    message: Message,
+    ...args: (string | number)[]
+  ): boolean {
     let kinds = this.reported.get(node);
     if (!kinds) {
       kinds = new Set();
@@ -379,14 +434,44 @@ class Analyzer {
     return true;
   }
 
-  reportUseAfterSend(node: Node, name: string, send: Send, maybe: boolean): void {
+  reportUseAfterSend(
+    node: Node,
+    name: string,
+    send: Send,
+    maybe: boolean,
+  ): void {
     const line = lineOf(send.site);
     if (send.consume && send.via === name) {
-      this.report(node, ReportKind.Use, node, maybe ? Messages.MaybeConsumed : Messages.Consumed, name, send.callee, line);
+      this.report(
+        node,
+        ReportKind.Use,
+        node,
+        maybe ? Messages.MaybeConsumed : Messages.Consumed,
+        name,
+        send.callee,
+        line,
+      );
     } else if (send.via === name) {
-      this.report(node, ReportKind.Use, node, maybe ? Messages.MaybeUsedAfterSend : Messages.UsedAfterSend, name, send.callee, line);
+      this.report(
+        node,
+        ReportKind.Use,
+        node,
+        maybe ? Messages.MaybeUsedAfterSend : Messages.UsedAfterSend,
+        name,
+        send.callee,
+        line,
+      );
     } else {
-      this.report(node, ReportKind.Use, node, maybe ? Messages.SharesWithMaybeSent : Messages.SharesWithSent, name, send.via, send.callee, line);
+      this.report(
+        node,
+        ReportKind.Use,
+        node,
+        maybe ? Messages.SharesWithMaybeSent : Messages.SharesWithSent,
+        name,
+        send.via,
+        send.callee,
+        line,
+      );
     }
   }
 
@@ -400,7 +485,8 @@ class Analyzer {
   // A declaration node, unless it is in a default library file: those never use the markers, so
   // every question about their type nodes has the answer of a missing one.
   declarationOutsideLibrary(handle: NodeHandle | undefined): Node | undefined {
-    if (!handle || this.c.host.isDefaultLibraryPath(handle.path)) return undefined;
+    if (!handle || this.c.host.isDefaultLibraryPath(handle.path))
+      return undefined;
     return this.c.host.declarationOf(handle);
   }
 
@@ -416,7 +502,9 @@ class Analyzer {
   // Binds a value to a variable, making it shared if the variable is declared shared (or is a
   // primitive).
   normalize(symbol: TsSymbol, v: Value): Value {
-    return v.kind === ValueKind.InRegion && this.isSharedSymbol(symbol) ? sharedValue : v;
+    return v.kind === ValueKind.InRegion && this.isSharedSymbol(symbol)
+      ? sharedValue
+      : v;
   }
 
   // Reports whether a symbol's value is shared regardless of the program point: code, library values,
@@ -437,12 +525,20 @@ class Analyzer {
       target = host.resolveAlias(symbol);
       if (!target) return true;
     }
-    if (target.flags & (SymbolFlags.Function | SymbolFlags.Class | SymbolFlags.Enum | SymbolFlags.ValueModule | SymbolFlags.Method) &&
-      !(target.flags & SymbolFlags.Variable)) {
+    if (
+      target.flags &
+        (SymbolFlags.Function |
+          SymbolFlags.Class |
+          SymbolFlags.Enum |
+          SymbolFlags.ValueModule |
+          SymbolFlags.Method) &&
+      !(target.flags & SymbolFlags.Variable)
+    ) {
       return true;
     }
     if (target.declarations.length === 0) return false;
-    if (target.declarations.every((d) => host.isDefaultLibraryPath(d.path))) return true;
+    if (target.declarations.every(d => host.isDefaultLibraryPath(d.path)))
+      return true;
     if (this.isDeclaredShared(target)) return true;
     const t = host.typeOfSymbol(target);
     if (this.isCountedType(t)) return false; // tracked in a counted region
@@ -455,7 +551,10 @@ class Analyzer {
     const handle = symbol.valueDeclaration;
     if (!handle) return false;
     switch (handle.kind) {
-      case K.Parameter: case K.PropertySignature: case K.PropertyDeclaration: case K.VariableDeclaration:
+      case K.Parameter:
+      case K.PropertySignature:
+      case K.PropertyDeclaration:
+      case K.VariableDeclaration:
         break;
       default:
         return false;
@@ -465,11 +564,13 @@ class Analyzer {
     switch (decl.kind) {
       case K.Parameter:
         return this.isSharedTypeNode(this.parameterTypeNode(decl));
-      case K.PropertySignature: case K.PropertyDeclaration:
+      case K.PropertySignature:
+      case K.PropertyDeclaration:
         return this.isSharedTypeNode(decl.type);
       case K.VariableDeclaration:
         if (decl.type) return this.isSharedTypeNode(decl.type);
-        if (decl.initializer && getCombinedNodeFlags(decl) & NodeFlags.Const) return this.isStaticallyShared(decl.initializer);
+        if (decl.initializer && getCombinedNodeFlags(decl) & NodeFlags.Const)
+          return this.isStaticallyShared(decl.initializer);
     }
     return false;
   }
@@ -478,8 +579,14 @@ class Analyzer {
   isStaticallyShared(expr: Node): boolean {
     expr = skipOuterExpressions(expr, OEK.All);
     switch (expr.kind) {
-      case K.NumericLiteral: case K.BigIntLiteral: case K.StringLiteral: case K.NoSubstitutionTemplateLiteral:
-      case K.TemplateExpression: case K.TrueKeyword: case K.FalseKeyword: case K.NullKeyword:
+      case K.NumericLiteral:
+      case K.BigIntLiteral:
+      case K.StringLiteral:
+      case K.NoSubstitutionTemplateLiteral:
+      case K.TemplateExpression:
+      case K.TrueKeyword:
+      case K.FalseKeyword:
+      case K.NullKeyword:
         return true;
       case K.Identifier: {
         const symbol = this.symbolOfIdentifier(expr);
@@ -490,15 +597,21 @@ class Analyzer {
         const prop = this.c.host.symbolAt(expr.name);
         return !!prop && this.isDeclaredShared(prop);
       }
-      case K.CallExpression: case K.NewExpression:
-        return this.returnKind(this.signatureDeclarationOf(expr)) === ReturnKind.Shared;
+      case K.CallExpression:
+      case K.NewExpression:
+        return (
+          this.returnKind(this.signatureDeclarationOf(expr)) ===
+          ReturnKind.Shared
+        );
     }
     return false;
   }
 
   // The declaration of the signature a call or `new` resolves to (outside the default library).
   signatureDeclarationOf(call: Node): Node | undefined {
-    return this.declarationOutsideLibrary(this.c.host.signatureOf(call).declaration);
+    return this.declarationOutsideLibrary(
+      this.c.host.signatureOf(call).declaration,
+    );
   }
 
   // Reports whether the elements of an array-typed expression are declared shared, as in
@@ -513,7 +626,11 @@ class Analyzer {
         const args = t.typeArguments as Node[] | undefined;
         if (args?.length === 1) {
           const name = t.typeName as Node;
-          if (name.kind === K.Identifier && (name.text === "Array" || name.text === "ReadonlyArray")) return this.isSharedTypeNode(args[0]);
+          if (
+            name.kind === K.Identifier &&
+            (name.text === 'Array' || name.text === 'ReadonlyArray')
+          )
+            return this.isSharedTypeNode(args[0]);
         }
       }
     }
@@ -527,12 +644,15 @@ class Analyzer {
     switch (expr.kind) {
       case K.Identifier: {
         const symbol = this.symbolOfIdentifier(expr);
-        const decl = symbol && this.declarationOutsideLibrary(symbol.valueDeclaration);
+        const decl =
+          symbol && this.declarationOutsideLibrary(symbol.valueDeclaration);
         if (!decl) return undefined;
         switch (decl.kind) {
           case K.Parameter:
             return this.parameterTypeNode(decl);
-          case K.VariableDeclaration: case K.PropertyDeclaration: case K.PropertySignature:
+          case K.VariableDeclaration:
+          case K.PropertyDeclaration:
+          case K.PropertySignature:
             return decl.type;
         }
         return undefined;
@@ -540,17 +660,24 @@ class Analyzer {
       case K.PropertyAccessExpression: {
         const prop = host.symbolAt(expr.name);
         const handle = prop?.valueDeclaration;
-        if (handle && (handle.kind === K.PropertyDeclaration || handle.kind === K.PropertySignature)) {
+        if (
+          handle &&
+          (handle.kind === K.PropertyDeclaration ||
+            handle.kind === K.PropertySignature)
+        ) {
           return this.declarationOutsideLibrary(handle)?.type;
         }
         return undefined;
       }
-      case K.CallExpression: case K.NewExpression: {
+      case K.CallExpression:
+      case K.NewExpression: {
         const decl = this.signatureDeclarationOf(expr);
         return decl && isFunctionLike(decl) ? decl.type : undefined;
       }
       case K.ElementAccessExpression: {
-        const t = this.resolveTypeNode(this.declaredTypeNodeOf(expr.expression));
+        const t = this.resolveTypeNode(
+          this.declaredTypeNodeOf(expr.expression),
+        );
         return t?.kind === K.ArrayType ? t.elementType : undefined;
       }
     }
@@ -559,20 +686,29 @@ class Analyzer {
 
   // The element value of iterating over a value.
   elementValue(iterable: Node, v: Value): Value {
-    return v.kind !== ValueKind.InRegion || this.isElementDeclaredShared(iterable) ? sharedValue : v;
+    return v.kind !== ValueKind.InRegion ||
+      this.isElementDeclaredShared(iterable)
+      ? sharedValue
+      : v;
   }
 
   // Skips parentheses and `readonly`, and follows type aliases (a few levels deep).
   resolveTypeNode(t: Node | undefined): Node | undefined {
     for (let i = 0; i < 5; i++) {
       if (!t) return undefined;
-      while (t.kind === K.ParenthesizedType || t.kind === K.TypeOperator && t.operator === K.ReadonlyKeyword) t = t.type as Node;
-      if (t.kind !== K.TypeReference || getTypeMarker(this.c, t) !== "") {
+      while (
+        t.kind === K.ParenthesizedType ||
+        (t.kind === K.TypeOperator && t.operator === K.ReadonlyKeyword)
+      )
+        t = t.type as Node;
+      if (t.kind !== K.TypeReference || getTypeMarker(this.c, t) !== '') {
         return t; // `Sending<T>` and `Shared<T>` are aliases of T: keep the marker
       }
       const symbol = this.c.host.symbolAt(t.typeName);
       if (!symbol || !(symbol.flags & SymbolFlags.TypeAlias)) return t;
-      const handle = symbol.declarations.find((d) => d.kind === K.TypeAliasDeclaration);
+      const handle = symbol.declarations.find(
+        d => d.kind === K.TypeAliasDeclaration,
+      );
       // The default library's aliases (Record, Readonly...) never lead to a marker: stop there.
       if (!handle || this.c.host.isDefaultLibraryPath(handle.path)) return t;
       const decl = this.c.host.declarationOf(handle);
@@ -589,12 +725,16 @@ class Analyzer {
     if (!t) return false;
     switch (t.kind) {
       case K.TypeReference:
-        return getTypeMarker(this.c, t) === "Shared";
+        return getTypeMarker(this.c, t) === 'Shared';
       case K.UnionType: {
         let sawShared = false;
         for (const member of t.types as Node[]) {
           const m = this.resolveTypeNode(member)!;
-          if (m.kind === K.UndefinedKeyword || m.kind === K.NullKeyword || m.kind === K.LiteralType && m.literal.kind === K.NullKeyword) {
+          if (
+            m.kind === K.UndefinedKeyword ||
+            m.kind === K.NullKeyword ||
+            (m.kind === K.LiteralType && m.literal.kind === K.NullKeyword)
+          ) {
             continue;
           }
           if (this.isSharedTypeNode(m)) {
@@ -611,13 +751,14 @@ class Analyzer {
 
   isSendingTypeNode(t: Node | undefined): boolean {
     t = this.resolveTypeNode(t);
-    return !!t && getTypeMarker(this.c, t) === "Sending";
+    return !!t && getTypeMarker(this.c, t) === 'Sending';
   }
 
   // The T of `Sending<T>` or `Shared<T>`.
   markedTypeOperand(t: Node | undefined): Node | undefined {
     t = this.resolveTypeNode(t);
-    if (t?.kind === K.TypeReference && t.typeArguments?.length === 1) return t.typeArguments[0];
+    if (t?.kind === K.TypeReference && t.typeArguments?.length === 1)
+      return t.typeArguments[0];
     return undefined;
   }
 
@@ -626,11 +767,20 @@ class Analyzer {
   parameterTypeNode(p: Node): Node | undefined {
     if (p.type) return p.type;
     const fn = p.parent as Node | undefined;
-    if (!fn || !(isFunctionExpressionOrArrowFunction(fn) || isObjectLiteralMethod(fn))) return undefined;
+    if (
+      !fn ||
+      !(isFunctionExpressionOrArrowFunction(fn) || isObjectLiteralMethod(fn))
+    )
+      return undefined;
     const signature = this.c.host.contextualSignature(fn);
     if (!signature) return undefined;
     const index = signatureParameters(fn).lastIndexOf(p);
-    return parameterAt(signatureParameters(this.declarationOutsideLibrary(signature.declaration)), index)?.type;
+    return parameterAt(
+      signatureParameters(
+        this.declarationOutsideLibrary(signature.declaration),
+      ),
+      index,
+    )?.type;
   }
 
   returnKind(decl: Node | undefined): ReturnKind {
@@ -639,7 +789,10 @@ class Analyzer {
     if (!t) return ReturnKind.Ordinary;
     if (this.isSendingTypeNode(t)) return ReturnKind.Sending;
     const resolved = this.resolveTypeNode(t);
-    if (resolved?.kind === K.UnionType && (resolved.types as Node[]).some((m) => this.isSendingTypeNode(m))) {
+    if (
+      resolved?.kind === K.UnionType &&
+      (resolved.types as Node[]).some(m => this.isSendingTypeNode(m))
+    ) {
       // `Sending<T> | undefined`, as a channel's `recv()` returns.
       return ReturnKind.Sending;
     }
@@ -652,17 +805,29 @@ class Analyzer {
   // `joinAsync()`).
   unwrapPromiseTypeNode(t: Node | undefined): Node | undefined {
     const r = this.resolveTypeNode(t);
-    if (r?.kind === K.TypeReference && r.typeArguments?.length === 1 && r.typeName.kind === K.Identifier && r.typeName.text === "Promise") {
+    if (
+      r?.kind === K.TypeReference &&
+      r.typeArguments?.length === 1 &&
+      r.typeName.kind === K.Identifier &&
+      r.typeName.text === 'Promise'
+    ) {
       return r.typeArguments[0];
     }
     return t;
   }
 
   returnsSending(fn: Node): boolean {
-    if (fn.type) return this.isSendingTypeNode(this.unwrapPromiseTypeNode(fn.type));
+    if (fn.type)
+      return this.isSendingTypeNode(this.unwrapPromiseTypeNode(fn.type));
     if (isFunctionExpressionOrArrowFunction(fn) || isObjectLiteralMethod(fn)) {
-      const signature: Signature | undefined = this.c.host.contextualSignature(fn);
-      if (signature) return this.returnKind(this.declarationOutsideLibrary(signature.declaration)) === ReturnKind.Sending;
+      const signature: Signature | undefined =
+        this.c.host.contextualSignature(fn);
+      if (signature)
+        return (
+          this.returnKind(
+            this.declarationOutsideLibrary(signature.declaration),
+          ) === ReturnKind.Sending
+        );
     }
     return false;
   }
@@ -672,9 +837,14 @@ class Analyzer {
   isConsumingSignature(decl: Node | undefined): boolean {
     if (!decl || this.returnKind(decl) !== ReturnKind.Shared) return false;
     const result = typeParameterName(decl, this.markedTypeOperand(decl.type));
-    if (result === "") return false;
+    if (result === '') return false;
     for (const p of signatureParameters(decl)) {
-      if (p.type && this.isSendingTypeNode(p.type) && typeParameterName(decl, this.markedTypeOperand(p.type)) === result) return true;
+      if (
+        p.type &&
+        this.isSendingTypeNode(p.type) &&
+        typeParameterName(decl, this.markedTypeOperand(p.type)) === result
+      )
+        return true;
     }
     return false;
   }
@@ -686,19 +856,24 @@ class Analyzer {
     const decl = this.c.host.declarationOf(handle);
     const parent = decl?.parent as Node | undefined;
     if (!parent || parent.kind !== K.InterfaceDeclaration) return false;
-    return parent.name.text === "Array" || parent.name.text === "ReadonlyArray";
+    return parent.name.text === 'Array' || parent.name.text === 'ReadonlyArray';
   }
 
   isArrayExpression(expr: Node): boolean {
     const t = this.typeOf(expr);
-    return this.c.host.checker.isArrayType(t) || this.c.host.checker.isTupleType(t);
+    return (
+      this.c.host.checker.isArrayType(t) || this.c.host.checker.isTupleType(t)
+    );
   }
 
   // Reports whether an expression is a shared value in the sense of the extension, which is immutable:
   // it must be declared shared (a variable, parameter or member declared `Shared<T>`, a call returning
   // `Shared<T>`, or something read out of such a value).
   isImmutableShared(expr: Node): boolean {
-    return !this.isPrimitiveOrSharedStructType(this.typeOf(expr)) && this.isDeclaredSharedExpression(expr);
+    return (
+      !this.isPrimitiveOrSharedStructType(this.typeOf(expr)) &&
+      this.isDeclaredSharedExpression(expr)
+    );
   }
 
   isDeclaredSharedExpression(expr: Node): boolean {
@@ -707,7 +882,8 @@ class Analyzer {
       case K.Identifier: {
         let symbol = this.symbolOfIdentifier(expr);
         if (!symbol) return false;
-        if (symbol.flags & SymbolFlags.Alias) symbol = this.c.host.resolveAlias(symbol);
+        if (symbol.flags & SymbolFlags.Alias)
+          symbol = this.c.host.resolveAlias(symbol);
         if (!symbol) return false;
         if (this.isDeclaredShared(symbol)) return true;
         // `for (const x of xs)` where xs is shared or has shared elements.
@@ -715,9 +891,15 @@ class Analyzer {
         if (handle?.kind === K.VariableDeclaration) {
           const decl = this.declarationOutsideLibrary(handle);
           const list = decl?.parent as Node | undefined;
-          if (list?.kind === K.VariableDeclarationList && list.parent?.kind === K.ForOfStatement) {
+          if (
+            list?.kind === K.VariableDeclarationList &&
+            list.parent?.kind === K.ForOfStatement
+          ) {
             const iterable = (list.parent as Node).expression as Node;
-            return this.isDeclaredSharedExpression(iterable) || this.isElementDeclaredShared(iterable);
+            return (
+              this.isDeclaredSharedExpression(iterable) ||
+              this.isElementDeclaredShared(iterable)
+            );
           }
         }
         return false;
@@ -728,9 +910,16 @@ class Analyzer {
         return !!prop && this.isDeclaredShared(prop);
       }
       case K.ElementAccessExpression:
-        return this.isDeclaredSharedExpression(expr.expression) || this.isElementDeclaredShared(expr.expression);
-      case K.CallExpression: case K.NewExpression:
-        return this.returnKind(this.signatureDeclarationOf(expr)) === ReturnKind.Shared;
+        return (
+          this.isDeclaredSharedExpression(expr.expression) ||
+          this.isElementDeclaredShared(expr.expression)
+        );
+      case K.CallExpression:
+      case K.NewExpression:
+        return (
+          this.returnKind(this.signatureDeclarationOf(expr)) ===
+          ReturnKind.Shared
+        );
     }
     return false;
   }
@@ -740,11 +929,16 @@ class Analyzer {
     let result = this.primitiveOrShared.get(t);
     if (result !== undefined) return result;
     if (t.flags & TypeFlags.Union) {
-      result = this.c.host.memberTypes(t).every((m) => this.isPrimitiveOrSharedStructType(m));
+      result = this.c.host
+        .memberTypes(t)
+        .every(m => this.isPrimitiveOrSharedStructType(m));
     } else {
       // SharedArrays are cells in the shared heap, like shared structs, and so is every Cell of the
       // plain API.
-      result = !!(t.flags & (TypeFlags.Primitive | TypeFlags.Never)) || getSharedArrayElementType(this.c, t) !== undefined || isCellBranded(this.c, t);
+      result =
+        !!(t.flags & (TypeFlags.Primitive | TypeFlags.Never)) ||
+        getSharedArrayElementType(this.c, t) !== undefined ||
+        isCellBranded(this.c, t);
     }
     this.primitiveOrShared.set(t, result);
     return result;
@@ -755,7 +949,7 @@ class Analyzer {
   capturesOf(fn: Node): Captures {
     const existing = this.captures.get(fn);
     if (existing) return existing;
-    const captures: Captures = { symbols: [], nodes: [], usesThis: false };
+    const captures: Captures = {symbols: [], nodes: [], usesThis: false};
     this.captures.set(fn, captures);
     const seen = new Set<TsSymbol>();
     const path = fn.getSourceFile().path;
@@ -766,7 +960,11 @@ class Analyzer {
         const symbol = this.symbolOfIdentifier(node);
         if (!symbol || seen.has(symbol) || this.isSharedSymbol(symbol)) return;
         const handle = symbol.valueDeclaration ?? symbol.declarations[0];
-        if (handle && (handle.path !== path || !isWithin(this.c.host.declarationOf(handle), fn))) {
+        if (
+          handle &&
+          (handle.path !== path ||
+            !isWithin(this.c.host.declarationOf(handle), fn))
+        ) {
           seen.add(symbol);
           captures.symbols.push(symbol);
           captures.nodes.push(node);
@@ -778,12 +976,13 @@ class Analyzer {
         return;
       }
       let childInArrow = inArrow;
-      if (node !== fn && isFunctionBody(node)) childInArrow = inArrow && node.kind === K.ArrowFunction;
-      forEachChild(node, (child) => {
+      if (node !== fn && isFunctionBody(node))
+        childInArrow = inArrow && node.kind === K.ArrowFunction;
+      forEachChild(node, child => {
         visit(child, childInArrow);
       });
     };
-    forEachChild(fn, (child) => {
+    forEachChild(fn, child => {
       visit(child, fn.kind === K.ArrowFunction);
     });
     return captures;
@@ -802,15 +1001,21 @@ class Analyzer {
         if (symbol) bindings.add(symbol);
       } else if (isBindingPattern(name)) {
         for (const element of name.elements as Node[]) {
-          if (element.kind === K.BindingElement) bindName(element.name, element);
+          if (element.kind === K.BindingElement)
+            bindName(element.name, element);
         }
       }
     };
     const visit = (node: Node): boolean => {
-      if (isTypeNode(node) || isFunctionLike(node) || isClassLike(node)) return false;
+      if (isTypeNode(node) || isFunctionLike(node) || isClassLike(node))
+        return false;
       if (node.kind === K.VariableDeclaration) {
         const parent = node.parent as Node;
-        if (parent.kind === K.CatchClause || parent.flags & NodeFlags.BlockScoped) bindName(node.name, node);
+        if (
+          parent.kind === K.CatchClause ||
+          parent.flags & NodeFlags.BlockScoped
+        )
+          bindName(node.name, node);
       }
       return forEachChild(node, visit);
     };
@@ -903,13 +1108,18 @@ class FunctionAnalysis {
         this.eval(node.expression, s);
         s.unreachable = true;
         break;
-      case K.WhileStatement: case K.DoStatement: case K.ForStatement: case K.ForInStatement: case K.ForOfStatement:
+      case K.WhileStatement:
+      case K.DoStatement:
+      case K.ForStatement:
+      case K.ForInStatement:
+      case K.ForOfStatement:
         this.loop(node, [], s);
         break;
       case K.LabeledStatement:
         this.labeledStatement(node, s);
         break;
-      case K.BreakStatement: case K.ContinueStatement:
+      case K.BreakStatement:
+      case K.ContinueStatement:
         this.jump(node, s);
         break;
       case K.SwitchStatement:
@@ -951,7 +1161,8 @@ class FunctionAnalysis {
       for (const element of name.elements as Node[]) {
         if (element.kind !== K.BindingElement) continue;
         let ev = v;
-        if (element.initializer) ev = s.mergeValues(ev, this.eval(element.initializer, s));
+        if (element.initializer)
+          ev = s.mergeValues(ev, this.eval(element.initializer, s));
         this.bindName(element.name, element, ev, s);
       }
     }
@@ -964,11 +1175,21 @@ class FunctionAnalysis {
       node = node.statement;
     }
     switch (node.kind) {
-      case K.WhileStatement: case K.DoStatement: case K.ForStatement: case K.ForInStatement: case K.ForOfStatement:
+      case K.WhileStatement:
+      case K.DoStatement:
+      case K.ForStatement:
+      case K.ForInStatement:
+      case K.ForOfStatement:
         this.loop(node, labels, s);
         return;
     }
-    const t: Target = { labels, isLoop: false, isSwitch: false, breaks: [], continues: [] };
+    const t: Target = {
+      labels,
+      isLoop: false,
+      isSwitch: false,
+      breaks: [],
+      continues: [],
+    };
     this.targets.push(t);
     this.statement(node, s);
     this.targets.pop();
@@ -977,10 +1198,10 @@ class FunctionAnalysis {
 
   jump(node: Node, s: State): void {
     const isBreak = node.kind === K.BreakStatement;
-    const label: string = node.label ? node.label.text : "";
+    const label: string = node.label ? node.label.text : '';
     for (let i = this.targets.length - 1; i >= 0; i--) {
       const t = this.targets[i]!;
-      if (label !== "") {
+      if (label !== '') {
         if (!t.labels.includes(label)) continue;
       } else if (isBreak) {
         if (!t.isLoop && !t.isSwitch) continue;
@@ -1003,13 +1224,19 @@ class FunctionAnalysis {
     switch (node.kind) {
       case K.ForStatement:
         if (node.initializer) {
-          if (node.initializer.kind === K.VariableDeclarationList) this.variableDeclarationList(node.initializer, s);
+          if (node.initializer.kind === K.VariableDeclarationList)
+            this.variableDeclarationList(node.initializer, s);
           else this.eval(node.initializer, s);
         }
         break;
       case K.ForOfStatement:
-        iterated = a.elementValue(node.expression, this.eval(node.expression, s));
-        receives = a.isCountedType(getChannelElementType(a.c, a.typeOf(node.expression)));
+        iterated = a.elementValue(
+          node.expression,
+          this.eval(node.expression, s),
+        );
+        receives = a.isCountedType(
+          getChannelElementType(a.c, a.typeOf(node.expression)),
+        );
         break;
       case K.ForInStatement:
         this.eval(node.expression, s);
@@ -1026,7 +1253,13 @@ class FunctionAnalysis {
     let breaks: State[] = [];
     for (let iteration = 0; iteration < maxLoopIterations; iteration++) {
       let st = head.copy();
-      const t: Target = { labels, isLoop: true, isSwitch: false, breaks: [], continues: [] };
+      const t: Target = {
+        labels,
+        isLoop: true,
+        isSwitch: false,
+        breaks: [],
+        continues: [],
+      };
       this.targets.push(t);
       switch (node.kind) {
         case K.WhileStatement:
@@ -1050,13 +1283,18 @@ class FunctionAnalysis {
           }
           this.statement(node.statement, st);
           st = joinAllStates(st, t.continues);
-          if (node.incrementor && !st.unreachable) this.eval(node.incrementor, st);
+          if (node.incrementor && !st.unreachable)
+            this.eval(node.incrementor, st);
           break;
-        case K.ForInStatement: case K.ForOfStatement: {
+        case K.ForInStatement:
+        case K.ForOfStatement: {
           exit = st.copy();
-          const value = receives ? regionValue(a.newRegionOf(true, st)) : iterated;
+          const value = receives
+            ? regionValue(a.newRegionOf(true, st))
+            : iterated;
           if (node.initializer.kind === K.VariableDeclarationList) {
-            for (const decl of node.initializer.declarations as Node[]) this.bindName(decl.name, decl, value, st);
+            for (const decl of node.initializer.declarations as Node[])
+              this.bindName(decl.name, decl, value, st);
           } else {
             this.assign(node.initializer, value, st);
           }
@@ -1079,7 +1317,13 @@ class FunctionAnalysis {
 
   switchStatement(node: Node, s: State): void {
     this.eval(node.expression, s);
-    const t: Target = { labels: [], isLoop: false, isSwitch: true, breaks: [], continues: [] };
+    const t: Target = {
+      labels: [],
+      isLoop: false,
+      isSwitch: true,
+      breaks: [],
+      continues: [],
+    };
     this.targets.push(t);
     const afterExpression = s.copy();
     let current = State.unreachable();
@@ -1128,10 +1372,17 @@ class FunctionAnalysis {
   checkReturn(expr: Node, v: Value, s: State): void {
     if (v.kind !== ValueKind.InRegion) return;
     const [, inf] = s.root(v);
-    const borrowed = (inf.flags & (RegionFlags.Caller | RegionFlags.Outer)) !== 0;
+    const borrowed =
+      (inf.flags & (RegionFlags.Caller | RegionFlags.Outer)) !== 0;
     if (borrowed || inf.sent) this.result.returnsFresh = false;
     if (this.returnsSending && borrowed) {
-      this.a.report(expr, ReportKind.Return, expr, Messages.ReturnSendingCallerReferenced, expressionName(expr));
+      this.a.report(
+        expr,
+        ReportKind.Return,
+        expr,
+        Messages.ReturnSendingCallerReferenced,
+        expressionName(expr),
+      );
     }
   }
 
@@ -1143,33 +1394,53 @@ class FunctionAnalysis {
     switch (node.kind) {
       case K.Identifier:
         return this.readIdentifier(node, s);
-      case K.ThisKeyword: case K.SuperKeyword:
+      case K.ThisKeyword:
+      case K.SuperKeyword:
         return this.thisValue(s);
-      case K.NumericLiteral: case K.BigIntLiteral: case K.StringLiteral: case K.NoSubstitutionTemplateLiteral:
-      case K.TrueKeyword: case K.FalseKeyword: case K.NullKeyword: case K.MetaProperty: case K.OmittedExpression:
+      case K.NumericLiteral:
+      case K.BigIntLiteral:
+      case K.StringLiteral:
+      case K.NoSubstitutionTemplateLiteral:
+      case K.TrueKeyword:
+      case K.FalseKeyword:
+      case K.NullKeyword:
+      case K.MetaProperty:
+      case K.OmittedExpression:
       case K.PrivateIdentifier:
         return sharedValue;
       case K.RegularExpressionLiteral:
         return regionValue(a.newRegion());
-      case K.ParenthesizedExpression: case K.NonNullExpression: case K.AsExpression: case K.SatisfiesExpression:
-      case K.TypeAssertionExpression: case K.PartiallyEmittedExpression:
+      case K.ParenthesizedExpression:
+      case K.NonNullExpression:
+      case K.AsExpression:
+      case K.SatisfiesExpression:
+      case K.TypeAssertionExpression:
+      case K.PartiallyEmittedExpression:
         return this.eval(node.expression, s);
       case K.AwaitExpression: {
         // What a promise resolves to is in the promise's region, unless it is a primitive.
         const v = this.eval(node.expression, s);
-        return a.isPrimitiveOrSharedStructType(a.typeOf(node)) ? sharedValue : v;
+        return a.isPrimitiveOrSharedStructType(a.typeOf(node))
+          ? sharedValue
+          : v;
       }
       case K.TemplateExpression:
-        for (const span of node.templateSpans as Node[]) this.eval(span.expression, s);
+        for (const span of node.templateSpans as Node[])
+          this.eval(span.expression, s);
         return sharedValue;
-      case K.TypeOfExpression: case K.VoidExpression:
+      case K.TypeOfExpression:
+      case K.VoidExpression:
         this.eval(node.expression, s);
         return sharedValue;
       case K.DeleteExpression:
         this.evalWriteTarget(node.expression, s);
         return sharedValue;
       case K.PrefixUnaryExpression:
-        if (node.operator === K.PlusPlusToken || node.operator === K.MinusMinusToken) this.evalWriteTarget(node.operand, s);
+        if (
+          node.operator === K.PlusPlusToken ||
+          node.operator === K.MinusMinusToken
+        )
+          this.evalWriteTarget(node.operand, s);
         else this.eval(node.operand, s);
         return sharedValue;
       case K.PostfixUnaryExpression:
@@ -1204,17 +1475,21 @@ class FunctionAnalysis {
       }
       case K.SpreadElement:
         return this.eval(node.expression, s);
-      case K.FunctionExpression: case K.ArrowFunction: case K.ClassExpression:
+      case K.FunctionExpression:
+      case K.ArrowFunction:
+      case K.ClassExpression:
         return this.closureValue(node, s);
       case K.CallExpression:
-        if (isConsumeCall(a.c, node)) return this.evalConsume(node, node.arguments[0], s); // `consume(x)`
+        if (isConsumeCall(a.c, node))
+          return this.evalConsume(node, node.arguments[0], s); // `consume(x)`
         return this.evalCall(node, s);
       case K.NewExpression:
         return this.evalNew(node, s);
       case K.TaggedTemplateExpression: {
         let v = this.eval(node.tag, s);
         if (node.template.kind === K.TemplateExpression) {
-          for (const span of node.template.templateSpans as Node[]) v = s.mergeValues(v, this.eval(span.expression, s));
+          for (const span of node.template.templateSpans as Node[])
+            v = s.mergeValues(v, this.eval(span.expression, s));
         }
         if (a.isPrimitiveOrSharedStructType(a.typeOf(node))) return sharedValue;
         return v;
@@ -1236,13 +1511,17 @@ class FunctionAnalysis {
   // regions of all subexpressions.
   evalChildren(node: Node, s: State): Value {
     const r = this.a.newRegion();
-    forEachChild(node, (child) => {
-      if (isTypeNode(child) || child.kind === K.Identifier && !isOwnValueReference(child)) return false;
+    forEachChild(node, child => {
+      if (
+        isTypeNode(child) ||
+        (child.kind === K.Identifier && !isOwnValueReference(child))
+      )
+        return false;
       if (isExpression(child) || isJsxChildOrAttribute(child)) {
         const v = this.eval(child, s);
         if (v.kind === ValueKind.InRegion) s.union(r, v.region);
       } else {
-        forEachChild(child, (grandchild) => {
+        forEachChild(child, grandchild => {
           if (isExpression(grandchild) && grandchild.kind !== K.Identifier) {
             const v = this.eval(grandchild, s);
             if (v.kind === ValueKind.InRegion) s.union(r, v.region);
@@ -1259,7 +1538,8 @@ class FunctionAnalysis {
     const symbol = this.a.symbolOfIdentifier(id);
     if (!symbol) return sharedValue;
     const v = this.lookup(symbol, s);
-    if (this.checkUse(id, id.text, v, s) && v.kind === ValueKind.Consumed) return sharedValue;
+    if (this.checkUse(id, id.text, v, s) && v.kind === ValueKind.Consumed)
+      return sharedValue;
     return v;
   }
 
@@ -1271,7 +1551,12 @@ class FunctionAnalysis {
     const a = this.a;
     if (a.isLocalTo(symbol, this.node)) {
       const handle = symbol.valueDeclaration;
-      if (handle && this.node.kind !== K.SourceFile && (handle.kind === K.FunctionDeclaration || handle.kind === K.ClassDeclaration)) {
+      if (
+        handle &&
+        this.node.kind !== K.SourceFile &&
+        (handle.kind === K.FunctionDeclaration ||
+          handle.kind === K.ClassDeclaration)
+      ) {
         // A nested function or class: a closure over the variables it captures.
         return this.closureValue(a.c.host.declarationOf(handle)!, s);
       }
@@ -1311,12 +1596,21 @@ class FunctionAnalysis {
     if (operand.kind === K.Identifier) {
       const symbol = this.a.symbolOfIdentifier(operand);
       if (symbol && this.a.isLocalTo(symbol, this.node)) {
-        let callee = "consume";
+        let callee = 'consume';
         const call = walkUpParenthesizedExpressions(node.parent as Node);
-        if (call && (call.kind === K.CallExpression || call.kind === K.NewExpression) && call.expression !== node) {
+        if (
+          call &&
+          (call.kind === K.CallExpression || call.kind === K.NewExpression) &&
+          call.expression !== node
+        ) {
           callee = calleeName(call.expression);
         }
-        s.vars.set(symbol, { kind: ValueKind.Consumed, region: 0, consumed: { site: node, callee, via: operand.text, consume: true }, maybe: false });
+        s.vars.set(symbol, {
+          kind: ValueKind.Consumed,
+          region: 0,
+          consumed: {site: node, callee, via: operand.text, consume: true},
+          maybe: false,
+        });
       }
     }
     return v;
@@ -1329,7 +1623,11 @@ class FunctionAnalysis {
       this.assign(node.left, v, s);
       return v;
     }
-    if (op === K.AmpersandAmpersandEqualsToken || op === K.BarBarEqualsToken || op === K.QuestionQuestionEqualsToken) {
+    if (
+      op === K.AmpersandAmpersandEqualsToken ||
+      op === K.BarBarEqualsToken ||
+      op === K.QuestionQuestionEqualsToken
+    ) {
       const old = this.eval(node.left, s);
       const assigned = s.copy();
       const v = assigned.mergeValues(old, this.eval(node.right, assigned));
@@ -1343,7 +1641,11 @@ class FunctionAnalysis {
       this.eval(node.right, s);
       return sharedValue;
     }
-    if (op === K.AmpersandAmpersandToken || op === K.BarBarToken || op === K.QuestionQuestionToken) {
+    if (
+      op === K.AmpersandAmpersandToken ||
+      op === K.BarBarToken ||
+      op === K.QuestionQuestionToken
+    ) {
       const left = this.eval(node.left, s);
       const right = s.copy();
       const vr = this.eval(node.right, right);
@@ -1356,7 +1658,11 @@ class FunctionAnalysis {
     }
     this.eval(node.left, s);
     this.eval(node.right, s);
-    if (op === K.PlusToken && !this.a.isPrimitiveOrSharedStructType(this.a.typeOf(node))) return regionValue(this.a.newRegion());
+    if (
+      op === K.PlusToken &&
+      !this.a.isPrimitiveOrSharedStructType(this.a.typeOf(node))
+    )
+      return regionValue(this.a.newRegion());
     return sharedValue;
   }
 
@@ -1364,9 +1670,13 @@ class FunctionAnalysis {
   // shared values.
   evalWriteTarget(target: Node, s: State): void {
     target = skipParentheses(target);
-    if (target.kind === K.PropertyAccessExpression || target.kind === K.ElementAccessExpression) {
+    if (
+      target.kind === K.PropertyAccessExpression ||
+      target.kind === K.ElementAccessExpression
+    ) {
       const obj = this.eval(target.expression, s);
-      if (target.kind === K.ElementAccessExpression) this.eval(target.argumentExpression, s);
+      if (target.kind === K.ElementAccessExpression)
+        this.eval(target.argumentExpression, s);
       this.checkWrite(target, target.expression, obj);
     } else {
       this.eval(target, s);
@@ -1389,11 +1699,14 @@ class FunctionAnalysis {
         s.mergeValues(this.lookup(symbol, s), v);
         return;
       }
-      case K.PropertyAccessExpression: case K.ElementAccessExpression: {
+      case K.PropertyAccessExpression:
+      case K.ElementAccessExpression: {
         const obj = this.eval(target.expression, s);
-        if (target.kind === K.ElementAccessExpression) this.eval(target.argumentExpression, s);
+        if (target.kind === K.ElementAccessExpression)
+          this.eval(target.argumentExpression, s);
         this.checkWrite(target, target.expression, obj);
-        if (obj.kind === ValueKind.InRegion && !s.isCounted(obj)) s.mergeValues(obj, v);
+        if (obj.kind === ValueKind.InRegion && !s.isCounted(obj))
+          s.mergeValues(obj, v);
         return;
       }
       case K.ArrayLiteralExpression:
@@ -1401,8 +1714,15 @@ class FunctionAnalysis {
           if (element.kind === K.OmittedExpression) continue;
           if (element.kind === K.SpreadElement) {
             this.assign(element.expression, v, s);
-          } else if (element.kind === K.BinaryExpression && element.operatorToken.kind === K.EqualsToken) {
-            this.assign(element.left, s.mergeValues(v, this.eval(element.right, s)), s);
+          } else if (
+            element.kind === K.BinaryExpression &&
+            element.operatorToken.kind === K.EqualsToken
+          ) {
+            this.assign(
+              element.left,
+              s.mergeValues(v, this.eval(element.right, s)),
+              s,
+            );
           } else {
             this.assign(element, v, s);
           }
@@ -1412,10 +1732,18 @@ class FunctionAnalysis {
         for (const property of target.properties as Node[]) {
           switch (property.kind) {
             case K.PropertyAssignment: {
-              if (property.name.kind === K.ComputedPropertyName) this.eval(property.name.expression, s);
+              if (property.name.kind === K.ComputedPropertyName)
+                this.eval(property.name.expression, s);
               const init = property.initializer as Node;
-              if (init.kind === K.BinaryExpression && init.operatorToken.kind === K.EqualsToken) {
-                this.assign(init.left, s.mergeValues(v, this.eval(init.right, s)), s);
+              if (
+                init.kind === K.BinaryExpression &&
+                init.operatorToken.kind === K.EqualsToken
+              ) {
+                this.assign(
+                  init.left,
+                  s.mergeValues(v, this.eval(init.right, s)),
+                  s,
+                );
               } else {
                 this.assign(init, v, s);
               }
@@ -1423,7 +1751,11 @@ class FunctionAnalysis {
             }
             case K.ShorthandPropertyAssignment: {
               let pv = v;
-              if (property.objectAssignmentInitializer) pv = s.mergeValues(pv, this.eval(property.objectAssignmentInitializer, s));
+              if (property.objectAssignmentInitializer)
+                pv = s.mergeValues(
+                  pv,
+                  this.eval(property.objectAssignmentInitializer, s),
+                );
               this.assign(property.name, pv, s);
               break;
             }
@@ -1440,8 +1772,15 @@ class FunctionAnalysis {
   // Reports a write to a property or element of a shared value. Fields of shared struct instances are
   // mutable cells, so writing them is allowed.
   checkWrite(target: Node, object: Node, obj: Value): void {
-    if (obj.kind !== ValueKind.Shared || !this.a.isImmutableShared(object)) return;
-    this.a.report(target, ReportKind.Write, target, Messages.ChangeShared, expressionName(object));
+    if (obj.kind !== ValueKind.Shared || !this.a.isImmutableShared(object))
+      return;
+    this.a.report(
+      target,
+      ReportKind.Write,
+      target,
+      Messages.ChangeShared,
+      expressionName(object),
+    );
   }
 
   // The value of `o.p` or `o[i]` given the value of `o`: shared if `o` is shared (sharedness is deep),
@@ -1452,12 +1791,17 @@ class FunctionAnalysis {
     if (s.isCounted(obj)) {
       // A struct element of a SharedArray is stored inline in the array's block: an alias of the
       // array. Fields are numbers or untracked references.
-      if (node.kind === K.ElementAccessExpression && a.isCountedType(a.typeOf(node))) return obj;
+      if (
+        node.kind === K.ElementAccessExpression &&
+        a.isCountedType(a.typeOf(node))
+      )
+        return obj;
       return sharedValue;
     }
     if (node.kind === K.PropertyAccessExpression) {
       const prop = a.c.host.symbolAt(node.name);
-      if (prop && (prop.flags & SymbolFlags.Method || a.isDeclaredShared(prop))) return sharedValue;
+      if (prop && (prop.flags & SymbolFlags.Method || a.isDeclaredShared(prop)))
+        return sharedValue;
     } else if (a.isElementDeclaredShared(object)) {
       return sharedValue;
     }
@@ -1471,7 +1815,8 @@ class FunctionAnalysis {
       if (v.kind === ValueKind.InRegion) s.union(r, v.region);
     };
     for (const property of node.properties as Node[]) {
-      if (property.name?.kind === K.ComputedPropertyName) this.eval(property.name.expression, s);
+      if (property.name?.kind === K.ComputedPropertyName)
+        this.eval(property.name.expression, s);
       switch (property.kind) {
         case K.PropertyAssignment:
           add(this.eval(property.initializer, s));
@@ -1482,7 +1827,9 @@ class FunctionAnalysis {
         case K.SpreadAssignment:
           add(this.eval(property.expression, s));
           break;
-        case K.MethodDeclaration: case K.GetAccessor: case K.SetAccessor:
+        case K.MethodDeclaration:
+        case K.GetAccessor:
+        case K.SetAccessor:
           add(this.closureValue(property, s));
           break;
       }
@@ -1502,7 +1849,11 @@ class FunctionAnalysis {
         const v = this.lookup(symbol, s);
         // A captured variable that was already sent is reported once, here; it is not linked to the
         // closure, so that uses of the closure do not report it again.
-        if (!this.checkUse(captures.nodes[i]!, symbol.name, v, s) && v.kind === ValueKind.InRegion && !s.isCounted(v)) {
+        if (
+          !this.checkUse(captures.nodes[i]!, symbol.name, v, s) &&
+          v.kind === ValueKind.InRegion &&
+          !s.isCounted(v)
+        ) {
           s.union(r, v.region);
         }
       });
@@ -1519,11 +1870,15 @@ class FunctionAnalysis {
   evalCall(node: Node, s: State): Value {
     const a = this.a;
     const host = a.c.host;
-    const callee = skipOuterExpressions(node.expression, OEK.Parentheses | OEK.NonNullAssertions);
+    const callee = skipOuterExpressions(
+      node.expression,
+      OEK.Parentheses | OEK.NonNullAssertions,
+    );
     const regions: Region[] = [];
     const add = (v: Value): void => {
       // A counted value is not linked to the other arguments.
-      if (v.kind === ValueKind.InRegion && !s.isCounted(v)) regions.push(v.region);
+      if (v.kind === ValueKind.InRegion && !s.isCounted(v))
+        regions.push(v.region);
     };
     const args = node.arguments as Node[];
     if (callee.kind === K.ImportKeyword) {
@@ -1534,29 +1889,51 @@ class FunctionAnalysis {
     const name = calleeName(callee);
     let receiverExpr: Node | undefined;
     let receiver = sharedValue;
-    if (callee.kind === K.PropertyAccessExpression || callee.kind === K.ElementAccessExpression) {
+    if (
+      callee.kind === K.PropertyAccessExpression ||
+      callee.kind === K.ElementAccessExpression
+    ) {
       receiverExpr = callee.expression as Node;
       receiver = this.eval(receiverExpr, s);
-      if (callee.kind === K.ElementAccessExpression) this.eval(callee.argumentExpression, s);
+      if (callee.kind === K.ElementAccessExpression)
+        this.eval(callee.argumentExpression, s);
       add(receiver);
     } else {
       add(this.eval(callee, s));
     }
     const handle = host.signatureOf(node).declaration;
     const decl = a.declarationOutsideLibrary(handle);
-    if (receiverExpr && arrayMutators.has(name) && receiver.kind === ValueKind.Shared && a.isArrayExpression(receiverExpr) && a.isImmutableShared(receiverExpr)) {
-      a.report(node, ReportKind.Write, callee, Messages.ChangeShared, expressionName(receiverExpr));
+    if (
+      receiverExpr &&
+      arrayMutators.has(name) &&
+      receiver.kind === ValueKind.Shared &&
+      a.isArrayExpression(receiverExpr) &&
+      a.isImmutableShared(receiverExpr)
+    ) {
+      a.report(
+        node,
+        ReportKind.Write,
+        callee,
+        Messages.ChangeShared,
+        expressionName(receiverExpr),
+      );
     }
     const params = signatureParameters(decl);
     const consuming = a.isConsumingSignature(decl);
     let callback: Node | undefined;
-    if (receiverExpr && (name === "map" || name === "flatMap") && args.length > 0 && a.isLibArrayMethod(handle)) {
+    if (
+      receiverExpr &&
+      (name === 'map' || name === 'flatMap') &&
+      args.length > 0 &&
+      a.isLibArrayMethod(handle)
+    ) {
       const cb = skipParentheses(args[0]!);
       if (isFunctionExpressionOrArrowFunction(cb)) callback = cb;
     }
     const otherArgs: Region[] = []; // arguments other than the receiver and a map callback
     args.forEach((arg, i) => {
-      const expr = arg.kind === K.SpreadElement ? arg.expression as Node : arg;
+      const expr =
+        arg.kind === K.SpreadElement ? (arg.expression as Node) : arg;
       const v = this.eval(expr, s);
       const param = parameterAt(params, i);
       if (param && a.isSendingTypeNode(param.type)) {
@@ -1564,7 +1941,12 @@ class FunctionAnalysis {
         return;
       }
       add(v);
-      if (v.kind === ValueKind.InRegion && !s.isCounted(v) && !(callback && i === 0)) otherArgs.push(v.region);
+      if (
+        v.kind === ValueKind.InRegion &&
+        !s.isCounted(v) &&
+        !(callback && i === 0)
+      )
+        otherArgs.push(v.region);
     });
     const counted = a.isCountedType(a.typeOf(node));
     switch (a.returnKind(decl)) {
@@ -1604,14 +1986,16 @@ class FunctionAnalysis {
     const name = calleeName(node.expression);
     const consuming = a.isConsumingSignature(decl);
     args.forEach((arg, i) => {
-      const expr = arg.kind === K.SpreadElement ? arg.expression as Node : arg;
+      const expr =
+        arg.kind === K.SpreadElement ? (arg.expression as Node) : arg;
       const value = this.eval(expr, s);
       const param = parameterAt(params, i);
       if (param && a.isSendingTypeNode(param.type)) {
         this.sendArgument(value, expr, param, name, consuming, s);
         return;
       }
-      if (value.kind === ValueKind.InRegion && !s.isCounted(value)) regions.push(value.region);
+      if (value.kind === ValueKind.InRegion && !s.isCounted(value))
+        regions.push(value.region);
     });
     switch (a.returnKind(decl)) {
       case ReturnKind.Sending:
@@ -1634,39 +2018,69 @@ class FunctionAnalysis {
   // Merges regions and returns the root, or 0 if there are none.
   unionAll(regions: Region[], s: State): Region {
     let r = 0;
-    for (const region of regions) r = r === 0 ? s.find(region) : s.union(r, region);
+    for (const region of regions)
+      r = r === 0 ? s.find(region) : s.union(r, region);
     return r;
   }
 
   // Passes an argument to a `Sending` parameter. A counted value is sent (moved) only by a parameter
   // that is not a rest parameter: a thread's arguments share it, and a share-like function leaves it
   // as it is.
-  sendArgument(v: Value, expr: Node, param: Node, callee: string, consuming: boolean, s: State): void {
+  sendArgument(
+    v: Value,
+    expr: Node,
+    param: Node,
+    callee: string,
+    consuming: boolean,
+    s: State,
+  ): void {
     if (s.isCounted(v) && (consuming || param.dotDotDotToken)) return;
     this.send(v, expr, callee, consuming, s);
   }
 
   // Sends a value: passes it to a `Sending` parameter (or a share-like function, which consumes it).
-  send(v: Value, expr: Node, callee: string, consuming: boolean, s: State): void {
+  send(
+    v: Value,
+    expr: Node,
+    callee: string,
+    consuming: boolean,
+    s: State,
+  ): void {
     if (v.kind !== ValueKind.InRegion) return;
     const [root, inf] = s.root(v);
     const name = expressionName(expr);
     if (inf.flags & RegionFlags.Caller) {
-      this.a.report(expr, ReportKind.Send, expr, Messages.SendCallerReferenced, name);
+      this.a.report(
+        expr,
+        ReportKind.Send,
+        expr,
+        Messages.SendCallerReferenced,
+        name,
+      );
     } else if (inf.flags & RegionFlags.Outer) {
       this.a.report(expr, ReportKind.Send, expr, Messages.SendCaptured, name);
     } else if (inf.sent && !inf.maybe) {
       // Already sent: the use of the sent variable has been reported.
     } else {
-      s.addSend(root, { site: expr, callee, via: name, consume: consuming }, false);
+      s.addSend(
+        root,
+        {site: expr, callee, via: name, consume: consuming},
+        false,
+      );
     }
   }
 }
 
 function isJsxChildOrAttribute(node: Node): boolean {
   switch (node.kind) {
-    case K.JsxElement: case K.JsxExpression: case K.JsxSelfClosingElement: case K.JsxText: case K.JsxFragment:
-    case K.JsxAttribute: case K.JsxSpreadAttribute: case K.JsxAttributes:
+    case K.JsxElement:
+    case K.JsxExpression:
+    case K.JsxSelfClosingElement:
+    case K.JsxText:
+    case K.JsxFragment:
+    case K.JsxAttribute:
+    case K.JsxSpreadAttribute:
+    case K.JsxAttributes:
       return true;
   }
   return false;
@@ -1681,12 +2095,21 @@ function lineOf(node: Node): number {
 // (abbreviated) source text.
 function expressionName(expr: Node): string {
   expr = skipParentheses(expr);
-  if (expr.kind === K.CallExpression && expr.arguments.length === 1 && expr.expression.kind === K.Identifier && expr.expression.text === "consume") {
+  if (
+    expr.kind === K.CallExpression &&
+    expr.arguments.length === 1 &&
+    expr.expression.kind === K.Identifier &&
+    expr.expression.text === 'consume'
+  ) {
     expr = skipParentheses(expr.arguments[0]); // `consume(x)`
   }
   if (expr.kind === K.Identifier) return expr.text;
-  let text = expr.getText(expr.getSourceFile()).split(/\s+/).filter((part: string) => part !== "").join(" ");
-  if (text.length > 40) text = text.slice(0, 37) + "...";
+  let text = expr
+    .getText(expr.getSourceFile())
+    .split(/\s+/)
+    .filter((part: string) => part !== '')
+    .join(' ');
+  if (text.length > 40) text = text.slice(0, 37) + '...';
   return text;
 }
 
@@ -1699,7 +2122,11 @@ function calleeName(callee: Node): string {
 
 // The function body or file in which a declaration lives.
 function ownerOf(decl: Node): Node | undefined {
-  for (let n = decl.parent as Node | undefined; n; n = n.parent as Node | undefined) {
+  for (
+    let n = decl.parent as Node | undefined;
+    n;
+    n = n.parent as Node | undefined
+  ) {
     if (isFunctionBody(n) || n.kind === K.SourceFile) return n;
   }
   return undefined;
@@ -1709,7 +2136,9 @@ function ownerOf(decl: Node): Node | undefined {
 function signatureParameters(decl: Node | undefined): Node[] {
   if (!decl || !isFunctionLike(decl)) return [];
   const params = (decl.parameters ?? []) as Node[];
-  return params.length > 0 && isThisParameter(params[0]!) ? params.slice(1) : [...params];
+  return params.length > 0 && isThisParameter(params[0]!)
+    ? params.slice(1)
+    : [...params];
 }
 
 // The parameter an argument at the given index is passed to.
@@ -1723,10 +2152,16 @@ function parameterAt(params: Node[], index: number): Node | undefined {
 // The name of a type parameter of decl that t refers to, if it is one.
 function typeParameterName(decl: Node, t: Node | undefined): string {
   while (t && t.kind === K.ParenthesizedType) t = t.type as Node;
-  if (!t || t.kind !== K.TypeReference || (t.typeArguments?.length ?? 0) !== 0 || t.typeName.kind !== K.Identifier) return "";
+  if (
+    !t ||
+    t.kind !== K.TypeReference ||
+    (t.typeArguments?.length ?? 0) !== 0 ||
+    t.typeName.kind !== K.Identifier
+  )
+    return '';
   const name = t.typeName.text as string;
   for (const tp of (decl.typeParameters ?? []) as Node[]) {
     if (tp.name.text === name) return name;
   }
-  return "";
+  return '';
 }

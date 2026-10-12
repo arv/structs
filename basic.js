@@ -13,15 +13,17 @@
 // it the environment bump reaches (counter, lock): that copies counter into the shared heap and
 // forwards the local object to it. the threads' writes then take counter over from main
 // (blocked in join, so at once) and lock it for each write
-import { $closure, $fns, $newThread, $newLock, $log } from './runtime.js';
+import {$closure, $fns, $newThread, $newLock, $log} from './runtime.js';
 
-const FN = $fns({ bump, bump_hold });
+const FN = $fns({bump, bump_hold});
 
 export function main() {
   // the top-level bindings functions reach (counter, lock) live in one environment object
-  const env = { counter: { n: 0 }, lock: $newLock() };
-  const t1 = $newThread($closure(FN.bump, env)), t2 = $newThread($closure(FN.bump, env));
-  $C(t1, join); $C(t2, join);
+  const env = {counter: {n: 0}, lock: $newLock()};
+  const t1 = $newThread($closure(FN.bump, env)),
+    t2 = $newThread($closure(FN.bump, env));
+  $C(t1, join);
+  $C(t2, join);
   const counter = $G(env, counter);
   $log($G(counter, n));
 }

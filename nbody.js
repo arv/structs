@@ -1,8 +1,19 @@
 // Porffor's threads/playground/presets/3-nbody.js, translated by hand by the rules in README.md.
 // the original is quoted above each function
-import { $closure, $fns, $class, $new, $newThread, $newLock, $newCond, $iter, $eq, $log } from './runtime.js';
+import {
+  $closure,
+  $fns,
+  $class,
+  $new,
+  $newThread,
+  $newLock,
+  $newCond,
+  $iter,
+  $eq,
+  $log,
+} from './runtime.js';
 
-const FN = $fns({ Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body });
+const FN = $fns({Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body});
 
 // const BODIES = 800, STEPS = 30, DT = 0.001, SOFTEN = 0.01;
 // (top-level consts bound to literals: inlined)
@@ -17,10 +28,18 @@ const FN = $fns({ Barrier_ctor, Barrier_wait, Barrier_wait_hold, thread_body });
 // };
 export function makeBodies() {
   // seed is captured by random, so it lives in an environment object
-  const env = { seed: 1 };
+  const env = {seed: 1};
   const bodies = [];
   for (let i = 0; i < 800; i++) {
-    $C(bodies, push, { x: random(env) * 2 - 1, y: random(env) * 2 - 1, z: random(env) * 2 - 1, vx: 0, vy: 0, vz: 0, m: 0.5 + random(env) });
+    $C(bodies, push, {
+      x: random(env) * 2 - 1,
+      y: random(env) * 2 - 1,
+      z: random(env) * 2 - 1,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      m: 0.5 + random(env),
+    });
     $POLL();
   }
   return bodies;
@@ -44,12 +63,15 @@ function random(env) {
 //   }
 // }
 function Barrier_ctor(env, thiz, n) {
-  $S(thiz, n, n); $S(thiz, waiting, 0); $S(thiz, round, 0);
-  $S(thiz, lock, $newLock()); $S(thiz, cond, $newCond());
+  $S(thiz, n, n);
+  $S(thiz, waiting, 0);
+  $S(thiz, round, 0);
+  $S(thiz, lock, $newLock());
+  $S(thiz, cond, $newCond());
 }
 function Barrier_wait(env, thiz) {
   // the arrow captures this
-  const env1 = { thiz };
+  const env1 = {thiz};
   const lock = $G(thiz, lock);
   $C(lock, hold, $closure(FN.Barrier_wait_hold, env1));
 }
@@ -64,13 +86,14 @@ function Barrier_wait_hold(env) {
     $C(cond, notifyAll);
   } else {
     while ($eq($G(thiz, round), round)) {
-      const cond = $G(thiz, cond), lock = $G(thiz, lock);
+      const cond = $G(thiz, cond),
+        lock = $G(thiz, lock);
       $C(cond, wait, lock);
       $POLL();
     }
   }
 }
-const Barrier = $class(FN.Barrier_ctor, { wait: FN.Barrier_wait });
+const Barrier = $class(FN.Barrier_ctor, {wait: FN.Barrier_wait});
 
 // const accelerate = (bodies, lo0, hi0) => {
 //   const lo = +lo0, hi = +hi0, n = +bodies.length;
@@ -89,20 +112,32 @@ const Barrier = $class(FN.Barrier_ctor, { wait: FN.Barrier_wait });
 //   }
 // };
 export function accelerate(bodies, lo0, hi0) {
-  const lo = +lo0, hi = +hi0, n = +$G(bodies, length);
+  const lo = +lo0,
+    hi = +hi0,
+    n = +$G(bodies, length);
   for (let i = lo; i < hi; i++) {
     const b = $GI(bodies, i);
-    const x = +$G(b, x), y = +$G(b, y), z = +$G(b, z);
-    let ax = 0, ay = 0, az = 0;
+    const x = +$G(b, x),
+      y = +$G(b, y),
+      z = +$G(b, z);
+    let ax = 0,
+      ay = 0,
+      az = 0;
     for (let j = 0; j < n; j++) {
       const o = $GI(bodies, j);
-      const dx = +$G(o, x) - x, dy = +$G(o, y) - y, dz = +$G(o, z) - z;
+      const dx = +$G(o, x) - x,
+        dy = +$G(o, y) - y,
+        dz = +$G(o, z) - z;
       const d2 = dx * dx + dy * dy + dz * dz + 0.01;
       const f = +$G(o, m) / (d2 * Math.sqrt(d2));
-      ax += dx * f; ay += dy * f; az += dz * f;
+      ax += dx * f;
+      ay += dy * f;
+      az += dz * f;
       $POLL();
     }
-    $S(b, vx, $G(b, vx) + ax * 0.001); $S(b, vy, $G(b, vy) + ay * 0.001); $S(b, vz, $G(b, vz) + az * 0.001);
+    $S(b, vx, $G(b, vx) + ax * 0.001);
+    $S(b, vy, $G(b, vy) + ay * 0.001);
+    $S(b, vz, $G(b, vz) + az * 0.001);
     $POLL();
   }
 }
@@ -115,10 +150,13 @@ export function accelerate(bodies, lo0, hi0) {
 //   }
 // };
 export function move(bodies, lo0, hi0) {
-  const lo = +lo0, hi = +hi0;
+  const lo = +lo0,
+    hi = +hi0;
   for (let i = lo; i < hi; i++) {
     const b = $GI(bodies, i);
-    $S(b, x, $G(b, x) + $G(b, vx) * 0.001); $S(b, y, $G(b, y) + $G(b, vy) * 0.001); $S(b, z, $G(b, z) + $G(b, vz) * 0.001);
+    $S(b, x, $G(b, x) + $G(b, vx) * 0.001);
+    $S(b, y, $G(b, y) + $G(b, vy) * 0.001);
+    $S(b, z, $G(b, z) + $G(b, vz) * 0.001);
     $POLL();
   }
 }
@@ -131,7 +169,10 @@ export function move(bodies, lo0, hi0) {
 export function energy(bodies) {
   let e = 0;
   for (const b of $iter(bodies)) {
-    e += 0.5 * $G(b, m) * ($G(b, vx) * $G(b, vx) + $G(b, vy) * $G(b, vy) + $G(b, vz) * $G(b, vz));
+    e +=
+      0.5 *
+      $G(b, m) *
+      ($G(b, vx) * $G(b, vx) + $G(b, vy) * $G(b, vy) + $G(b, vz) * $G(b, vz));
     $POLL();
   }
   return e;
@@ -157,11 +198,15 @@ export function energy(bodies) {
 // };
 function simulate(threads) {
   // bodies and barrier are captured by the thread functions
-  const env = { bodies: makeBodies(), barrier: $new(Barrier, threads) };
+  const env = {bodies: makeBodies(), barrier: $new(Barrier, threads)};
   const ts = [];
   for (let t = 0; t < threads; t++) {
     // lo and hi are per iteration: a block environment whose parent is env
-    const env1 = { $p: env, lo: Math.floor(800 * t / threads), hi: Math.floor(800 * (t + 1) / threads) };
+    const env1 = {
+      $p: env,
+      lo: Math.floor((800 * t) / threads),
+      hi: Math.floor((800 * (t + 1)) / threads),
+    };
     $C(ts, push, $newThread($closure(FN.thread_body, env1)));
     $POLL();
   }
@@ -174,8 +219,11 @@ function simulate(threads) {
 }
 function thread_body(env) {
   // const bindings it captured: read once per call
-  const lo = $G(env, lo), hi = $G(env, hi), p = $G(env, $p);
-  const bodies = $G(p, bodies), barrier = $G(p, barrier);
+  const lo = $G(env, lo),
+    hi = $G(env, hi),
+    p = $G(env, $p);
+  const bodies = $G(p, bodies),
+    barrier = $G(p, barrier);
   for (let s = 0; s < 30; s++) {
     accelerate(bodies, lo, hi);
     $C(barrier, wait);
@@ -201,7 +249,9 @@ export function main(threadCounts) {
     const e = simulate(threads);
     const ms = performance.now() - t0;
     if (threads === 1) base = ms;
-    $log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x  kinetic energy ${$C(e, toFixed, 6)}`);
+    $log(
+      `threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x  kinetic energy ${$C(e, toFixed, 6)}`,
+    );
     $POLL();
   }
 }

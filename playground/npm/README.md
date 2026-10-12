@@ -5,20 +5,40 @@ Threads for JavaScript, in plain TypeScript. Real parallelism on Web Workers and
 thread, shared read-only, or a cell built for sharing, and a checker proves you follow the rules.
 
 ```ts
-import { Barrier, f64, scope, SharedArray, struct, type Struct } from "own-threads";
+import {
+  Barrier,
+  f64,
+  scope,
+  SharedArray,
+  struct,
+  type Struct,
+} from 'own-threads';
 
-const Body = struct({ x: f64, y: f64, vx: f64, vy: f64, m: f64 }); // lives in shared memory
+const Body = struct({x: f64, y: f64, vx: f64, vy: f64, m: f64}); // lives in shared memory
 type Body = Struct<typeof Body>;
 
-function step(bodies: SharedArray<Body>, lo: number, hi: number, barrier: Barrier) {
-  for (let i = lo; i < hi; i++) bodies[i].x += bodies[i].vx;     // every thread, the same memory
+function step(
+  bodies: SharedArray<Body>,
+  lo: number,
+  hi: number,
+  barrier: Barrier,
+) {
+  for (let i = lo; i < hi; i++) bodies[i].x += bodies[i].vx; // every thread, the same memory
   barrier.wait();
 }
 
 export function main(threads: number) {
-  const bodies = new SharedArray(Body, 800), barrier = new Barrier(threads);
+  const bodies = new SharedArray(Body, 800),
+    barrier = new Barrier(threads);
   scope(s => {
-    for (let t = 0; t < threads; t++) s.spawn(step, bodies, Math.floor(t * 800 / threads), Math.floor((t + 1) * 800 / threads), barrier);
+    for (let t = 0; t < threads; t++)
+      s.spawn(
+        step,
+        bodies,
+        Math.floor((t * 800) / threads),
+        Math.floor(((t + 1) * 800) / threads),
+        barrier,
+      );
   });
 }
 ```
@@ -35,19 +55,19 @@ Try it in the browser, with the compiled JavaScript side by side:
 A thread is a worker with its own JavaScript heap, and objects cannot cross between heaps. So every
 value is one of three kinds:
 
-| Kind | In the types | Crosses threads by | For |
-|---|---|---|---|
-| Owned | ordinary types; `Sending<T>` where it moves | moving: copied once, and the sender loses it | work a thread does alone, and its result |
-| Shared | `Shared<T>`, deeply readonly | being frozen: every thread reads its own copy, made once | tables, settings, lookups |
-| Cell | `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory | data many threads read and write in place, and what orders them |
+| Kind   | In the types                                                | Crosses threads by                                       | For                                                             |
+| ------ | ----------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
+| Owned  | ordinary types; `Sending<T>` where it moves                 | moving: copied once, and the sender loses it             | work a thread does alone, and its result                        |
+| Shared | `Shared<T>`, deeply readonly                                | being frozen: every thread reads its own copy, made once | tables, settings, lookups                                       |
+| Cell   | `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
 
 Code inside a thread is plain JavaScript on plain objects, at full speed. The cost is at the
 crossings, and the types say where they are.
 
 ```ts
-import { log, share, spawn, type Sending, type Shared } from "own-threads";
+import {log, share, spawn, type Sending, type Shared} from 'own-threads';
 
-type Order = { id: number; items: number[] };
+type Order = {id: number; items: number[]};
 
 // the order moves to the thread: it owns it now, and may change it
 function total(order: Sending<Order>): Sending<number> {
@@ -56,15 +76,19 @@ function total(order: Sending<Order>): Sending<number> {
 }
 
 // rates are shared: frozen, and read by any number of threads
-function convert(amount: number, rates: Shared<Record<string, number>>, to: string): Sending<number> {
+function convert(
+  amount: number,
+  rates: Shared<Record<string, number>>,
+  to: string,
+): Sending<number> {
   return amount * rates[to];
 }
 
 export function main() {
-  const order = { id: 1, items: [10, 20, 30] };
-  log(spawn(total, order).join());  // 65; using `order` here is an error
-  const rates = share({ USD: 1, EUR: 0.92, SEK: 10.5 });
-  log(spawn(convert, 100, rates, "EUR").join());
+  const order = {id: 1, items: [10, 20, 30]};
+  log(spawn(total, order).join()); // 65; using `order` here is an error
+  const rates = share({USD: 1, EUR: 0.92, SEK: 10.5});
+  log(spawn(convert, 100, rates, 'EUR').join());
 }
 ```
 
@@ -74,19 +98,26 @@ of an async function is light, as Go's are: a worker runs thousands of them, eac
 `await` without blocking the others.
 
 ```ts
-interface Replica { position: i32; changed: Channel<void> | null } // closed, and replaced, on every change
-const Replica = struct<Replica>({ position: i32, changed: ref<Channel<void>>() });
+interface Replica {
+  position: i32;
+  changed: Channel<void> | null;
+} // closed, and replaced, on every change
+const Replica = struct<Replica>({position: i32, changed: ref<Channel<void>>()});
 
-async function request(replica: Replica, position: i32, answers: Channel<string>) {
+async function request(
+  replica: Replica,
+  position: i32,
+  answers: Channel<string>,
+) {
   for (;;) {
     const changed = replica.changed!;
-    if (atomic.load(replica, "position") >= position) break;
+    if (atomic.load(replica, 'position') >= position) break;
     await changed.recvAsync(); // one of thousands waiting on this worker
   }
-  await answers.sendAsync("ready");
+  await answers.sendAsync('ready');
 }
 
-for (let k = 0; k < 10_000; k++) go(request, replica, k % 1000 + 1, answers); // 0.2 µs each
+for (let k = 0; k < 10_000; k++) go(request, replica, (k % 1000) + 1, answers); // 0.2 µs each
 ```
 
 ## Install
@@ -106,10 +137,10 @@ cross-origin isolation headers that `SharedArrayBuffer` needs on the dev and pre
 
 ```js
 // vite.config.js
-import threads from "own-threads/vite";
+import threads from 'own-threads/vite';
 
 export default {
-  plugins: [threads({ tsgo: "/path/to/TypeScript/tsc/built/local/tsgo" })],
+  plugins: [threads({tsgo: '/path/to/TypeScript/tsc/built/local/tsgo'})],
 };
 ```
 
@@ -119,9 +150,9 @@ page only awaits its result.
 
 ```ts
 // main.ts, the page's entry module
-import "own-threads/heap";            // first: the shared memory, before anything uses it
-import { run } from "own-threads/browser";
-import { main } from "./app.ts";
+import 'own-threads/heap'; // first: the shared memory, before anything uses it
+import {run} from 'own-threads/browser';
+import {main} from './app.ts';
 
 console.log(await run(main, 8));
 ```
@@ -148,43 +179,43 @@ All from `"own-threads"`, unless noted.
 
 **Owned and shared values**
 
-| | |
-|---|---|
-| `Sending<T>` | A value that moves: the receiver owns it, and the sender must not use it again. |
-| `Shared<T>` | A deeply readonly value any number of threads may read. |
-| `share(value)` | Freezes a value the caller owns, deeply, into a `Shared<T>`. |
-| `consume(value)` | Ends a value's lifetime, for the checker. |
+|                  |                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `Sending<T>`     | A value that moves: the receiver owns it, and the sender must not use it again. |
+| `Shared<T>`      | A deeply readonly value any number of threads may read.                         |
+| `share(value)`   | Freezes a value the caller owns, deeply, into a `Shared<T>`.                    |
+| `consume(value)` | Ends a value's lifetime, for the checker.                                       |
 
 **Threads**
 
-| | |
-|---|---|
-| `spawn(f, ...args)` | Starts `f` on a thread. Owned arguments move; shared values and cells are shared. |
-| `thread.join()`, `thread.joinAsync()` | Waits for the thread; its result moves back. |
-| `scope(s => ...)` | Structured threads: joins every thread `s.spawn` started before it returns. |
-| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out. |
-| `new Barrier(n)` | `wait()` blocks until `n` threads have called it; `waitAsync()` waits without blocking. |
-| `new Slots<T>(n)` | One slot per thread to publish a shared value into; everyone reads all slots. |
+|                                             |                                                                                         |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.       |
+| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                            |
+| `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.             |
+| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                          |
+| `new Barrier(n)`                            | `wait()` blocks until `n` threads have called it; `waitAsync()` waits without blocking. |
+| `new Slots<T>(n)`                           | One slot per thread to publish a shared value into; everyone reads all slots.           |
 
 **Goroutines and channels**
 
-| | |
-|---|---|
-| `go(f, ...args)` | Starts `f` as a goroutine. Nothing waits for it. A plain function gets a thread of its own; an async function is light, one of many on a worker. |
-| `new Channel<T>(capacity = 0)` | `send(value)` moves a value in, `recv()` takes the next one out, `close()`; iterable. |
-| `ch.sendAsync(v)`, `ch.recvAsync()`, `for await (const v of ch)` | The same in an async function: waits without blocking its worker. |
-| `select(...channels)`, `selectAsync(...channels)` | Waits for the first channel with a value: `[index, value]`. |
+|                                                                  |                                                                                                                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `go(f, ...args)`                                                 | Starts `f` as a goroutine. Nothing waits for it. A plain function gets a thread of its own; an async function is light, one of many on a worker. |
+| `new Channel<T>(capacity = 0)`                                   | `send(value)` moves a value in, `recv()` takes the next one out, `close()`; iterable.                                                            |
+| `ch.sendAsync(v)`, `ch.recvAsync()`, `for await (const v of ch)` | The same in an async function: waits without blocking its worker.                                                                                |
+| `select(...channels)`, `selectAsync(...channels)`                | Waits for the first channel with a value: `[index, value]`.                                                                                      |
 
 **Shared memory**: data many threads read and write in place, with no copying. Reads and writes are
 not ordered between threads: a `Barrier`, a `Channel`, joining a thread or an atomic operation
 orders them.
 
-| | |
-|---|---|
-| `struct({ x: f64, n: i32, done: bool, name: str, next: ref<T>() })` | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type. |
-| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()` | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct, a SharedArray or a Channel (or null). |
-| `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline. |
-| `atomic.add(s, "field", v)`, `atomic.add(array, i, v)` | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
+|                                                                          |                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `struct({ x: f64, n: i32, done: bool, name: str, next: ref<T>() })`      | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type.                                                                                                                                  |
+| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()`                            | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct, a SharedArray or a Channel (or null).                                                                              |
+| `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline.                                                                                                                                   |
+| `atomic.add(s, "field", v)`, `atomic.add(array, i, v)`                   | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
 
 `i32` and `u8` are types too: numbers, kept as an `Int32Array` or a `Uint8Array` keeps them (2³¹ wraps,
 and 256 is 0). The checker requires an integer of what is stored into one: integer arithmetic, or an
@@ -192,9 +223,9 @@ explicit conversion such as `Math.round(x)` or `x | 0`, never a number that may 
 the store would truncate silently. Threads can claim work from one counter, with no lock:
 
 ```ts
-const Work = struct({ next: i32 });
+const Work = struct({next: i32});
 function worker(work: Struct<typeof Work>, n: number) {
-  for (let i; (i = atomic.add(work, "next", 1)) < n; ) process(i); // each item once
+  for (let i; (i = atomic.add(work, 'next', 1)) < n;) process(i); // each item once
 }
 ```
 
@@ -202,8 +233,11 @@ Structs and SharedArrays are reference counted and freed when no thread can reac
 that refers to its own type is declared with an interface:
 
 ```ts
-interface Node { value: number; next: Node | null }
-const Node = struct<Node>({ value: f64, next: ref<Node>() });
+interface Node {
+  value: number;
+  next: Node | null;
+}
+const Node = struct<Node>({value: f64, next: ref<Node>()});
 ```
 
 **The page** (`"own-threads/browser"`): `start({ workers, check, onLog })` starts the pool (one
@@ -217,11 +251,11 @@ in use and blocks allocated and freed.
 
 On an Apple M5 Pro, ms on 1, 2, 4 and 8 threads:
 
-| | |
-|---|---|
-| N-body, 800 bodies in shared structs (plain V8 on one thread: 25) | 29, 15, 8, 6 |
-| Mandelbrot on goroutines and channels | 712, 341, 180, 97 |
-| A sieve of Eratosthenes on a `SharedArray<boolean>` of 10 million | 76, 56, 40, 37 |
+|                                                                   |                   |
+| ----------------------------------------------------------------- | ----------------- |
+| N-body, 800 bodies in shared structs (plain V8 on one thread: 25) | 29, 15, 8, 6      |
+| Mandelbrot on goroutines and channels                             | 712, 341, 180, 97 |
+| A sieve of Eratosthenes on a `SharedArray<boolean>` of 10 million | 76, 56, 40, 37    |
 
 Values cross threads about as fast as JSON would carry them, and are read back faster: moving 50,000
 parsed JSON requests costs about 1.1 times `JSON.stringify` to write and a third of `JSON.parse` to

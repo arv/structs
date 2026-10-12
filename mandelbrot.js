@@ -1,8 +1,17 @@
 // Porffor's threads/playground/presets/2-mandelbrot.js, translated by hand by the rules in README.md.
 // the original is quoted above each function
-import { $closure, $fns, $newThread, $newSAB, $newTA, $iter, $eq, $log } from './runtime.js';
+import {
+  $closure,
+  $fns,
+  $newThread,
+  $newSAB,
+  $newTA,
+  $iter,
+  $eq,
+  $log,
+} from './runtime.js';
 
-const FN = $fns({ worker });
+const FN = $fns({worker});
 
 // const W = 80, H = 32, SAMPLES = 18, MAX_ITER = 2000;
 // (top-level consts bound to literals: inlined)
@@ -20,10 +29,14 @@ const FN = $fns({ worker });
 //   return i;
 // };
 function escape(cr0, ci0) {
-  const cr = +cr0, ci = +ci0;
-  let zr = 0, zi = 0, i = 0;
+  const cr = +cr0,
+    ci = +ci0;
+  let zr = 0,
+    zi = 0,
+    i = 0;
   while (i < 2000) {
-    const zr2 = zr * zr, zi2 = zi * zi;
+    const zr2 = zr * zr,
+      zi2 = zi * zi;
     if (zr2 + zi2 >= 4) break;
     zi = 2 * zr * zi + ci;
     zr = zr2 - zi2 + cr;
@@ -44,12 +57,16 @@ function escape(cr0, ci0) {
 //   return out;
 // };
 export function row(y0) {
-  const y = +y0, out = [];
+  const y = +y0,
+    out = [];
   for (let x = 0; x < 80; x++) {
     let sum = 0;
     for (let sy = 0; sy < 18; sy++) {
       for (let sx = 0; sx < 18; sx++) {
-        sum += escape((x + sx / 18) / 80 * 3 - 2.1, (y + sy / 18) / 32 * 2.4 - 1.2);
+        sum += escape(
+          ((x + sx / 18) / 80) * 3 - 2.1,
+          ((y + sy / 18) / 32) * 2.4 - 1.2,
+        );
         $POLL();
       }
       $POLL();
@@ -73,7 +90,7 @@ export function row(y0) {
 // };
 function render(threads) {
   // rows and next are captured by worker, so they live in an environment object
-  const env = { rows: new Array(32), next: $newTA(Int32Array, $newSAB(4)) };
+  const env = {rows: new Array(32), next: $newTA(Int32Array, $newSAB(4))};
   const ts = [];
   for (let i = 0; i < threads; i++) {
     $C(ts, push, $newThread($closure(FN.worker, env)));
@@ -88,7 +105,8 @@ function render(threads) {
 
 function worker(env) {
   // const bindings it captured: read once per call
-  const next = $G(env, next), rows = $G(env, rows);
+  const next = $G(env, next),
+    rows = $G(env, rows);
   for (let y = Atomics.add(next, 0, 1); y < 32; y = Atomics.add(next, 0, 1)) {
     $SI(rows, y, row(y));
     $POLL();
@@ -118,23 +136,40 @@ function worker(env) {
 // console.log(art);
 // (the thread counts come from the runner, so a benchmark can repeat them)
 export function main(threadCounts) {
-  let base = 0, rows;
+  let base = 0,
+    rows;
   for (const threads of $iter(threadCounts)) {
     const t0 = performance.now();
     rows = render(threads);
     const ms = performance.now() - t0;
     if (threads === 1) base = ms;
-    $log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x`);
+    $log(
+      `threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x`,
+    );
     $POLL();
   }
 
-  const palette = [ 17, 18, 19, 54, 55, 56, 92, 93, 129, 165, 171, 207, 213, 209, 215, 221, 227, 229, 231 ];
+  const palette = [
+    17, 18, 19, 54, 55, 56, 92, 93, 129, 165, 171, 207, 213, 209, 215, 221, 227,
+    229, 231,
+  ];
   let art = '';
   for (const r of $iter(rows)) {
     let last = -1;
     for (const v of $iter(r)) {
-      const c = v >= 2000 - 0.5 ? 16 : $GI(palette, Math.floor(Math.log(1 + v) / Math.log(2000) * ($G(palette, length) - 1)));
-      if (!$eq(c, last)) { art += `\x1b[48;5;${c}m`; last = c; }
+      const c =
+        v >= 2000 - 0.5
+          ? 16
+          : $GI(
+              palette,
+              Math.floor(
+                (Math.log(1 + v) / Math.log(2000)) * ($G(palette, length) - 1),
+              ),
+            );
+      if (!$eq(c, last)) {
+        art += `\x1b[48;5;${c}m`;
+        last = c;
+      }
       art += ' ';
       $POLL();
     }

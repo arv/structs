@@ -1,3 +1,12 @@
+import {
+  __message,
+  __unmessage,
+  __newCell,
+  __cellKind,
+  __start,
+  __isCounted,
+  __release,
+} from './own.js';
 // Go-style concurrency on own.js: goroutines, channels, close, range over a channel, select.
 //   const ch = new Channel(16);  go(f, ch, ...);  ch.send(v);  ch.recv();  for (const v of ch) ...
 // a channel is a cell, and a value sent on it moves: it is copied into the shared heap and the
@@ -9,14 +18,22 @@
 // goroutine blocked on a channel holds its worker (the pool grows to run the others).
 // a shared struct or SharedArray is sent as its address, with no copy: the compiler passes it as
 // __ref(p), so the message carries a count, and the receiver owns what recv() returns
-import { I32, $waitBegin, $waitEnd, C_ACTIVITY, C_SELECTING } from './runtime.js';
-import { __message, __unmessage, __newCell, __cellKind, __start, __isCounted, __release } from './own.js';
+import {I32, $waitBegin, $waitEnd, C_ACTIVITY, C_SELECTING} from './runtime.js';
 
 // [0 kind][1 slots][2 lock][3 seq][4 head][5 tail][6 count][7 closed][8 sent][9 received][10 unbuffered][11 -]
 // then the ring from word 12: a slot is [message address][bytes]. seq changes with every change, and
 // waiters wait on it. an unbuffered channel has one slot, and its sender also waits for the receiver
-const K_CHAN = 24, RING = 12;
-const LOCK = 2, SEQ = 3, HEAD = 4, TAIL = 5, COUNT = 6, CLOSED = 7, SENT = 8, RECEIVED = 9, UNBUFFERED = 10;
+const K_CHAN = 24,
+  RING = 12;
+const LOCK = 2,
+  SEQ = 3,
+  HEAD = 4,
+  TAIL = 5,
+  COUNT = 6,
+  CLOSED = 7,
+  SENT = 8,
+  RECEIVED = 9,
+  UNBUFFERED = 10;
 
 // futex-style lock: 0 free, 1 held, 2 held with waiters
 const lock = i => {
@@ -24,7 +41,10 @@ const lock = i => {
   while (Atomics.exchange(I32, i, 2) !== 0) Atomics.wait(I32, i, 2);
 };
 const unlock = i => {
-  if (Atomics.sub(I32, i, 1) !== 1) { Atomics.store(I32, i, 0); Atomics.notify(I32, i, 1); }
+  if (Atomics.sub(I32, i, 1) !== 1) {
+    Atomics.store(I32, i, 0);
+    Atomics.notify(I32, i, 1);
+  }
 };
 // holding the lock: record a change and wake everyone waiting on this channel, and any select
 const changed = c => {
@@ -49,13 +69,16 @@ const sleep = c => {
   lock(c + LOCK);
 };
 
-const EMPTY = Symbol('empty'), DONE = Symbol('done');
+const EMPTY = Symbol('empty'),
+  DONE = Symbol('done');
 // holding the lock: the next message's value (unlocking), or EMPTY, or DONE when closed and empty.
 // functions, not private methods: another thread's handle for a channel is made by own.js, from
 // the class's prototype
 function take(c) {
   if (I32[c + COUNT] === 0) return I32[c + CLOSED] !== 0 ? DONE : EMPTY;
-  const h = I32[c + HEAD], m = I32[c + RING + 2 * h], bytes = I32[c + RING + 2 * h + 1];
+  const h = I32[c + HEAD],
+    m = I32[c + RING + 2 * h],
+    bytes = I32[c + RING + 2 * h + 1];
   I32[c + HEAD] = (h + 1) % I32[c + 1];
   I32[c + COUNT]--;
   I32[c + RECEIVED]++;
@@ -67,7 +90,10 @@ function receive(c) {
   lock(c + LOCK);
   for (;;) {
     const v = take(c);
-    if (v === EMPTY) { sleep(c); continue; }
+    if (v === EMPTY) {
+      sleep(c);
+      continue;
+    }
     if (v === DONE) unlock(c + LOCK);
     return v;
   }
@@ -75,14 +101,16 @@ function receive(c) {
 
 export class Channel {
   constructor(capacity = 0) {
-    const slots = Math.max(1, capacity), a = __newCell(K_CHAN, (RING + 2 * slots) * 4, this) >> 2;
+    const slots = Math.max(1, capacity),
+      a = __newCell(K_CHAN, (RING + 2 * slots) * 4, this) >> 2;
     I32[a + 1] = slots;
     I32[a + UNBUFFERED] = capacity === 0 ? 1 : 0;
   }
   // moves v into the channel: waits while it is full, and on an unbuffered channel until a
   // receiver has taken it
   send(v) {
-    const c = this.$cell >> 2, [ m, bytes ] = __message(v);
+    const c = this.$cell >> 2,
+      [m, bytes] = __message(v);
     lock(c + LOCK);
     while (I32[c + COUNT] === I32[c + 1] && I32[c + CLOSED] === 0) sleep(c);
     if (I32[c + CLOSED] !== 0) {
@@ -92,7 +120,8 @@ export class Channel {
       throw new TypeError('own: send on a closed channel');
     }
     const t = I32[c + TAIL];
-    I32[c + RING + 2 * t] = m; I32[c + RING + 2 * t + 1] = bytes;
+    I32[c + RING + 2 * t] = m;
+    I32[c + RING + 2 * t + 1] = bytes;
     I32[c + TAIL] = (t + 1) % I32[c + 1];
     I32[c + COUNT]++;
     const ticket = I32[c + SENT]++;
@@ -145,10 +174,11 @@ export function select(...chans) {
   for (;;) {
     const seen = Atomics.load(I32, C_ACTIVITY);
     for (let k = 0; k < n; k++) {
-      const i = (turn + k) % n, v = chans[i].poll();
+      const i = (turn + k) % n,
+        v = chans[i].poll();
       if (v === EMPTY) continue;
       turn = (i + 1) % n;
-      return [ i, v === DONE ? undefined : v ];
+      return [i, v === DONE ? undefined : v];
     }
     Atomics.add(I32, C_SELECTING, 1);
     $waitBegin();

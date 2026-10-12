@@ -33,9 +33,11 @@ export interface Cell {
 export type Sending<T> = T;
 
 /** A deeply immutable value, which any number of threads may read. To TypeScript it is deeply readonly. */
-export type Shared<T> = T extends Cell | ((...args: any[]) => any) ? T
-  : T extends object ? { readonly [K in keyof T]: Shared<T[K]> }
-  : T;
+export type Shared<T> = T extends Cell | ((...args: any[]) => any)
+  ? T
+  : T extends object
+    ? {readonly [K in keyof T]: Shared<T[K]>}
+    : T;
 
 /** Ends `x`'s lifetime: its value, and what it reaches, moves to the caller. At run time, `x` itself. */
 export declare function consume<T>(x: T): Sending<T>;
@@ -59,17 +61,17 @@ export declare const f64: Field<number>;
  * which wraps, but not a number that may have a fraction, which must be converted explicitly, as with
  * Math.round(x), Math.trunc(x) or x | 0.
  */
-export type i32 = number & { readonly [int32Brand]?: never };
+export type i32 = number & {readonly [int32Brand]?: never};
 /** An 8-bit unsigned integer: a number, kept as a Uint8Array would (256 as 0, and -1 as 255). As an i32's, its values must be integers. */
-export type u8 = number & { readonly [uint8Brand]?: never };
+export type u8 = number & {readonly [uint8Brand]?: never};
 /** The field of an integer, which a SharedArray also takes as its element type. */
-export interface IntegerField<T, K extends "i32" | "u8"> extends Field<T> {
+export interface IntegerField<T, K extends 'i32' | 'u8'> extends Field<T> {
   readonly kind: K;
 }
 /** An i32 field: a 32-bit integer in shared memory, which atomic operations act on. */
-export declare const i32: IntegerField<i32, "i32">;
+export declare const i32: IntegerField<i32, 'i32'>;
 /** A u8 field: a byte in shared memory. */
-export declare const u8: IntegerField<u8, "u8">;
+export declare const u8: IntegerField<u8, 'u8'>;
 /** A boolean field: a byte in shared memory, 0 or 1. */
 export declare const bool: Field<boolean>;
 /**
@@ -106,8 +108,12 @@ export type Struct<S> = S extends StructType<infer T> ? T & Cell : never;
  */
 export declare function struct<F extends Record<string, Field<any>>>(
   fields: F,
-): StructType<{ -readonly [K in keyof F]: F[K] extends Field<infer V> ? V : never }>;
-export declare function struct<T>(fields: { [K in keyof T]-?: Field<T[K]> }): StructType<T>;
+): StructType<{
+  -readonly [K in keyof F]: F[K] extends Field<infer V> ? V : never;
+}>;
+export declare function struct<T>(fields: {
+  [K in keyof T]-?: Field<T[K]>;
+}): StructType<T>;
 
 /**
  * A fixed-length array in shared memory: of numbers (`Number`), of i32s (`i32`), of bytes (`u8`), of
@@ -126,20 +132,26 @@ export interface SharedArray<T, L = ElementLayout<T>> extends Cell {
   readonly [layoutBrand]?: L;
 }
 /** How a SharedArray of T stores its elements, as far as telling numbers, i32s and u8s apart goes. */
-type ElementLayout<T> = typeof int32Brand extends keyof T ? "i32" : typeof uint8Brand extends keyof T ? "u8" : "other";
+type ElementLayout<T> = typeof int32Brand extends keyof T
+  ? 'i32'
+  : typeof uint8Brand extends keyof T
+    ? 'u8'
+    : 'other';
 export declare const SharedArray: {
   new (type: NumberConstructor, length: number): SharedArray<number>;
   new (type: BooleanConstructor, length: number): SharedArray<boolean>;
   new (type: StringConstructor, length: number): SharedArray<string>;
-  new (type: IntegerField<i32, "i32">, length: number): SharedArray<i32>;
-  new (type: IntegerField<u8, "u8">, length: number): SharedArray<u8>;
+  new (type: IntegerField<i32, 'i32'>, length: number): SharedArray<i32>;
+  new (type: IntegerField<u8, 'u8'>, length: number): SharedArray<u8>;
   new <T>(type: StructType<T>, length: number): SharedArray<T & Cell>;
 };
 
 // ---- atomic operations ----
 
 /** The fields of a struct type S that are i32s. */
-export type I32Fields<S> = { [K in keyof S]-?: typeof int32Brand extends keyof S[K] ? K : never }[keyof S];
+export type I32Fields<S> = {
+  [K in keyof S]-?: typeof int32Brand extends keyof S[K] ? K : never;
+}[keyof S];
 
 /**
  * An atomic operation on an element of a SharedArray<i32>, or on an i32 field of a shared struct
@@ -177,12 +189,18 @@ export interface Atomic {
   /** Stores `value`, and returns the old value. */
   readonly exchange: AtomicOperation<[value: i32], i32>;
   /** Stores `replacement` if the i32 is `expected`, and returns the old value either way. */
-  readonly compareExchange: AtomicOperation<[expected: i32, replacement: i32], i32>;
+  readonly compareExchange: AtomicOperation<
+    [expected: i32, replacement: i32],
+    i32
+  >;
   /**
    * Waits while the i32 is `value`, until notify() wakes the thread or `timeout` ms pass. Not on a
    * page's main thread, which must not block, nor in an async function, which shares its worker.
    */
-  readonly wait: AtomicOperation<[value: i32, timeout?: number], "ok" | "not-equal" | "timed-out">;
+  readonly wait: AtomicOperation<
+    [value: i32, timeout?: number],
+    'ok' | 'not-equal' | 'timed-out'
+  >;
   /** Wakes up to `count` threads waiting on the i32 (all of them by default); returns how many it woke. */
   readonly notify: AtomicOperation<[count?: number], number>;
 }
@@ -202,19 +220,34 @@ export interface Thread<R> extends Cell {
  * Starts `f` on a thread. Every argument is sent: owned values move, shared values and cells are shared.
  * An async function's thread is light: a worker runs it among many others (see `go`).
  */
-export declare function spawn<A extends unknown[], R>(f: (...args: A) => Promise<Sending<R>>, ...args: Sending<A>): Thread<R>;
-export declare function spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
+export declare function spawn<A extends unknown[], R>(
+  f: (...args: A) => Promise<Sending<R>>,
+  ...args: Sending<A>
+): Thread<R>;
+export declare function spawn<A extends unknown[], R>(
+  f: (...args: A) => Sending<R>,
+  ...args: Sending<A>
+): Thread<R>;
 
 /** Spawns threads that cannot outlive the scope. */
 export interface Scope extends Cell {
-  spawn<A extends unknown[], R>(f: (...args: A) => Promise<Sending<R>>, ...args: Sending<A>): Thread<R>;
-  spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
+  spawn<A extends unknown[], R>(
+    f: (...args: A) => Promise<Sending<R>>,
+    ...args: Sending<A>
+  ): Thread<R>;
+  spawn<A extends unknown[], R>(
+    f: (...args: A) => Sending<R>,
+    ...args: Sending<A>
+  ): Thread<R>;
 }
 /** Runs `body` and joins every thread it spawned before returning. */
 export declare function scope<R>(body: (s: Scope) => R): R;
 
 /** Splits an owned array into `parts` owned, disjoint chunks of nearly equal size. Trusted. */
-export declare function partition<T>(items: Sending<T[]>, parts: number): Sending<T[]>[];
+export declare function partition<T>(
+  items: Sending<T[]>,
+  parts: number,
+): Sending<T[]>[];
 /** Takes element `index` out of an array of owned values, so the caller owns it. Trusted. */
 export declare function take<T>(items: Sending<T>[], index: number): Sending<T>;
 
@@ -270,13 +303,25 @@ export declare class Channel<T> implements Cell {
  * must not block, which would stop every goroutine on its worker: the ownership checker reports a
  * blocking call in an async function, and the call throws on such a worker.
  */
-export declare function go<A extends unknown[]>(f: (...args: A) => void | Promise<void>, ...args: Sending<A>): void;
+export declare function go<A extends unknown[]>(
+  f: (...args: A) => void | Promise<void>,
+  ...args: Sending<A>
+): void;
 /** Waits until one of the channels has a value or is closed: its index and the value (undefined if closed). */
-export declare function select<T>(...channels: Channel<T>[]): [index: number, value: T | undefined];
+export declare function select<T>(
+  ...channels: Channel<T>[]
+): [index: number, value: T | undefined];
 /** `select`, without blocking: for an async function. */
-export declare function selectAsync<T>(...channels: Channel<T>[]): Promise<[index: number, value: T | undefined]>;
+export declare function selectAsync<T>(
+  ...channels: Channel<T>[]
+): Promise<[index: number, value: T | undefined]>;
 
 /** Prints a line, synchronously, from any thread. */
 export declare function log(...args: unknown[]): void;
 /** Shared memory in use, and shared structs and SharedArrays allocated and freed. */
-export declare function heapStats(): { heapBytes: number; allocated: number; freed: number; pending: number };
+export declare function heapStats(): {
+  heapBytes: number;
+  allocated: number;
+  freed: number;
+  pending: number;
+};

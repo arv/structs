@@ -2,12 +2,31 @@
 // preset's own code, nearly, with typed layouts. The tsgo fork lays `Body` out as 7 numbers in the
 // shared heap and compiles `bodies[i].x` to a typed-array read, so threads share the bodies with no
 // copying: each thread writes only its own slice, and the barriers order the reads and the writes.
-import { Barrier, f64, log, scope, SharedArray, struct, type Struct } from "threads";
+import {
+  Barrier,
+  f64,
+  log,
+  scope,
+  SharedArray,
+  struct,
+  type Struct,
+} from 'threads';
 
-const Body = struct({ x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, m: f64 });
+const Body = struct({
+  x: f64,
+  y: f64,
+  z: f64,
+  vx: f64,
+  vy: f64,
+  vz: f64,
+  m: f64,
+});
 type Body = Struct<typeof Body>;
 
-const BODIES = 800, STEPS = 30, DT = 0.001, SOFTEN = 0.01;
+const BODIES = 800,
+  STEPS = 30,
+  DT = 0.001,
+  SOFTEN = 0.01;
 
 function makeBodies(): SharedArray<Body> {
   let seed = 1;
@@ -15,8 +34,12 @@ function makeBodies(): SharedArray<Body> {
   const bodies = new SharedArray(Body, BODIES);
   for (let i = 0; i < BODIES; i++) {
     const b = bodies[i];
-    b.x = random() * 2 - 1; b.y = random() * 2 - 1; b.z = random() * 2 - 1;
-    b.vx = 0; b.vy = 0; b.vz = 0;
+    b.x = random() * 2 - 1;
+    b.y = random() * 2 - 1;
+    b.z = random() * 2 - 1;
+    b.vx = 0;
+    b.vy = 0;
+    b.vz = 0;
     b.m = 0.5 + random();
   }
   return bodies;
@@ -27,23 +50,35 @@ function accelerate(bodies: SharedArray<Body>, lo: number, hi: number) {
   const n = bodies.length;
   for (let i = lo; i < hi; i++) {
     const b = bodies[i];
-    const x = b.x, y = b.y, z = b.z;
-    let ax = 0, ay = 0, az = 0;
+    const x = b.x,
+      y = b.y,
+      z = b.z;
+    let ax = 0,
+      ay = 0,
+      az = 0;
     for (let j = 0; j < n; j++) {
       const o = bodies[j];
-      const dx = o.x - x, dy = o.y - y, dz = o.z - z;
+      const dx = o.x - x,
+        dy = o.y - y,
+        dz = o.z - z;
       const d2 = dx * dx + dy * dy + dz * dz + SOFTEN;
       const f = o.m / (d2 * Math.sqrt(d2));
-      ax += dx * f; ay += dy * f; az += dz * f;
+      ax += dx * f;
+      ay += dy * f;
+      az += dz * f;
     }
-    b.vx += ax * DT; b.vy += ay * DT; b.vz += az * DT;
+    b.vx += ax * DT;
+    b.vy += ay * DT;
+    b.vz += az * DT;
   }
 }
 
 function move(bodies: SharedArray<Body>, lo: number, hi: number) {
   for (let i = lo; i < hi; i++) {
     const b = bodies[i];
-    b.x += b.vx * DT; b.y += b.vy * DT; b.z += b.vz * DT;
+    b.x += b.vx * DT;
+    b.y += b.vy * DT;
+    b.z += b.vz * DT;
   }
 }
 
@@ -57,7 +92,12 @@ function energy(bodies: SharedArray<Body>): number {
 }
 
 // a thread: its slice [lo, hi) of the shared bodies, and the barrier
-function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barrier) {
+function worker(
+  lo: number,
+  hi: number,
+  bodies: SharedArray<Body>,
+  barrier: Barrier,
+) {
   for (let s = 0; s < STEPS; s++) {
     accelerate(bodies, lo, hi);
     barrier.wait(); // everyone has read the old positions
@@ -67,10 +107,17 @@ function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barr
 }
 
 function simulate(threads: number): number {
-  const bodies = makeBodies(), barrier = new Barrier(threads);
+  const bodies = makeBodies(),
+    barrier = new Barrier(threads);
   scope(s => {
     for (let t = 0; t < threads; t++)
-      s.spawn(worker, Math.floor(BODIES * t / threads), Math.floor(BODIES * (t + 1) / threads), bodies, barrier);
+      s.spawn(
+        worker,
+        Math.floor((BODIES * t) / threads),
+        Math.floor((BODIES * (t + 1)) / threads),
+        bodies,
+        barrier,
+      );
   });
   return energy(bodies);
 }
@@ -83,6 +130,8 @@ export function main(threadCounts: readonly number[]) {
     const e = simulate(threads);
     const ms = performance.now() - t0;
     if (threads === 1) base = ms;
-    log(`threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x  kinetic energy ${e.toFixed(6)}`);
+    log(
+      `threads ${threads}  ${ms.toFixed(0).padStart(5)} ms  ${(base / ms).toFixed(2)}x  kinetic energy ${e.toFixed(6)}`,
+    );
   }
 }

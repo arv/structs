@@ -30,9 +30,11 @@ export interface Cell {
 export type Sending<T> = T;
 
 /** A deeply immutable value, which any number of threads may read. To TypeScript it is deeply readonly. */
-export type Shared<T> = T extends Cell | ((...args: any[]) => any) ? T
-  : T extends object ? { readonly [K in keyof T]: Shared<T[K]> }
-  : T;
+export type Shared<T> = T extends Cell | ((...args: any[]) => any)
+  ? T
+  : T extends object
+    ? {readonly [K in keyof T]: Shared<T[K]>}
+    : T;
 
 /** Ends `x`'s lifetime: its value, and what it reaches, moves to the caller. At run time, `x` itself. */
 export declare function consume<T>(x: T): Sending<T>;
@@ -74,8 +76,12 @@ export type Struct<S> = S extends StructType<infer T> ? T & Cell : never;
  */
 export declare function struct<F extends Record<string, Field<any>>>(
   fields: F,
-): StructType<{ -readonly [K in keyof F]: F[K] extends Field<infer V> ? V : never }>;
-export declare function struct<T>(fields: { [K in keyof T]-?: Field<T[K]> }): StructType<T>;
+): StructType<{
+  -readonly [K in keyof F]: F[K] extends Field<infer V> ? V : never;
+}>;
+export declare function struct<T>(fields: {
+  [K in keyof T]-?: Field<T[K]>;
+}): StructType<T>;
 
 /**
  * A fixed-length array in shared memory, of numbers or of shared structs stored inline. Every thread
@@ -101,17 +107,26 @@ export interface Thread<R> extends Cell {
 }
 
 /** Starts `f` on a thread. Every argument is sent: owned values move, shared values and cells are shared. */
-export declare function spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
+export declare function spawn<A extends unknown[], R>(
+  f: (...args: A) => Sending<R>,
+  ...args: Sending<A>
+): Thread<R>;
 
 /** Spawns threads that cannot outlive the scope. */
 export interface Scope extends Cell {
-  spawn<A extends unknown[], R>(f: (...args: A) => Sending<R>, ...args: Sending<A>): Thread<R>;
+  spawn<A extends unknown[], R>(
+    f: (...args: A) => Sending<R>,
+    ...args: Sending<A>
+  ): Thread<R>;
 }
 /** Runs `body` and joins every thread it spawned before returning. */
 export declare function scope<R>(body: (s: Scope) => R): R;
 
 /** Splits an owned array into `parts` owned, disjoint chunks of nearly equal size. Trusted. */
-export declare function partition<T>(items: Sending<T[]>, parts: number): Sending<T[]>[];
+export declare function partition<T>(
+  items: Sending<T[]>,
+  parts: number,
+): Sending<T[]>[];
 /** Takes element `index` out of an array of owned values, so the caller owns it. Trusted. */
 export declare function take<T>(items: Sending<T>[], index: number): Sending<T>;
 
@@ -150,11 +165,21 @@ export declare class Channel<T> implements Cell {
   [Symbol.iterator](): Iterator<T>;
 }
 /** Starts `f` on a thread of its own, a goroutine. Nothing waits for it. */
-export declare function go<A extends unknown[]>(f: (...args: A) => void, ...args: Sending<A>): void;
+export declare function go<A extends unknown[]>(
+  f: (...args: A) => void,
+  ...args: Sending<A>
+): void;
 /** Waits until one of the channels has a value or is closed: its index and the value (undefined if closed). */
-export declare function select<T>(...channels: Channel<T>[]): [index: number, value: T | undefined];
+export declare function select<T>(
+  ...channels: Channel<T>[]
+): [index: number, value: T | undefined];
 
 /** Prints a line, synchronously, from any thread. */
 export declare function log(...args: unknown[]): void;
 /** Shared memory in use, and shared structs and SharedArrays allocated and freed. */
-export declare function heapStats(): { heapBytes: number; allocated: number; freed: number; pending: number };
+export declare function heapStats(): {
+  heapBytes: number;
+  allocated: number;
+  freed: number;
+  pending: number;
+};

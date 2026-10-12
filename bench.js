@@ -26,31 +26,36 @@
 // every program runs its thread counts twice, 1, 2, 4, 8 and again: the first pass is cold (it
 // includes JIT warm-up in every worker), the second warm. checks that every configuration
 // prints what the native build prints, timings aside
-import { execFileSync } from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { runInChrome, expandForChrome } from './chrome.js';
+import {fileURLToPath} from 'node:url';
+import {runInChrome, expandForChrome} from './chrome.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // a Porffor checkout (github.com/arv/porffor, branch arv/shared-everything-threads): $PORFFOR, or
 // ../porffor beside this repository. its presets are the programs compared, and it builds them
-const root = path.resolve(process.env.PORFFOR ?? path.join(here, '..', 'porffor'));
+const root = path.resolve(
+  process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
+);
 if (!fs.existsSync(path.join(root, 'threads', 'playground', 'presets'))) {
-  console.error(`no Porffor checkout at ${root}: set PORFFOR to one, on branch arv/shared-everything-threads`);
+  console.error(
+    `no Porffor checkout at ${root}: set PORFFOR to one, on branch arv/shared-everything-threads`,
+  );
   process.exit(1);
 }
 const args = process.argv.slice(2);
-const opt = (n, d) => args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
+const opt = (n, d) =>
+  args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
 const runs = Number(opt('runs', 5));
 const programs = opt('programs', 'mandelbrot,nbody').split(',');
 const only = opt('only')?.split(',');
 const want = c => !only || only.includes(c);
-const presets = { mandelbrot: '2-mandelbrot.js', nbody: '3-nbody.js' };
-const COUNTS = [ 1, 2, 4, 8, 1, 2, 4, 8 ];
+const presets = {mandelbrot: '2-mandelbrot.js', nbody: '3-nbody.js'};
+const COUNTS = [1, 2, 4, 8, 1, 2, 4, 8];
 
 const work = path.join(here, 'build', 'bench');
-fs.mkdirSync(work, { recursive: true });
+fs.mkdirSync(work, {recursive: true});
 
 // the playground's wasm build (keep in step with threads/playground/build.js)
 const brew = '/opt/homebrew';
@@ -58,77 +63,156 @@ const wasmTools = {
   clang: process.env.WASM_CLANG ?? `${brew}/opt/llvm/bin/clang`,
   ld: `${brew}/opt/lld/bin`,
   sysroot: process.env.WASI_SYSROOT ?? `${brew}/share/wasi-sysroot`,
-  rt: process.env.CLANG_RT ?? `${brew}/opt/wasi-runtimes/share/wasi-runtimes/lib/wasm32-unknown-wasip1-threads/libclang_rt.builtins.a`
+  rt:
+    process.env.CLANG_RT ??
+    `${brew}/opt/wasi-runtimes/share/wasi-runtimes/lib/wasm32-unknown-wasip1-threads/libclang_rt.builtins.a`,
 };
 const clangFlags = [
-  '--target=wasm32-wasip1-threads', '-pthread', '-O2', '-w',
-  '-D_WASI_EMULATED_MMAN', '-D_WASI_EMULATED_SIGNAL', '-D_WASI_EMULATED_PROCESS_CLOCKS',
+  '--target=wasm32-wasip1-threads',
+  '-pthread',
+  '-O2',
+  '-w',
+  '-D_WASI_EMULATED_MMAN',
+  '-D_WASI_EMULATED_SIGNAL',
+  '-D_WASI_EMULATED_PROCESS_CLOCKS',
   '-DPORF_ARENA_RESERVE=268435456ull',
-  '-mllvm', '-wasm-enable-sjlj', '-mexception-handling', '-mllvm', '-wasm-use-legacy-eh=false'
+  '-mllvm',
+  '-wasm-enable-sjlj',
+  '-mexception-handling',
+  '-mllvm',
+  '-wasm-use-legacy-eh=false',
 ];
 const linkFlags = [
-  '-Wl,--import-memory,--export-memory,--max-memory=1073741824', '-nodefaultlibs',
-  '-lc', '-lwasi-emulated-mman', '-lwasi-emulated-signal', '-lwasi-emulated-process-clocks', '-lsetjmp'
+  '-Wl,--import-memory,--export-memory,--max-memory=1073741824',
+  '-nodefaultlibs',
+  '-lc',
+  '-lwasi-emulated-mman',
+  '-lwasi-emulated-signal',
+  '-lwasi-emulated-process-clocks',
+  '-lsetjmp',
 ];
 
-const porf = (...a) => execFileSync(process.execPath, [ path.join(root, 'runtime', 'index.js'), ...a ], { stdio: [ 'ignore', 'ignore', 'inherit' ] });
-const node = (...a) => execFileSync(process.execPath, a, { encoding: 'utf8', maxBuffer: 1 << 26 });
+const porf = (...a) =>
+  execFileSync(
+    process.execPath,
+    [path.join(root, 'runtime', 'index.js'), ...a],
+    {stdio: ['ignore', 'ignore', 'inherit']},
+  );
+const node = (...a) =>
+  execFileSync(process.execPath, a, {encoding: 'utf8', maxBuffer: 1 << 26});
 
 // "threads N  X ms" lines in order, and the output with their numbers taken out
-const times = out => [ ...out.matchAll(/threads (\d+) +(\d+) ms/g) ].map(m => Number(m[2]));
-const normal = out => out.replace(/threads (\d+) +\d+ ms +[\d.]+x/g, 'threads $1');
-const median = xs => { const s = [ ...xs ].sort((a, b) => a - b); return s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+const times = out =>
+  [...out.matchAll(/threads (\d+) +(\d+) ms/g)].map(m => Number(m[2]));
+const normal = out =>
+  out.replace(/threads (\d+) +\d+ ms +[\d.]+x/g, 'threads $1');
+const median = xs => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length % 2
+    ? s[s.length >> 1]
+    : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
 
 const results = {};
 for (const p of programs) {
-  const original = fs.readFileSync(path.join(root, 'threads', 'playground', 'presets', presets[p]), 'utf8');
-  if (!original.includes('[ 1, 2, 4, 8 ]')) throw new Error(`${p}: cannot find its thread counts`);
+  const original = fs.readFileSync(
+    path.join(root, 'threads', 'playground', 'presets', presets[p]),
+    'utf8',
+  );
+  if (!original.includes('[ 1, 2, 4, 8 ]'))
+    throw new Error(`${p}: cannot find its thread counts`);
   const twice = path.join(work, `${p}.js`);
-  fs.writeFileSync(twice, original.replace('[ 1, 2, 4, 8 ]', `[ ${COUNTS.join(', ')} ]`));
+  fs.writeFileSync(
+    twice,
+    original.replace('[ 1, 2, 4, 8 ]', `[ ${COUNTS.join(', ')} ]`),
+  );
 
   const configs = {};
   if (want('native')) {
     const bin = path.join(work, `${p}-native`);
     porf('native', twice, '-o', bin);
-    configs.native = () => execFileSync(bin, { encoding: 'utf8' });
+    configs.native = () => execFileSync(bin, {encoding: 'utf8'});
   }
   if (want('wasm')) {
-    const c = path.join(work, `${p}.c`), wasm = path.join(work, `${p}.wasm`);
+    const c = path.join(work, `${p}.c`),
+      wasm = path.join(work, `${p}.wasm`);
     porf('c', twice, '-o', c);
-    execFileSync(wasmTools.clang, [ ...clangFlags, `--sysroot=${wasmTools.sysroot}`, c, '-o', wasm, ...linkFlags, wasmTools.rt ],
-      { stdio: 'inherit', env: { ...process.env, PATH: `${wasmTools.ld}${path.delimiter}${process.env.PATH}` } });
+    execFileSync(
+      wasmTools.clang,
+      [
+        ...clangFlags,
+        `--sysroot=${wasmTools.sysroot}`,
+        c,
+        '-o',
+        wasm,
+        ...linkFlags,
+        wasmTools.rt,
+      ],
+      {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          PATH: `${wasmTools.ld}${path.delimiter}${process.env.PATH}`,
+        },
+      },
+    );
     configs.wasm = async () => {
-      const r = await runInChrome({ page: 'wasm.html', query: { wasm: `bench/${p}.wasm` } });
+      const r = await runInChrome({
+        page: 'wasm.html',
+        query: {wasm: `bench/${p}.wasm`},
+      });
       if (!r.ok) throw new Error(`wasm ${p}: ${r.error}`);
       return r.output;
     };
   }
-  if (want('js-node')) configs['js-node'] = () => node(path.join(here, 'run.js'), p, `--threads=${COUNTS}`);
-  if (want('js-apoll')) configs['js-apoll'] = () => node(path.join(here, 'run.js'), p, `--threads=${COUNTS}`, '--atomic-poll');
-  if (want('js-chrome')) configs['js-chrome'] = async () => {
-    expandForChrome(p);
-    const r = await runInChrome({ query: { program: p, threads: COUNTS.join(',') } });
-    if (!r.ok) throw new Error(`js-chrome ${p}: ${r.error}`);
-    return r.output;
-  };
-  if (fs.existsSync(path.join(here, `${p}-own.js`))) {
-    if (want('own-node')) configs['own-node'] = () => node(path.join(here, 'run.js'), `${p}-own`, `--threads=${COUNTS}`);
-    if (want('own-chrome')) configs['own-chrome'] = async () => {
-      expandForChrome(`${p}-own`);
-      const r = await runInChrome({ query: { program: `${p}-own`, threads: COUNTS.join(',') } });
-      if (!r.ok) throw new Error(`own-chrome ${p}: ${r.error}`);
+  if (want('js-node'))
+    configs['js-node'] = () =>
+      node(path.join(here, 'run.js'), p, `--threads=${COUNTS}`);
+  if (want('js-apoll'))
+    configs['js-apoll'] = () =>
+      node(
+        path.join(here, 'run.js'),
+        p,
+        `--threads=${COUNTS}`,
+        '--atomic-poll',
+      );
+  if (want('js-chrome'))
+    configs['js-chrome'] = async () => {
+      expandForChrome(p);
+      const r = await runInChrome({
+        query: {program: p, threads: COUNTS.join(',')},
+      });
+      if (!r.ok) throw new Error(`js-chrome ${p}: ${r.error}`);
       return r.output;
     };
+  if (fs.existsSync(path.join(here, `${p}-own.js`))) {
+    if (want('own-node'))
+      configs['own-node'] = () =>
+        node(path.join(here, 'run.js'), `${p}-own`, `--threads=${COUNTS}`);
+    if (want('own-chrome'))
+      configs['own-chrome'] = async () => {
+        expandForChrome(`${p}-own`);
+        const r = await runInChrome({
+          query: {program: `${p}-own`, threads: COUNTS.join(',')},
+        });
+        if (!r.ok) throw new Error(`own-chrome ${p}: ${r.error}`);
+        return r.output;
+      };
   }
   // a module run on node and in Chrome, as configs <name>-node and <name>-chrome
   const both = (name, file) => {
     if (!fs.existsSync(file)) return;
-    if (want(`${name}-node`)) configs[`${name}-node`] = () => node(path.join(here, 'run.js'), file, `--threads=${COUNTS}`);
-    if (want(`${name}-chrome`)) configs[`${name}-chrome`] = async () => {
-      const r = await runInChrome({ query: { program: expandForChrome(file), threads: COUNTS.join(',') } });
-      if (!r.ok) throw new Error(`${name}-chrome ${p}: ${r.error}`);
-      return r.output;
-    };
+    if (want(`${name}-node`))
+      configs[`${name}-node`] = () =>
+        node(path.join(here, 'run.js'), file, `--threads=${COUNTS}`);
+    if (want(`${name}-chrome`))
+      configs[`${name}-chrome`] = async () => {
+        const r = await runInChrome({
+          query: {program: expandForChrome(file), threads: COUNTS.join(',')},
+        });
+        if (!r.ok) throw new Error(`${name}-chrome ${p}: ${r.error}`);
+        return r.output;
+      };
   };
   both('ts', path.join(here, 'build', 'ts', `${p}-ts.js`));
   both('cells', path.join(here, `${p}-cells.js`));
@@ -138,25 +222,34 @@ for (const p of programs) {
   if (want('v8')) {
     // the original with an inline shim: threads run to completion when made, so only 1 means anything
     const shimmed = path.join(work, `${p}-v8.js`);
-    fs.writeFileSync(shimmed, `globalThis.Thread = class { constructor(f) { this.v = f(); } join() { return this.v; } };
+    fs.writeFileSync(
+      shimmed,
+      `globalThis.Thread = class { constructor(f) { this.v = f(); } join() { return this.v; } };
 globalThis.Lock = class { hold(f) { return f(); } };
 globalThis.Condition = class { wait() { throw new Error('would block'); } notifyAll() {} notifyOne() {} };
-` + original.replace('[ 1, 2, 4, 8 ]', '[ 1, 1, 1, 1, 1, 1, 1, 1 ]'));
+` + original.replace('[ 1, 2, 4, 8 ]', '[ 1, 1, 1, 1, 1, 1, 1, 1 ]'),
+    );
     configs.v8 = () => node(shimmed);
   }
 
   results[p] = {};
   let reference = null;
-  for (const [ name, run ] of Object.entries(configs)) {
+  for (const [name, run] of Object.entries(configs)) {
     const samples = [];
     for (let i = 0; i < runs; i++) {
       const out = await run();
       const t = times(out);
-      if (t.length !== COUNTS.length) throw new Error(`${name} ${p}: expected ${COUNTS.length} timings, got ${t.length}:\n${out}`);
+      if (t.length !== COUNTS.length)
+        throw new Error(
+          `${name} ${p}: expected ${COUNTS.length} timings, got ${t.length}:\n${out}`,
+        );
       samples.push(t);
       if (name !== 'v8') {
         reference ??= normal(out);
-        if (normal(out) !== reference) throw new Error(`${name} ${p}: output differs from ${Object.keys(configs)[0]}'s`);
+        if (normal(out) !== reference)
+          throw new Error(
+            `${name} ${p}: output differs from ${Object.keys(configs)[0]}'s`,
+          );
       }
     }
     results[p][name] = COUNTS.map((_, k) => median(samples.map(s => s[k])));
@@ -165,11 +258,15 @@ globalThis.Condition = class { wait() { throw new Error('would block'); } notify
 }
 
 // medians in ms: the cold pass's 1 thread, then the warm pass
-console.log(`median of ${runs} runs, ms (cold: first pass; warm: second pass)\n`);
+console.log(
+  `median of ${runs} runs, ms (cold: first pass; warm: second pass)\n`,
+);
 for (const p of programs) {
-  console.log(`${p}\n| | cold, 1 thread | warm, 1 | 2 | 4 | 8 |\n|---|---|---|---|---|---|`);
-  for (const [ name, t ] of Object.entries(results[p])) {
-    const warm = name === 'v8' ? [ t[4], '', '', '' ] : t.slice(4);
+  console.log(
+    `${p}\n| | cold, 1 thread | warm, 1 | 2 | 4 | 8 |\n|---|---|---|---|---|---|`,
+  );
+  for (const [name, t] of Object.entries(results[p])) {
+    const warm = name === 'v8' ? [t[4], '', '', ''] : t.slice(4);
     console.log(`| ${name} | ${t[0]} | ${warm.join(' | ')} |`);
   }
   console.log();

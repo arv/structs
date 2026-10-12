@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 // runs a hand-translated program on worker threads sharing one SharedArrayBuffer heap
 //   node run.js <program> [options]
 //   <program>: a program in this directory by name (mandelbrot, nbody, nbody-own...), or the path
@@ -11,32 +15,37 @@
 //   --keep              keep the expanded program (its path goes to stderr)
 // node's main thread only coordinates, as the playground's page does: the program's main
 // runs in a worker, so it may block, and the pool can still grow while it does
-import { Worker } from 'node:worker_threads';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expand } from './expand.js';
-import { initShared, shutdown, counters } from './runtime.js';
+import {Worker} from 'node:worker_threads';
+import {expand} from './expand.js';
+import {initShared, shutdown, counters} from './runtime.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
-const opt = (n, d) => args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
+const opt = (n, d) =>
+  args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
 const flag = n => args.includes(`--${n}`);
 const name = args.find(a => !a.startsWith('--'));
 if (!name) {
-  console.error('usage: node run.js <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]');
+  console.error(
+    'usage: node run.js <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]',
+  );
   process.exit(1);
 }
 
-const src = name.endsWith('.js') && fs.existsSync(path.resolve(name)) ? path.resolve(name) : path.resolve(here, name.endsWith('.js') ? name : `${name}.js`);
+const src =
+  name.endsWith('.js') && fs.existsSync(path.resolve(name))
+    ? path.resolve(name)
+    : path.resolve(here, name.endsWith('.js') ? name : `${name}.js`);
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'escape-proto-'));
 fs.writeFileSync(path.join(outDir, 'package.json'), '{ "type": "module" }\n'); // the expanded program is a .js module
 const out = path.join(outDir, path.basename(src));
-fs.writeFileSync(out, expand(fs.readFileSync(src, 'utf8'), {
-  atomicPoll: flag('atomic-poll'),
-  runtime: pathToFileURL(path.join(here, 'runtime.js')).href
-}));
+fs.writeFileSync(
+  out,
+  expand(fs.readFileSync(src, 'utf8'), {
+    atomicPoll: flag('atomic-poll'),
+    runtime: pathToFileURL(path.join(here, 'runtime.js')).href,
+  }),
+);
 if (flag('keep')) console.error(`expanded: ${out}`);
 
 const sab = new SharedArrayBuffer(Number(opt('heap', 512)) << 20);
@@ -45,8 +54,8 @@ initShared(sab);
 const data = {
   sab,
   program: pathToFileURL(out).href,
-  opts: { check: flag('check') },
-  threads: opt('threads', '1,2,4,8').split(',').map(Number)
+  opts: {check: flag('check')},
+  threads: opt('threads', '1,2,4,8').split(',').map(Number),
 };
 const workers = [];
 let finished = false;
@@ -56,18 +65,27 @@ const finish = code => {
   shutdown(sab);
   if (flag('stats')) console.error(JSON.stringify(counters(sab)));
   for (const w of workers) w.terminate();
-  if (!flag('keep')) fs.rmSync(outDir, { recursive: true, force: true });
+  if (!flag('keep')) fs.rmSync(outDir, {recursive: true, force: true});
   process.exitCode = code;
 };
 const start = role => {
-  const w = new Worker(path.join(here, 'worker.js'), { workerData: { ...data, role } });
+  const w = new Worker(path.join(here, 'worker.js'), {
+    workerData: {...data, role},
+  });
   workers.push(w);
   w.on('message', m => {
-    if (m.type === 'grow') { if (!finished) start('pool'); }
-    else if (m.type === 'done') finish(0);
-    else if (m.type === 'crash') { process.stderr.write(`${m.message}\n`); finish(1); }
+    if (m.type === 'grow') {
+      if (!finished) start('pool');
+    } else if (m.type === 'done') finish(0);
+    else if (m.type === 'crash') {
+      process.stderr.write(`${m.message}\n`);
+      finish(1);
+    }
   });
-  w.on('error', e => { process.stderr.write(`${e?.stack ?? e}\n`); finish(1); });
+  w.on('error', e => {
+    process.stderr.write(`${e?.stack ?? e}\n`);
+    finish(1);
+  });
 };
 for (let i = 0; i < Number(opt('pool', 8)); i++) start('pool');
 start('main');

@@ -1,3 +1,12 @@
+import {
+  __message,
+  __unmessage,
+  __newCell,
+  __cellKind,
+  __start,
+  __isCounted,
+  __release,
+} from './own.js';
 // Go-style concurrency on own.js: goroutines, channels, close, range over a channel, select.
 //   const ch = new Channel(16);  go(f, ch, ...);  ch.send(v);  ch.recv();  for (const v of ch) ...
 // a channel is a cell, and a value sent on it moves: it is copied into the shared heap and the
@@ -12,23 +21,44 @@
 // calls throw instead: they would stop every goroutine on the host.
 // a shared struct or SharedArray is sent as its address, with no copy: the compiler passes it as
 // __ref(p), so the message carries a count, and the receiver owns what recv() returns
-import { I32, $waitBegin, $waitEnd, C_ACTIVITY, C_SELECTING, CAN_BLOCK, $mustNotBlock, $resumed } from './runtime.js';
-import { __message, __unmessage, __newCell, __cellKind, __start, __isCounted, __release } from './own.js';
+import {
+  I32,
+  $waitBegin,
+  $waitEnd,
+  C_ACTIVITY,
+  C_SELECTING,
+  CAN_BLOCK,
+  $mustNotBlock,
+  $resumed,
+} from './runtime.js';
 
 // [0 kind][1 slots][2 lock][3 seq][4 head][5 tail][6 count][7 closed][8 sent][9 received][10 unbuffered][11 -]
 // then the ring from word 12: a slot is [message address][bytes]. seq changes with every change, and
 // waiters wait on it. an unbuffered channel has one slot, and its sender also waits for the receiver
-const K_CHAN = 24, RING = 12;
-const LOCK = 2, SEQ = 3, HEAD = 4, TAIL = 5, COUNT = 6, CLOSED = 7, SENT = 8, RECEIVED = 9, UNBUFFERED = 10;
+const K_CHAN = 24,
+  RING = 12;
+const LOCK = 2,
+  SEQ = 3,
+  HEAD = 4,
+  TAIL = 5,
+  COUNT = 6,
+  CLOSED = 7,
+  SENT = 8,
+  RECEIVED = 9,
+  UNBUFFERED = 10;
 
 // futex-style lock: 0 free, 1 held, 2 held with waiters. it is held only for a few loads and stores,
 // never across a wait, so a page's main thread, which may not block, spins on it
 const lock = i => {
   if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
-  while (Atomics.exchange(I32, i, 2) !== 0) if (CAN_BLOCK) Atomics.wait(I32, i, 2);
+  while (Atomics.exchange(I32, i, 2) !== 0)
+    if (CAN_BLOCK) Atomics.wait(I32, i, 2);
 };
 const unlock = i => {
-  if (Atomics.sub(I32, i, 1) !== 1) { Atomics.store(I32, i, 0); Atomics.notify(I32, i, 1); }
+  if (Atomics.sub(I32, i, 1) !== 1) {
+    Atomics.store(I32, i, 0);
+    Atomics.notify(I32, i, 1);
+  }
 };
 // holding the lock: record a change and wake everyone waiting on this channel, and any select; an
 // async function on this thread waiting for it wakes at once
@@ -49,9 +79,12 @@ const changed = c => {
 const watches = new Map(); // a channel's word index → its watch
 class Watch {
   constructor(c, seq) {
-    this.c = c; this.seq = seq; this.waiters = new Set();
+    this.c = c;
+    this.seq = seq;
+    this.waiters = new Set();
     const w = Atomics.waitAsync(I32, c + SEQ, seq);
-    if (w.async) w.value.then(() => this.fire()); else queueMicrotask(() => this.fire());
+    if (w.async) w.value.then(() => this.fire());
+    else queueMicrotask(() => this.fire());
   }
   fire() {
     if (watches.get(this.c) === this) watches.delete(this.c);
@@ -62,9 +95,12 @@ class Watch {
 }
 // calls wake once channel c's seq is no longer seq; returns what stops that
 function onChange(c, seq, wake) {
-  if (Atomics.load(I32, c + SEQ) !== seq) { queueMicrotask(wake); return () => {}; }
+  if (Atomics.load(I32, c + SEQ) !== seq) {
+    queueMicrotask(wake);
+    return () => {};
+  }
   let w = watches.get(c);
-  if (w === undefined || w.seq !== seq) watches.set(c, w = new Watch(c, seq));
+  if (w === undefined || w.seq !== seq) watches.set(c, (w = new Watch(c, seq)));
   w.waiters.add(wake);
   return () => w.waiters.delete(wake);
 }
@@ -73,7 +109,9 @@ function onChange(c, seq, wake) {
 const sleepAsync = c => {
   const s = I32[c + SEQ];
   unlock(c + LOCK);
-  return new Promise(wake => { onChange(c, s, wake); });
+  return new Promise(wake => {
+    onChange(c, s, wake);
+  });
 };
 // holding the lock: let it go and sleep until the channel changes, then take it again. it spins a
 // little first, as Barrier does: the other side is often only microseconds away. a blocked thread is
@@ -90,13 +128,16 @@ const sleep = c => {
   lock(c + LOCK);
 };
 
-const EMPTY = Symbol('empty'), DONE = Symbol('done');
+const EMPTY = Symbol('empty'),
+  DONE = Symbol('done');
 // holding the lock: the next message's value (unlocking), or EMPTY, or DONE when closed and empty.
 // functions, not private methods: another thread's handle for a channel is made by own.js, from
 // the class's prototype
 function take(c) {
   if (I32[c + COUNT] === 0) return I32[c + CLOSED] !== 0 ? DONE : EMPTY;
-  const h = I32[c + HEAD], m = I32[c + RING + 2 * h], bytes = I32[c + RING + 2 * h + 1];
+  const h = I32[c + HEAD],
+    m = I32[c + RING + 2 * h],
+    bytes = I32[c + RING + 2 * h + 1];
   I32[c + HEAD] = (h + 1) % I32[c + 1];
   I32[c + COUNT]--;
   I32[c + RECEIVED]++;
@@ -108,18 +149,26 @@ async function receiveAsync(c) {
   lock(c + LOCK);
   for (;;) {
     const v = take(c);
-    if (v === EMPTY) { await sleepAsync(c); $resumed(); lock(c + LOCK); continue; }
+    if (v === EMPTY) {
+      await sleepAsync(c);
+      $resumed();
+      lock(c + LOCK);
+      continue;
+    }
     if (v === DONE) unlock(c + LOCK);
     return v;
   }
 }
 // the next value, waiting while the channel is empty, or DONE
 function receive(c) {
-  $mustNotBlock('a channel\'s recv()', 'await recvAsync() (or for await)');
+  $mustNotBlock("a channel's recv()", 'await recvAsync() (or for await)');
   lock(c + LOCK);
   for (;;) {
     const v = take(c);
-    if (v === EMPTY) { sleep(c); continue; }
+    if (v === EMPTY) {
+      sleep(c);
+      continue;
+    }
     if (v === DONE) unlock(c + LOCK);
     return v;
   }
@@ -127,15 +176,17 @@ function receive(c) {
 
 export class Channel {
   constructor(capacity = 0) {
-    const slots = Math.max(1, capacity), a = __newCell(K_CHAN, (RING + 2 * slots) * 4, this) >> 2;
+    const slots = Math.max(1, capacity),
+      a = __newCell(K_CHAN, (RING + 2 * slots) * 4, this) >> 2;
     I32[a + 1] = slots;
     I32[a + UNBUFFERED] = capacity === 0 ? 1 : 0;
   }
   // moves v into the channel: waits while it is full, and on an unbuffered channel until a
   // receiver has taken it
   send(v) {
-    $mustNotBlock('a channel\'s send()', 'await sendAsync()');
-    const c = this.$cell >> 2, [ m, bytes ] = __message(v);
+    $mustNotBlock("a channel's send()", 'await sendAsync()');
+    const c = this.$cell >> 2,
+      [m, bytes] = __message(v);
     lock(c + LOCK);
     while (I32[c + COUNT] === I32[c + 1] && I32[c + CLOSED] === 0) sleep(c);
     if (I32[c + CLOSED] !== 0) {
@@ -145,7 +196,8 @@ export class Channel {
       throw new TypeError('own: send on a closed channel');
     }
     const t = I32[c + TAIL];
-    I32[c + RING + 2 * t] = m; I32[c + RING + 2 * t + 1] = bytes;
+    I32[c + RING + 2 * t] = m;
+    I32[c + RING + 2 * t + 1] = bytes;
     I32[c + TAIL] = (t + 1) % I32[c + 1];
     I32[c + COUNT]++;
     const ticket = I32[c + SENT]++;
@@ -159,9 +211,14 @@ export class Channel {
   // the same in an async function: waits without blocking its worker. the value moves when sendAsync
   // is called, as send's does
   async sendAsync(v) {
-    const c = this.$cell >> 2, [ m, bytes ] = __message(v);
+    const c = this.$cell >> 2,
+      [m, bytes] = __message(v);
     lock(c + LOCK);
-    while (I32[c + COUNT] === I32[c + 1] && I32[c + CLOSED] === 0) { await sleepAsync(c); $resumed(); lock(c + LOCK); }
+    while (I32[c + COUNT] === I32[c + 1] && I32[c + CLOSED] === 0) {
+      await sleepAsync(c);
+      $resumed();
+      lock(c + LOCK);
+    }
     if (I32[c + CLOSED] !== 0) {
       unlock(c + LOCK);
       const back = __unmessage(m, bytes);
@@ -169,14 +226,19 @@ export class Channel {
       throw new TypeError('own: send on a closed channel');
     }
     const t = I32[c + TAIL];
-    I32[c + RING + 2 * t] = m; I32[c + RING + 2 * t + 1] = bytes;
+    I32[c + RING + 2 * t] = m;
+    I32[c + RING + 2 * t + 1] = bytes;
     I32[c + TAIL] = (t + 1) % I32[c + 1];
     I32[c + COUNT]++;
     const ticket = I32[c + SENT]++;
     changed(c);
     if (I32[c + UNBUFFERED] !== 0) {
       lock(c + LOCK);
-      while (I32[c + RECEIVED] <= ticket) { await sleepAsync(c); $resumed(); lock(c + LOCK); }
+      while (I32[c + RECEIVED] <= ticket) {
+        await sleepAsync(c);
+        $resumed();
+        lock(c + LOCK);
+      }
       unlock(c + LOCK);
     }
   }
@@ -213,7 +275,8 @@ export class Channel {
   // for await (const v of channel): in an async function
   async *[Symbol.asyncIterator]() {
     const c = this.$cell >> 2;
-    for (let v = await receiveAsync(c); v !== DONE; v = await receiveAsync(c)) yield v;
+    for (let v = await receiveAsync(c); v !== DONE; v = await receiveAsync(c))
+      yield v;
   }
 }
 __cellKind(K_CHAN, Channel);
@@ -233,10 +296,11 @@ export function select(...chans) {
   for (;;) {
     const seen = Atomics.load(I32, C_ACTIVITY);
     for (let k = 0; k < n; k++) {
-      const i = (turn + k) % n, v = chans[i].poll();
+      const i = (turn + k) % n,
+        v = chans[i].poll();
       if (v === EMPTY) continue;
       turn = (i + 1) % n;
-      return [ i, v === DONE ? undefined : v ];
+      return [i, v === DONE ? undefined : v];
     }
     Atomics.add(I32, C_SELECTING, 1);
     $waitBegin();
@@ -247,17 +311,21 @@ export function select(...chans) {
 }
 // the same in an async function: waits without blocking its worker, on the given channels only
 export async function selectAsync(...chans) {
-  const n = chans.length, cs = chans.map(ch => ch.$cell >> 2);
+  const n = chans.length,
+    cs = chans.map(ch => ch.$cell >> 2);
   for (;;) {
     const seqs = cs.map(c => Atomics.load(I32, c + SEQ)); // before polling: a change after it wakes the wait
     for (let k = 0; k < n; k++) {
-      const i = (turn + k) % n, v = chans[i].poll();
+      const i = (turn + k) % n,
+        v = chans[i].poll();
       if (v === EMPTY) continue;
       turn = (i + 1) % n;
-      return [ i, v === DONE ? undefined : v ];
+      return [i, v === DONE ? undefined : v];
     }
     let stops;
-    await new Promise(wake => { stops = cs.map((c, i) => onChange(c, seqs[i], wake)); });
+    await new Promise(wake => {
+      stops = cs.map((c, i) => onChange(c, seqs[i], wake));
+    });
     for (const stop of stops) stop();
     $resumed();
   }

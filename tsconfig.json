@@ -12,5 +12,14 @@
     "skipLibCheck": true,
     "outDir": "build/ts"
   },
-  "files": ["nbody-ts.ts", "nbody-struct.ts", "tutorial.ts", "refcount.ts", "mandelbrot-chan.ts", "pipeline.ts", "nbody-chan.ts", "nbody-chan-struct.ts"]
+  "files": [
+    "nbody-ts.ts",
+    "nbody-struct.ts",
+    "tutorial.ts",
+    "refcount.ts",
+    "mandelbrot-chan.ts",
+    "pipeline.ts",
+    "nbody-chan.ts",
+    "nbody-chan-struct.ts"
+  ]
 }
