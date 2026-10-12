@@ -1,7 +1,7 @@
 {
   // programs in plain TypeScript on threads.js: stock tsc type-checks them, and
   // the tsgo fork checks ownership and emits build/ts/*.js for the runtime (run
-  // them with run.js or chrome.js):
+  // them with src/run.js or src/chrome.js):
   //   <fork>/built/local/tsgo own check -p tsconfig.json \
   //     --ownRuntime ./threads.js
   //   <fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js
@@ -12,16 +12,17 @@
     "strict": true,
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
+    "rootDir": "src",
     "outDir": "build/ts"
   },
   "files": [
-    "nbody-ts.ts",
-    "nbody-struct.ts",
-    "tutorial.ts",
-    "refcount.ts",
-    "mandelbrot-chan.ts",
-    "pipeline.ts",
-    "nbody-chan.ts",
-    "nbody-chan-struct.ts"
+    "src/nbody-ts.ts",
+    "src/nbody-struct.ts",
+    "src/tutorial.ts",
+    "src/refcount.ts",
+    "src/mandelbrot-chan.ts",
+    "src/pipeline.ts",
+    "src/nbody-chan.ts",
+    "src/nbody-chan-struct.ts"
   ]
 }

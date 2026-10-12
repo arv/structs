@@ -44,7 +44,7 @@ const start = role => {
   w.onerror = e => finish(false, e.message);
   w.postMessage({
     sab,
-    program: new URL(`./build/${program}.js`, import.meta.url).href,
+    program: new URL(`../build/${program}.js`, import.meta.url).href,
     opts: {check: params.has('check')},
     role,
     threads,

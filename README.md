@@ -18,8 +18,8 @@ question is what to do with objects. Two designs are here:
   deeply immutable and copied once per thread that reads it, or an explicit
   cell. Ordinary code is plain JS with nothing per access, and N-body on 8
   threads runs 4x faster than plain single-threaded JS. Programs are plain
-  TypeScript against [threads.d.ts](threads.d.ts); a checker built on a fork of
-  tsgo proves the ownership rules in CI, and a bundler plugin compiles shared
+  TypeScript against [threads.d.ts](src/threads.d.ts); a checker built on a fork
+  of tsgo proves the ownership rules in CI, and a bundler plugin compiles shared
   structs to typed-array accesses.
 
 Measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and
@@ -65,12 +65,12 @@ vp run -r typecheck         # tsc in every package
 ## Running
 
 ```sh
-node run.js nbody                  # on node: nbody, mandelbrot, basic, nbody-own
-node run.js nbody --threads=1,1,8  # the thread counts the program runs with
-node chrome.js nbody-own           # in Chrome, on Web Workers (needs playwright-core)
-node chrome.js nbody --trace=t.json && node trace-summary.js t.json
-node bench.js                      # every configuration, median of 5 runs
-node overhead.js                   # the translation against the same code untranslated
+node src/run.js nbody                  # on node: nbody, mandelbrot, basic, nbody-own
+node src/run.js nbody --threads=1,1,8  # the thread counts the program runs with
+node src/chrome.js nbody-own           # in Chrome, on Web Workers (needs playwright-core)
+node src/chrome.js nbody --trace=t.json && node src/trace-summary.js t.json
+node src/bench.js                      # every configuration, median of 5 runs
+node src/overhead.js                   # the translation against the same code untranslated
 ```
 
 `chrome.js` drives the installed Google Chrome through playwright-core, a dev
@@ -92,10 +92,12 @@ checker, and compiled by the tsgo fork (branch `own-shared`, built with
 vp run typecheck                                               # types: stock TypeScript
 <tsgo-fork>/built/local/tsgo own check -p tsconfig.json --ownRuntime ./threads.js   # ownership, for CI
 <tsgo-fork>/built/local/tsgo -p tsconfig.json --ownRuntime ./threads.js            # emit build/ts
-node run.js build/ts/nbody-struct.js
+node src/run.js build/ts/nbody-struct.js
 ```
 
 ## Files
+
+The code is in [src/](src):
 
 | File                                                                         | What it is                                                                                                                          |
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -184,14 +186,14 @@ function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barr
 function count(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> { ... }
 ```
 
-The model is plain TypeScript ([threads.d.ts](threads.d.ts)), so tsc, editors,
-linters and formatters take programs as they are. `Sending<T>` (to TypeScript,
-just T) marks a value whose ownership moves, `Shared<T>` (deeply readonly, so
-tsc already rejects most writes) a value every thread may read, `consume(x)` the
-end of a variable's life, and the `Cell` interface the shared, mutable kinds:
-Barrier, Slots, Channel, Thread, SharedArray and structs, declared with
-`struct({...})` (or `struct<I>({...})` with an interface, for a struct that
-refers to itself). Two tools add what the types cannot say:
+The model is plain TypeScript ([threads.d.ts](src/threads.d.ts)), so tsc,
+editors, linters and formatters take programs as they are. `Sending<T>` (to
+TypeScript, just T) marks a value whose ownership moves, `Shared<T>` (deeply
+readonly, so tsc already rejects most writes) a value every thread may read,
+`consume(x)` the end of a variable's life, and the `Cell` interface the shared,
+mutable kinds: Barrier, Slots, Channel, Thread, SharedArray and structs,
+declared with `struct({...})` (or `struct<I>({...})` with an interface, for a
+struct that refers to itself). Two tools add what the types cannot say:
 
 - **The ownership checker,**
   `tsgo own check -p tsconfig.json --ownRuntime <the runtime module>`, runs in
@@ -235,11 +237,11 @@ for (let y = 0; y < H; y++) jobs.send(y);
 jobs.close(); // workers' `for (const y of jobs)` ends
 ```
 
-[chan.js](chan.js) is Go's model on own and shared values: `go`, buffered and
-unbuffered channels, `close`, range over a channel, and `select`. A channel is a
-cell, and a value sent on it moves, so the checker proves the sender never uses
-it again, as it does for `spawn`. Threads share nothing but channels: no data
-races, unlike Go, whose goroutines share memory. The receiver frees each
+[chan.js](src/chan.js) is Go's model on own and shared values: `go`, buffered
+and unbuffered channels, `close`, range over a channel, and `select`. A channel
+is a cell, and a value sent on it moves, so the checker proves the sender never
+uses it again, as it does for `spawn`. Threads share nothing but channels: no
+data races, unlike Go, whose goroutines share memory. The receiver frees each
 message, so nothing in the shared heap outlives it and no collector is needed. A
 goroutine is a whole worker, so it is heavy, and one blocked on a channel holds
 its worker. One that throws prints its error, since nothing joins it.
@@ -252,11 +254,11 @@ after sending is a compile error. Transferable ArrayBuffers would also avoid the
 copy, but only through `postMessage`, which a goroutine blocked in `recv()`
 never sees.
 
-What it costs ([pipeline.ts](pipeline.ts), node): about 600 ns a message on a
-buffered channel, an unbuffered round trip 1.2 us (a waiter spins briefly before
-it sleeps), and an array of 100,000 numbers 0.8 ms copied against 0.2 ms moved
-by address, which is mostly filling it. Mandelbrot, with a channel of rows to
-draw, scales as well as anything else (next section). N-body copying its
+What it costs ([pipeline.ts](src/pipeline.ts), node): about 600 ns a message on
+a buffered channel, an unbuffered round trip 1.2 us (a waiter spins briefly
+before it sleeps), and an array of 100,000 numbers 0.8 ms copied against 0.2 ms
+moved by address, which is mostly filling it. Mandelbrot, with a channel of rows
+to draw, scales as well as anything else (next section). N-body copying its
 positions through main each step is several times slower than shared structs;
 with the bodies in a SharedArray of shared structs and channels in the barriers'
 place (Go's way: share memory, order it with channels) it matches the barriers

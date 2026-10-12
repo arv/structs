@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 // runs a hand-translated program in Chrome (the installed Google Chrome,
 // through Playwright), on real Web Workers sharing one SharedArrayBuffer heap
-//   node chrome.js <mandelbrot|nbody> [options]
+//   node src/chrome.js <mandelbrot|nbody> [options]
 //   --threads=1,2,4,8   the thread counts the program runs its work with
 //   --pool=N            workers started up front (default: the browser's
 //                       hardwareConcurrency)
@@ -27,12 +27,14 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {expand} from './expand.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// the repository: its pages are under src/, what they load is built in build/
+const repo = path.resolve(here, '..');
 // wasm.html runs a Porffor build on Porffor's playground runner, served from a
 // Porffor checkout (github.com/arv/porffor, branch
 // arv/shared-everything-threads) under /porffor/: $PORFFOR, or ../porffor
 // beside this repository
 const porffor = path.resolve(
-  process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
+  process.env.PORFFOR ?? path.join(repo, '..', 'porffor'),
 );
 
 const loadChromium = async () => {
@@ -60,7 +62,7 @@ const serve = async () => {
     const pathname = decodeURIComponent(
       new URL(req.url, 'http://localhost').pathname,
     );
-    const root = pathname.startsWith('/porffor/') ? porffor : here;
+    const root = pathname.startsWith('/porffor/') ? porffor : repo;
     const file = path.join(
       root,
       root === porffor ? pathname.slice('/porffor'.length) : pathname,
@@ -94,12 +96,12 @@ export const expandForChrome = (program, {atomicPoll = false} = {}) => {
       ? path.resolve(program)
       : path.join(here, `${program}.js`);
   const name = path.basename(file, '.js');
-  fs.mkdirSync(path.join(here, 'build'), {recursive: true});
+  fs.mkdirSync(path.join(repo, 'build'), {recursive: true});
   fs.writeFileSync(
-    path.join(here, 'build', `${name}.js`),
+    path.join(repo, 'build', `${name}.js`),
     expand(fs.readFileSync(file, 'utf8'), {
       atomicPoll,
-      runtime: '../runtime.js',
+      runtime: '../src/runtime.js',
     }),
   );
   return name;
@@ -138,7 +140,7 @@ export const runInChrome = async ({
         ],
       });
     await page.goto(
-      `http://127.0.0.1:${server.address().port}/${pageName}?${new URLSearchParams(query)}`,
+      `http://127.0.0.1:${server.address().port}/src/${pageName}?${new URLSearchParams(query)}`,
     );
     const result = await page
       .waitForFunction(() => window.__escapeResult, null, {
@@ -166,14 +168,14 @@ if (
   const wasm = opt('wasm');
   if (!name && !wasm) {
     console.error(
-      'usage: node chrome.js <mandelbrot|nbody> [--threads=1,2,4,8] [--trace=file.json] [--headed]',
+      'usage: node src/chrome.js <mandelbrot|nbody> [--threads=1,2,4,8] [--trace=file.json] [--headed]',
     );
     process.exit(1);
   }
   const query = {};
   if (opt('pool')) query.pool = opt('pool');
   if (wasm)
-    query.wasm = path.relative(path.join(here, 'build'), path.resolve(wasm));
+    query.wasm = path.relative(path.join(repo, 'build'), path.resolve(wasm));
   else {
     query.program = expandForChrome(name, {atomicPoll: flag('atomic-poll')});
     query.threads = opt('threads', '1,2,4,8');

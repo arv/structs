@@ -18,8 +18,8 @@ export default defineConfig({
     ignorePatterns: [
       // the earlier syntax's types, which only the tsgo fork parses (`sending
       // T`)
-      'own.d.ts',
-      'chan.d.ts',
+      'src/own.d.ts',
+      'src/chan.d.ts',
       // the checker's cases, whose diagnostics are expected at fixed lines and
       // columns
       'playground/checker/test/cases/**',
@@ -33,8 +33,8 @@ export default defineConfig({
     ignorePatterns: [
       // the earlier syntax's types, which only the tsgo fork parses (`sending
       // T`)
-      'own.d.ts',
-      'chan.d.ts',
+      'src/own.d.ts',
+      'src/chan.d.ts',
       // programs wrong on purpose: the checker's cases, and the mistakes it
       // catches
       'playground/checker/test/cases/**',

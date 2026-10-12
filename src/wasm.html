@@ -22,7 +22,7 @@
     window.__escapeResult = {ok, error, output: text};
   };
   const bytes = new Uint8Array(
-    await (await fetch(`build/${params.get('wasm')}`)).arrayBuffer(),
+    await (await fetch(`../build/${params.get('wasm')}`)).arrayBuffer(),
   );
   const pool = Number(params.get('pool') ?? navigator.hardwareConcurrency ?? 8);
   await run(

@@ -1,6 +1,6 @@
 // reference counting (REFCOUNT.md), written by hand as the compiler emits it,
 // to test the runtime:
-//   node run.js refcount-hand --check
+//   node src/run.js refcount-hand --check
 // --check poisons freed blocks, so a read after free shows up as a bad value.
 //
 //   shared struct Node { value: number; check: number; next: Node | null }

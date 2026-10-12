@@ -1,7 +1,7 @@
 // summarizes a DevTools performance trace (chrome.js --trace=...): for each
 // thread that ran JS, its sampled CPU time and the functions that took it (self
 // time)
-//   node trace-summary.js trace.json [--top=12]
+//   node src/trace-summary.js trace.json [--top=12]
 import fs from 'node:fs';
 
 const file = process.argv[2];

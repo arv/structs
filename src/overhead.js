@@ -1,5 +1,5 @@
 // what the translation costs over plain JS, one thread, the same work:
-//   node overhead.js [--reps=15]
+//   node src/overhead.js [--reps=15]
 // the presets' own functions (plain JS) against their translations, on local
 // objects (nothing shared: only the $fwd checks) and on objects in the shared
 // heap. each variant runs in a fresh process, so the JIT sees only that
@@ -10,11 +10,12 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.resolve(here, '..'); // what is built goes in its build/
 // a Porffor checkout (github.com/arv/porffor, branch
 // arv/shared-everything-threads): $PORFFOR, or ../porffor beside this
 // repository. its presets are the programs compared, and it builds them
 const root = path.resolve(
-  process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
+  process.env.PORFFOR ?? path.join(repo, '..', 'porffor'),
 );
 if (!fs.existsSync(path.join(root, 'threads', 'playground', 'presets'))) {
   console.error(
@@ -26,7 +27,7 @@ const args = process.argv.slice(2);
 const opt = (n, d) =>
   args.find(a => a.startsWith(`--${n}=`))?.split('=')[1] ?? d;
 const reps = Number(opt('reps', 15));
-const work = path.join(here, 'build', 'overhead');
+const work = path.join(repo, 'build', 'overhead');
 
 const VARIANTS = {
   'nbody plain': "the preset's functions on plain objects",

@@ -1,11 +1,11 @@
 # Tutorial: threads with own and shared values
 
-This walks through [tutorial.ts](tutorial.ts): a program that splits 200,000
+This walks through [tutorial.ts](src/tutorial.ts): a program that splits 200,000
 random points across threads and counts which of three centers each point is
-nearest to. It is plain TypeScript against [threads.d.ts](threads.d.ts): stock
-tsc checks its types, the ownership checker its ownership, and the tsgo fork
-(branch `own-shared`) compiles it to run on [threads.js](threads.js). The ideas
-behind it are in [README.md](README.md).
+nearest to. It is plain TypeScript against [threads.d.ts](src/threads.d.ts):
+stock tsc checks its types, the ownership checker its ownership, and the tsgo
+fork (branch `own-shared`) compiles it to run on [threads.js](src/threads.js).
+The ideas behind it are in [README.md](README.md).
 
 You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it),
 TypeScript, and node 22 or later. To run in Chrome as well, you also need
@@ -135,7 +135,7 @@ would have written.
 ## 4. Run it
 
 ```sh
-node run.js build/ts/tutorial.js --threads=1,2,4
+node src/run.js build/ts/tutorial.js --threads=1,2,4
 ```
 
 ```
@@ -148,7 +148,7 @@ The same counts on every thread count. `chrome.js` runs the same module in
 Chrome, on real Web Workers:
 
 ```sh
-node chrome.js build/ts/tutorial.js --threads=1,2,4
+node src/chrome.js build/ts/tutorial.js --threads=1,2,4
 ```
 
 ## How it works

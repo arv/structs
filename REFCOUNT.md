@@ -1,10 +1,10 @@
 # Reference counting for shared structs
 
 > Status: a prototype, in the runtime (own.js, runtime.js) and the tsgo fork's
-> emit; [refcount.ts](refcount.ts) tests it, and
-> [refcount-hand.js](refcount-hand.js) is the same test written by hand. Shared
-> structs and SharedArrays are freed when nothing refers to them; other cells
-> (`Barrier`, `Slots`) and moved or shared values are still never freed.
+> emit; [refcount.ts](src/refcount.ts) tests it, and
+> [refcount-hand.js](src/refcount-hand.js) is the same test written by hand.
+> Shared structs and SharedArrays are freed when nothing refers to them; other
+> cells (`Barrier`, `Slots`) and moved or shared values are still never freed.
 
 A shared struct or SharedArray is an address in the shared heap, passed around
 as a plain number, so V8's collector cannot see who holds one. Each block counts

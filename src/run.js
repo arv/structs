@@ -4,7 +4,7 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 // runs a hand-translated program on worker threads sharing one
 // SharedArrayBuffer heap
-//   node run.js <program> [options]
+//   node src/run.js <program> [options]
 //   <program>: a program in this directory by name (mandelbrot, nbody,
 //   nbody-own...), or the path of a module, such as one the tsgo fork emitted
 //   (build/ts/nbody-ts.js)
@@ -33,7 +33,7 @@ const flag = n => args.includes(`--${n}`);
 const name = args.find(a => !a.startsWith('--'));
 if (!name) {
   console.error(
-    'usage: node run.js <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]',
+    'usage: node src/run.js <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]',
   );
   process.exit(1);
 }

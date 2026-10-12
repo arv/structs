@@ -1,6 +1,7 @@
 // compares the hand-translated programs with Porffor's own builds of the same
 // presets
-//   node bench.js [--runs=5] [--programs=mandelbrot,nbody] [--only=js-node,...]
+//   node src/bench.js [--runs=5] [--programs=mandelbrot,nbody]
+//     [--only=js-node,...]
 // configurations (each a fresh process or browser per run; the median of
 // --runs):
 //   native      Porffor's native build (clang)
@@ -46,11 +47,12 @@ import {fileURLToPath} from 'node:url';
 import {runInChrome, expandForChrome} from './chrome.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.resolve(here, '..'); // what is built goes in its build/
 // a Porffor checkout (github.com/arv/porffor, branch
 // arv/shared-everything-threads): $PORFFOR, or ../porffor beside this
 // repository. its presets are the programs compared, and it builds them
 const root = path.resolve(
-  process.env.PORFFOR ?? path.join(here, '..', 'porffor'),
+  process.env.PORFFOR ?? path.join(repo, '..', 'porffor'),
 );
 if (!fs.existsSync(path.join(root, 'threads', 'playground', 'presets'))) {
   console.error(
@@ -68,7 +70,7 @@ const want = c => !only || only.includes(c);
 const presets = {mandelbrot: '2-mandelbrot.js', nbody: '3-nbody.js'};
 const COUNTS = [1, 2, 4, 8, 1, 2, 4, 8];
 
-const work = path.join(here, 'build', 'bench');
+const work = path.join(repo, 'build', 'bench');
 fs.mkdirSync(work, {recursive: true});
 
 // the playground's wasm build (keep in step with threads/playground/build.js)
@@ -229,11 +231,11 @@ for (const p of programs) {
         return r.output;
       };
   };
-  both('ts', path.join(here, 'build', 'ts', `${p}-ts.js`));
+  both('ts', path.join(repo, 'build', 'ts', `${p}-ts.js`));
   both('cells', path.join(here, `${p}-cells.js`));
-  both('struct', path.join(here, 'build', 'ts', `${p}-struct.js`));
-  both('chan', path.join(here, 'build', 'ts', `${p}-chan.js`));
-  both('chan-struct', path.join(here, 'build', 'ts', `${p}-chan-struct.js`));
+  both('struct', path.join(repo, 'build', 'ts', `${p}-struct.js`));
+  both('chan', path.join(repo, 'build', 'ts', `${p}-chan.js`));
+  both('chan-struct', path.join(repo, 'build', 'ts', `${p}-chan-struct.js`));
   if (want('v8')) {
     // the original with an inline shim: threads run to completion when made, so
     // only 1 means anything
