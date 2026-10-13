@@ -68,13 +68,14 @@ trace with every worker's CPU samples, which DevTools' Performance panel opens.
 on plain V8.
 
 The TypeScript programs (`*.ts`) are checked by stock tsc and by the ownership
-checker, and compiled by the tsgo fork (branch `own-shared`, built with
+checker, and compiled by the tsgo fork
+([arv/threads-checker](https://github.com/arv/threads-checker), built with
 `go build -o built/local/tsgo ./cmd/tsgo`):
 
 ```sh
 vp run typecheck                                               # types: stock TypeScript
-<tsgo-fork>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads   # ownership, for CI
-<tsgo-fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads            # emit build/ts
+<threads-checker>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads   # ownership, for CI
+<threads-checker>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads            # emit build/ts
 node src/run.ts build/ts/nbody-struct.js
 ```
 

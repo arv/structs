@@ -4,12 +4,13 @@ This walks through [tutorial.ts](src/tutorial.ts): a program that splits 200,000
 random points across threads and counts which of three centers each point is
 nearest to. It is plain TypeScript against
 [threads.d.ts](src/runtime/threads.d.ts): stock tsc checks its types, the
-ownership checker its ownership, and the tsgo fork (branch `own-shared`)
-compiles it to run on [threads.ts](src/runtime/threads.ts). The ideas behind it
-are in [README.md](README.md).
+ownership checker its ownership, and the tsgo fork
+([arv/threads-checker](https://github.com/arv/threads-checker)) compiles it to
+run on [threads.ts](src/runtime/threads.ts). The ideas behind it are in
+[README.md](README.md).
 
-You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in it),
-TypeScript, and node 22 or later. To run in Chrome as well, you also need
+You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in a clone of
+it), TypeScript, and node 22 or later. To run in Chrome as well, you also need
 `playwright-core`.
 
 ## 1. Write the program
@@ -82,8 +83,8 @@ const totals = scope(s => {
 
 ```sh
 tsc -p tsconfig.json --noEmit                                       # types
-/path/to/tsgo-own/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads
-/path/to/tsgo-own/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+/path/to/threads-checker/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads
+/path/to/threads-checker/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
 ```
 
 The first is stock TypeScript. The second is the ownership checker, which runs

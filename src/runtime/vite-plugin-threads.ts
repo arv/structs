@@ -3,7 +3,7 @@
 //
 //   import threads from '@arv/threads/vite';
 //   export default {
-//     plugins: [threads({tsgo: '/path/to/tsgo-own/built/local/tsgo'})],
+//     plugins: [threads({tsgo: '/path/to/threads-checker/built/local/tsgo'})],
 //   };
 //
 // - compiles the project's TypeScript with the tsgo fork, which lays shared

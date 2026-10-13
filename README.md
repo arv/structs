@@ -46,7 +46,9 @@ export function main(threads: number) {
 
 > **Status: experimental.** The API, the checker and the runtime work and are
 > tested, but the compiler that lays shared structs out in shared memory is a
-> fork of TypeScript 7 that is not published yet. See [Status](#status).
+> fork of TypeScript 7,
+> [arv/threads-checker](https://github.com/arv/threads-checker), that you build
+> yourself. See [Status](#status).
 
 Try it in the browser, with the compiled JavaScript side by side:
 [the playground](https://github.com/arv/threads/tree/main/playground).
@@ -151,7 +153,7 @@ on the dev and preview servers.
 import threads from '@arv/threads/vite';
 
 export default {
-  plugins: [threads({tsgo: '/path/to/TypeScript/tsc/built/local/tsgo'})],
+  plugins: [threads({tsgo: '/path/to/threads-checker/built/local/tsgo'})],
 };
 ```
 
@@ -308,10 +310,12 @@ in about 7 ms.
 
 - **The compiler is a fork.** Shared structs and SharedArrays are compiled to
   typed-array reads and writes (`b.x` becomes `__F64[(b >> 3) + 1]`), and their
-  references are counted, by a fork of TypeScript 7.0.2 that is not published
-  yet; the plugin's `tsgo` option names its binary. With types only erased,
-  programs still run, and a use after move still throws, but each struct is a
-  handle behind accessors, about 50 times slower.
+  references are counted, by a fork of TypeScript 7.0.2,
+  [arv/threads-checker](https://github.com/arv/threads-checker), which is not on
+  npm: build it with `go build -o built/local/tsgo ./cmd/tsgo`, and the plugin's
+  `tsgo` option names the binary. With types only erased, programs still run,
+  and a use after move still throws, but each struct is a handle behind
+  accessors, about 50 times slower.
 - **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
   7.1's API.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
@@ -353,7 +357,7 @@ runs pnpm at the version `packageManager` names. You need Node 22.18 or later
 
 ```sh
 pnpm install                # once, at the root
-vp dev                      # the playground; TSGO=<tsgo-fork>/built/local/tsgo for the compiled JavaScript
+vp dev                      # the playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
 vp build                    # the playground's production build
 vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace

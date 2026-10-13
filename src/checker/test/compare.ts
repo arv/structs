@@ -6,7 +6,8 @@
 // programs/mistakes.ts), the fork's marker-mode compiler tests, the prototype's
 // programs (at the repository's root) and the scratchpad's mistakes. Projects
 // outside this repository are skipped when they are not there. Without the fork
-// (TSGO_FORK, by default ~/src/arv/TypeScript), a case of test/cases is
+// (TSGO_FORK, a clone of arv/threads-checker with tsgo built in it, by default
+// ~/src/arv/threads-checker), a case of test/cases is
 // compared with its expected output in test/expected, which
 // `vp run compare --update` writes from the fork's output.
 //
@@ -37,9 +38,10 @@ import {check, formatDiagnostic} from '../index.ts';
 const checkerDir = resolve(import.meta.dirname, '..');
 const repo = resolve(checkerDir, '../..');
 const playground = join(repo, 'playground');
-const forkRoot = process.env.TSGO_FORK ?? join(homedir(), 'src/arv/TypeScript');
-const tsgo = join(forkRoot, 'tsc/built/local/tsgo');
-const forkTests = join(forkRoot, 'tsc/testdata/tests/cases/compiler');
+const forkRoot =
+  process.env.TSGO_FORK ?? join(homedir(), 'src/arv/threads-checker');
+const tsgo = join(forkRoot, 'built/local/tsgo');
+const forkTests = join(forkRoot, 'testdata/tests/cases/compiler');
 const prototype = process.env.THREADS_PROTOTYPE ?? repo;
 const mistakes = (process.env.MISTAKES ?? '')
   .split(':')

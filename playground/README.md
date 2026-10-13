@@ -11,16 +11,16 @@ the limits are in [the README](../README.md).
 
 You need Node 22.18 or later (24.11 or later on Node 24), a recent Chrome (or
 another browser with SharedArrayBuffer), and, for the compiled JavaScript, a
-fork of TypeScript 7.0.2 (microsoft/TypeScript, its Go compiler in `tsc/`,
-branch `own-shared`), built with `go build -o built/local/tsgo ./cmd/tsgo` in
-its `tsc/` directory. The fork is not published yet. The ownership checker needs
-no fork: it is [src/checker/](../src/checker), on stock TypeScript 7.1. The
-repository is a pnpm workspace on [Vite+](https://viteplus.dev) (see
+fork of TypeScript 7.0.2,
+[arv/threads-checker](https://github.com/arv/threads-checker), built with
+`go build -o built/local/tsgo ./cmd/tsgo` in a clone of it. The ownership
+checker needs no fork: it is [src/checker/](../src/checker), on stock TypeScript
+7.1. The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (see
 [its README](../README.md#development)).
 
 ```sh
 pnpm install                                               # at the repository's root
-TSGO=/path/to/TypeScript/tsc/built/local/tsgo vp dev       # here, or at the root
+TSGO=/path/to/threads-checker/built/local/tsgo vp dev      # here, or at the root
 ```
 
 Open the address Vite prints. Pick a program and edit it in Monaco, with
