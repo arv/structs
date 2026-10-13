@@ -1,0 +1,79 @@
+# The playground on GitHub Pages, under /playground/ (arv.github.io/threads/,
+# or threads.arv.tools/ once the repository's Pages settings name that domain):
+# on every push to main, and by hand. It builds the tsgo fork
+# (arv/threads-checker's main) twice, natively for the Vite plugin, which
+# compiles the page, and in WebAssembly for the page, which compiles the
+# programs; then the playground (vp build) for the site's path, and deploys it
+# with a page at the root that leads there. Pages sends no COOP and COEP
+# headers: the playground's service worker adds them
+# (playground/public/coi-sw.js).
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # the site's path: /threads on arv.github.io, nothing on a custom domain
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: arv/threads-checker
+          path: threads-checker
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: threads-checker/go.mod
+          cache-dependency-path: threads-checker/go.sum
+      - run: go build -o built/local/tsgo ./cmd/tsgo
+        working-directory: threads-checker
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: '24'
+          cache: true
+      - run: vp run build-wasm
+        working-directory: playground
+        env:
+          TSGO_FORK: ${{ github.workspace }}/threads-checker
+      - run: vp build
+        working-directory: playground
+        env:
+          TSGO: ${{ github.workspace }}/threads-checker/built/local/tsgo
+          BASE: ${{ steps.pages.outputs.base_path }}/playground/
+      - name: the site
+        run: |
+          mkdir -p _site
+          cp -R playground/dist _site/playground
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8" />
+          <title>Threads for JavaScript</title>
+          <meta http-equiv="refresh" content="0; url=playground/" />
+          <a href="playground/">The playground</a>
+          HTML
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}playground/
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
