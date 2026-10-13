@@ -104,7 +104,8 @@ export declare const bool: Field<boolean>;
 /**
  * A string field: the address of the string's one copy in shared memory.
  * Strings are interned, so each distinct string is stored once, and each thread
- * decodes it once. They are never freed.
+ * decodes it once. A string is freed once no field, SharedArray element, map or
+ * message refers to it.
  */
 export declare const str: Field<string>;
 /**

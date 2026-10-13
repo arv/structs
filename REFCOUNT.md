@@ -5,9 +5,10 @@
 > [refcount.ts](src/refcount.ts) tests it,
 > [refcount-hand.ts](src/refcount-hand.ts) is the same test written by hand, and
 > the playground's "Reference counting under a race" runs it in a browser
-> ([programs/refcount.ts](playground/programs/refcount.ts)). Shared structs and
-> SharedArrays are freed when nothing refers to them; other cells (`Barrier`,
-> `Slots`) and moved or shared values are still never freed.
+> ([programs/refcount.ts](playground/programs/refcount.ts)). Shared structs,
+> SharedArrays, SharedMaps and SharedSets, and interned strings, are freed when
+> nothing refers to them; other cells (`Barrier`, `Slots`) and moved or shared
+> values are still never freed.
 
 A shared struct or SharedArray is an address in the shared heap, passed around
 as a plain number, so V8's collector cannot see who holds one. Each block counts
@@ -72,6 +73,7 @@ with the epoch it last saw at a quiescent point.
 | `__retain(p)`                              | +1, returns p; nothing for 0                                                                                                                                                 |
 | `__release(p)`                             | −1, frees at 0 and releases its reference fields; nothing for 0                                                                                                              |
 | `__store(i, v)`                            | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v                                                                          |
+| `__storeStr(i, s)`                         | a string field's or element's store at i32 index i: counts s's interned string, defers the old one's decrement, returns s                                                    |
 | `__ref(v)`                                 | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
 | `__moved(v)`                               | a counted result that a callback returns to the runtime (a SharedMap's getOrInsertComputed's): it carries its count already                                                  |
 | `__quiescent()`                            | a quiescent point                                                                                                                                                            |
@@ -149,6 +151,20 @@ Rules:
     generic call (`list.push(node)`, `map.set(k, node)` on a JS Map): that is
     still a hole, to be closed by boxing at generic boundaries or rejecting such
     calls. A SharedMap or SharedSet is the container that counts (7).
+12. **Strings.** An interned string is counted as a struct is, by what holds its
+    address: a `str` field or a SharedArray<string> element (`e.f = s` is
+    `__storeStr(i, s)`, which does nothing to the counts when the field holds s
+    already), a map's key or value, and a message, which counts its strings and
+    its objects' keys and gives them back once it is read (a shared value keeps
+    them). Compiled code reads a string field as a JS string (`__str(__I32[i])`)
+    and holds no string's address beyond a runtime call, so a string's decrement
+    need not wait for a quiescent point. A string whose count reaches 0 leaves
+    the table at once, so no lookup finds it again, and its block is freed a
+    grace period later: a lookup on another thread may have found it just
+    before. Each string has a serial, so that a thread's caches (string to
+    address, address to string) never take a reused address for the string that
+    left it. The runtime's own strings (the publish-on-escape heap's keys,
+    struct layouts) are pinned and stay.
 
 ## Limits
 

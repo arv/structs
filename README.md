@@ -317,13 +317,12 @@ in about 7 ms.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
   counted, but cycles of them leak. Channels are never freed. A moved value (a
   thread's arguments and result, a channel's message) is freed once it is read;
-  shared values and interned strings are never freed, so a `str` field suits
-  labels and names better than an endless stream of distinct text.
+  shared values are never freed. Strings are interned, one copy each, and
+  counted: a string goes once no field, element, map or message refers to it.
 - A thread runs a top-level function: closures do not cross threads.
 - A SharedMap or SharedSet has one lock, which every call takes for a moment:
   threads that change one map all the time wait for each other, so a thread with
-  many changes makes them in a Map of its own and merges once. Its strings are
-  interned, as a `str` field's are.
+  many changes makes them in a Map of its own and merges once.
 - A goroutine of a plain function is a whole worker: one per core is fine,
   thousands are not. Async goroutines are light but cooperative: one that
   computes without awaiting holds up the others on its worker, and none moves to

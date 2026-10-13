@@ -1,9 +1,9 @@
 // Strings in shared memory are interned: each distinct string is stored once,
 // and a `str` field (or an element of a SharedArray<string>) holds the address
 // of that copy. Writing one interns it; reading one gives this thread's copy of
-// the string, decoded the first time and kept. Here threads fill a log in
-// shared memory, each its own part, and then count the errors per service in
-// it.
+// the string, decoded the first time and kept. A string is counted, and goes
+// when no field refers to it any more. Here threads fill a log in shared
+// memory, each its own part, and then count the errors per service in it.
 import {
   f64,
   log,

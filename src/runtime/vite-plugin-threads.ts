@@ -33,7 +33,7 @@ import {stripTypeScriptTypes} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
-import type {Plugin} from 'vite-plus';
+import {searchForWorkspaceRoot, type Plugin} from 'vite-plus';
 
 const ISOLATED = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -57,7 +57,6 @@ const HELPERS = new Set([
   '__box',
   '__cellAddress',
   '__hold',
-  '__intern',
   '__moved',
   '__newSharedArray',
   '__newStruct',
@@ -68,6 +67,7 @@ const HELPERS = new Set([
   '__retain',
   '__sharedStruct',
   '__store',
+  '__storeStr',
   '__str',
   '__unbox',
 ]);
@@ -397,7 +397,14 @@ export default function threads(options: Options = {}): Plugin {
       // script among them)
       server: {
         headers: ISOLATED,
-        fs: {allow: [path.resolve(user.root ?? process.cwd()), RUNTIME_DIR]},
+        // the workspace, as Vite allows by default (its dependencies are in
+        // its root's node_modules), and the runtime, wherever it is
+        fs: {
+          allow: [
+            searchForWorkspaceRoot(path.resolve(user.root ?? process.cwd())),
+            RUNTIME_DIR,
+          ],
+        },
       },
       preview: {headers: ISOLATED},
       // the workers' bundle needs the same compile

@@ -18,15 +18,16 @@
 // a key or value is one 8-byte word: a number as itself (NaN as one NaN), or a
 // box, hi = 0xFFF80000 | tag << 11 and lo its payload: an interned string's
 // address (0 for ""), a cell's handle's, a shared value's. strings are
-// interned, as a `str` field's are, so two equal strings are one address.
-// compiled code passes a shared struct or SharedArray as its address, a number,
-// and reads one back as that: the map keeps it as that number, and the
-// compiler's __ref(p) (set's parameters are a `Sending` rest parameter, as
-// spawn's are) says it is an address. the map holds a count on each cell in
-// it, a flag in the entry saying which of its words do (REFCOUNT.md); a map is
-// counted too, as a SharedArray is, and freeing it gives back what it held. an
-// object or array stored moves in (the ownership checker sees to it): the map
-// shares it, frozen
+// interned, as a `str` field's are, so two equal strings are one address, and
+// the map holds a count on each (runtime.ts $intern): a string no map, field or
+// message refers to goes. compiled code passes a shared struct or SharedArray
+// as its address, a number, and reads one back as that: the map keeps it as
+// that number, and the compiler's __ref(p) (set's parameters are a `Sending`
+// rest parameter, as spawn's are) says it is an address. the map holds a count
+// on each cell and string in it, a flag in the entry saying which of its words
+// do (REFCOUNT.md); a map is counted too, as a SharedArray is, and freeing it
+// gives back what it held. an object or array stored moves in (the ownership
+// checker sees to it): the map shares it, frozen
 import {
   __box,
   __countedCellKind,
@@ -41,8 +42,9 @@ import {
   $allocBlock,
   $defer,
   $freeBlock,
-  $intern,
   $internFind,
+  $internRef,
+  $releaseString,
   $lock,
   $str,
   $unlock,
@@ -88,23 +90,31 @@ const T_UNDEF = 1,
   T_SHARED = 8,
   T_CELL = 9,
   T_HOLE = 15;
-const CELL_HI = BOX | (T_CELL << 11),
+const STR_HI = BOX | (T_STR << 11),
+  CELL_HI = BOX | (T_CELL << 11),
   HOLE_HI = BOX | (T_HOLE << 11);
 // the word encode made, and what the map does to hold it: nothing, retain (a
 // handle's cell), or adopt the count that comes with it (compiled code's
-// __ref(p), a raw address)
+// __ref(p), a raw address; a string's, which encode counts)
 let lo = 0,
   hi = 0,
-  held = 0;
+  held = 0,
+  // a key string to add: the map takes a count of it only if it adds the key
+  // (see counted), and none at all if no string table has it (absent)
+  pending: string | null = null,
+  absent = false;
 const RETAIN = 1,
   ADOPT = 2;
 const scratch = new Float64Array(1),
   bits = new Int32Array(scratch.buffer);
-// v as a word, into lo, hi and held. adding: interns a string, shares an object
-// or array (which moves in), and throws if v cannot be shared; otherwise a key
-// that cannot be in any map is not found (false)
+// v as a word, into lo, hi and held. adding: interns a value's string, with a
+// count for the map (a key's waits, see pending), shares an object or array
+// (which moves in), and throws if v cannot be shared; otherwise a key that
+// cannot be in any map is not found (false)
 function encode(v: unknown, key: boolean, adding: boolean): boolean {
   held = 0;
+  pending = null;
+  absent = false;
   switch (typeof v) {
     case 'number':
       if (v !== v) {
@@ -117,10 +127,17 @@ function encode(v: unknown, key: boolean, adding: boolean): boolean {
       }
       return true;
     case 'string': {
-      const a = v === '' ? 0 : adding ? $intern(v) : $internFind(v);
-      if (a === 0 && v !== '') return false;
+      const a = !adding || key ? $internFind(v) : $internRef(v);
+      hi = STR_HI;
       lo = a;
-      hi = BOX | (T_STR << 11);
+      if (a === 0 && v !== '') {
+        if (!adding) return false;
+        absent = true;
+      }
+      if (adding && v !== '') {
+        if (key) pending = v;
+        else held = ADOPT;
+      }
       return true;
     }
     case 'boolean':
@@ -169,10 +186,20 @@ function encode(v: unknown, key: boolean, adding: boolean): boolean {
     `threads: a SharedMap's or SharedSet's ${key ? 'key' : 'value'} is shared: a number, a string, a boolean, null, undefined, a cell (a shared struct, a SharedArray, a Channel, a map...), or a plain object or array, which the map shares`,
   );
 }
+// the key word l, h as the map adds it: a pending string, counted now (its
+// address is the one encode found, if it found one: the string cannot have gone
+// since, with no quiescent point between)
+function counted(l: number, how: number, s: string | null): [number, number] {
+  return s === null ? [l, how] : [$internRef(s), ADOPT];
+}
 // gives back the count a word encode made came with, which the map does not
 // keep (its key was there already)
 function unheld(l: number, h: number, how: number) {
   if (how !== ADOPT) return;
+  if (h === STR_HI) {
+    __release(l);
+    return;
+  }
   bits[0] = l;
   bits[1] = h;
   __release(scratch[0]);
@@ -202,10 +229,12 @@ function decode(at: number): unknown {
       return __box(p); // a cell: this thread's handle, which holds a count
   }
 }
-// the cell a held word at at refers to: a handle's (boxed), or an address kept
-// as a number
+// what a held word at at refers to: a string, a handle's cell (boxed), or an
+// address kept as a number
 const heldAddress = (at: number) =>
-  I32[(at >> 2) + 1] === CELL_HI ? I32[at >> 2] : F64[at >> 3];
+  I32[(at >> 2) + 1] === CELL_HI || I32[(at >> 2) + 1] === STR_HI
+    ? I32[at >> 2]
+    : F64[at >> 3];
 const KEY_HELD = 1,
   VALUE_HELD = 2;
 // store a word encode made, l and h, into entry e's word at offset o (0 the
@@ -229,12 +258,14 @@ function store(
   }
 }
 // give back the count entry e's word at offset o holds, if it holds one. a
-// thread may have read it a moment ago and not counted it yet, so the decrement
-// waits for every thread's next quiescent point
+// thread may have read a cell a moment ago and not counted it yet, so its
+// decrement waits for every thread's next quiescent point; a string's need not
+// (runtime.ts $releaseString)
 function drop(e: number, w: number, o: number, bit: number) {
   const f = (e + w + FLAGS) >> 2;
   if ((I32[f] & bit) === 0) return;
-  $defer(heldAddress(e + o));
+  if (I32[(e + o + 4) >> 2] === STR_HI) $releaseString(I32[(e + o) >> 2]);
+  else $defer(heldAddress(e + o));
   I32[f] &= ~bit;
 }
 const hash = (l: number, h: number) => {
@@ -286,7 +317,7 @@ function rehash(m: number, w: number, capacity: number) {
 }
 // a new entry for the key l, h (held as how says); returns its address, whose
 // value word (a map's) the caller stores
-function append(m: number, w: number, l: number, h: number, how: number) {
+function append(m: number, w: number, h: number, l: number, how: number) {
   let t = I32[(m >> 2) + TABLE];
   const capacity = I32[t >> 2],
     size = I32[(m >> 2) + SIZE];
@@ -482,17 +513,19 @@ export class SharedMap<K = unknown, V = unknown> {
     const m = this.$cell,
       l = lo,
       h = hi,
-      how = held;
+      how = held,
+      s = pending,
+      no = absent;
     $lock((m >> 2) + LOCK);
     const t = I32[(m >> 2) + TABLE],
-      i = find(t, MAP_ENTRY, l, h);
+      i = no ? -1 : find(t, MAP_ENTRY, l, h);
     let e: number;
     if (i >= 0) {
       // a new value, in the key's place
       e = entriesAt(t) + i * MAP_ENTRY;
       drop(e, MAP_ENTRY, 8, VALUE_HELD);
       unheld(l, h, how);
-    } else e = append(m, MAP_ENTRY, l, h, how);
+    } else e = append(m, MAP_ENTRY, h, ...counted(l, how, s));
     store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
     $unlock((m >> 2) + LOCK);
     return this;
@@ -507,17 +540,19 @@ export class SharedMap<K = unknown, V = unknown> {
     const m = this.$cell,
       l = lo,
       h = hi,
-      how = held;
+      how = held,
+      s = pending,
+      no = absent;
     $lock((m >> 2) + LOCK);
     const t = I32[(m >> 2) + TABLE],
-      i = find(t, MAP_ENTRY, l, h);
+      i = no ? -1 : find(t, MAP_ENTRY, l, h);
     let e: number;
     if (i >= 0) {
       e = entriesAt(t) + i * MAP_ENTRY;
       unheld(l, h, how);
       unheld(vl, vh, vhow);
     } else {
-      e = append(m, MAP_ENTRY, l, h, how);
+      e = append(m, MAP_ENTRY, h, ...counted(l, how, s));
       store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
     }
     const v = decode(e + 8);
@@ -615,10 +650,11 @@ export class SharedSet<T = unknown> {
     const m = this.$cell,
       l = lo,
       h = hi,
-      how = held;
+      how = held,
+      s = pending;
     $lock((m >> 2) + LOCK);
-    if (find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
-      append(m, SET_ENTRY, l, h, how);
+    if (absent || find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
+      append(m, SET_ENTRY, h, ...counted(l, how, s));
     else unheld(l, h, how);
     $unlock((m >> 2) + LOCK);
     return this;

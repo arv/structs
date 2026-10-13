@@ -2,7 +2,7 @@
 // code with its types only erased uses them), atomic operations, reference
 // counts, and the rest.
 import {beforeAll, describe, expect, it} from 'vite-plus/test';
-import {logged, own, threads as T} from './test-heap.ts';
+import {logged, own, runtime, threads as T} from './test-heap.ts';
 
 // what a thread's argument, its result or a channel's message goes through
 const move = (v: unknown) => {
@@ -186,8 +186,89 @@ describe('reference counts', () => {
   });
 
   it('intern strings: one copy each', () => {
-    expect(own.__intern('abc')).toBe(own.__intern('abc'));
-    expect(own.__str(own.__intern('abc'))).toBe('abc');
+    expect(runtime.$internRef('abc')).toBe(runtime.$internRef('abc'));
+    expect(own.__str(runtime.$internFind('abc'))).toBe('abc');
+  });
+});
+
+describe('strings are collected', () => {
+  // live blocks, after every deferred decrement and free has been worked off
+  const live = () => {
+    own.__collect();
+    const s = T.heapStats();
+    return s.allocated - s.freed;
+  };
+  // as compiled code stores them: a str field at i32 index (a >> 2) + 2
+  const S = own.__sharedStruct('Named', ['name'], [], 's');
+
+  it('a field holds a count on its string, and gives it back', () => {
+    const a = own.__newStruct(S),
+      before = live();
+    for (let i = 0; i < 2000; i++) {
+      own.__storeStr((a >> 2) + 2, `name ${i} ${'é'.repeat(i % 3)}`);
+      expect(own.__str(runtime.I32[(a >> 2) + 2])).toBe(
+        `name ${i} ${'é'.repeat(i % 3)}`,
+      );
+    }
+    expect(live()).toBe(before + 1); // the last one
+    own.__storeStr((a >> 2) + 2, '');
+    expect(live()).toBe(before);
+    own.__storeStr((a >> 2) + 2, 'one more, unique to this test');
+    own.__release(a); // the struct goes, and with it its string
+    expect(live()).toBe(before - 1);
+  });
+
+  it('a SharedArray<string> holds counts on its strings', () => {
+    const before = live(),
+      xs = new T.SharedArray(String, 100);
+    for (let round = 0; round < 20; round++)
+      for (let i = 0; i < 100; i++) xs[i] = `element ${round}.${i}`;
+    expect(xs[42]).toBe('element 19.42');
+    expect(live()).toBe(before + 1 + 100); // the array, its strings
+    for (let i = 0; i < 100; i++) xs[i] = '';
+    expect(live()).toBe(before + 1);
+  });
+
+  it('a message holds counts on its strings and keys until it is read', () => {
+    const a = own.__newStruct(S);
+    own.__storeStr((a >> 2) + 2, 'known here'); // sent by address
+    const before = live();
+    for (let i = 0; i < 1000; i++) {
+      const sent = {[`key ${i}`]: 'known here', [`other ${i}`]: [`text ${i}`]};
+      const [p, bytes] = own.__message(sent);
+      expect(own.__unmessage(p, bytes)).toEqual({
+        [`key ${i}`]: 'known here',
+        [`other ${i}`]: [`text ${i}`],
+      });
+    }
+    expect(live()).toBe(before);
+    own.__release(a);
+  });
+
+  it('a pinned string stays, counted or not', () => {
+    const counted = runtime.$internRef('pinned later, unique to this test'),
+      pinned = runtime.$intern('pinned, unique to this test');
+    expect(runtime.$intern('pinned later, unique to this test')).toBe(counted);
+    own.__release(counted);
+    own.__release(runtime.$internRef('pinned, unique to this test'));
+    live();
+    expect(runtime.$internFind('pinned later, unique to this test')).toBe(
+      counted,
+    );
+    expect(runtime.$internFind('pinned, unique to this test')).toBe(pinned);
+  });
+
+  it('an address a string left is never that string again', () => {
+    for (let i = 0; i < 200; i++) {
+      const a = runtime.$internRef(`gone ${i}`);
+      expect(runtime.$str(a)).toBe(`gone ${i}`); // now cached here
+      own.__release(a);
+      own.__collect();
+      expect(runtime.$internFind(`gone ${i}`)).toBe(0);
+      const b = runtime.$internRef(`new ${i}`); // the same block, often
+      expect(runtime.$str(b)).toBe(`new ${i}`);
+      own.__release(b);
+    }
   });
 });
 

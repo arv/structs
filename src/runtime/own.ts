@@ -43,6 +43,11 @@ import {
   spawnAsync,
   $mustNotBlock,
   $resumed,
+  $internRef,
+  $retainString,
+  $stringDying,
+  K_STR,
+  $releaseString,
 } from './runtime.ts';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -124,7 +129,7 @@ function shapeOf(keys: string[]) {
     shape = wn;
     wn += 1 + n;
     wi[shape * 2] = n;
-    for (let k = 0; k < n; k++) wi[(shape + 1 + k) * 2] = $intern(keys[k]);
+    for (let k = 0; k < n; k++) wi[(shape + 1 + k) * 2] = $internRef(keys[k]);
     list.push(keys, shape);
   }
   lastKeys = keys;
@@ -219,13 +224,16 @@ function put(
     // it crosses as that)
     let body = written.get(v);
     if (body === undefined) {
+      // counted for the blob, once for each time it is in it
       const interned = $internedHere(v);
-      if (interned !== 0) {
+      if (interned !== 0 && $retainString(interned)) {
         written.set(v, -interned);
         return box(at, T_ISTR, interned);
       }
-    } else if (body < 0) return box(at, T_ISTR, -body);
-    else {
+    } else if (body < 0) {
+      $retainString(-body);
+      return box(at, T_ISTR, -body);
+    } else {
       if (wi[body * 2 + 1] >>> 2 === 0) wi[body * 2 + 1] |= ++repeats << 2;
       return box(at, T_STR, body);
     }
@@ -366,6 +374,7 @@ function get(base: number, at: number, frozen: boolean): unknown {
       return s;
     }
     case T_ISTR:
+      if (given !== null) given.push(p);
       return $str(p);
     case T_ARR: {
       const n = I32[(base >> 2) + p * 2],
@@ -382,6 +391,9 @@ function get(base: number, at: number, frozen: boolean): unknown {
         if (make === undefined) {
           make = maker(base, shape, frozen);
           if (shapesRead !== null) (shapesRead ??= new Map()).set(shape, make);
+          if (given !== null)
+            for (let k = 0, n = I32[(base >> 2) + shape * 2]; k < n; k++)
+              given.push(I32[(base >> 2) + (shape + 1 + k) * 2]);
         }
         if (shapesRead !== null) {
           lastShapeRead = shape;
@@ -414,15 +426,18 @@ let decoded: string[] | null | undefined = null,
   lastShapeRead = -1,
   lastMakerRead: Maker | null = null;
 function read(a: number, frozen: boolean) {
-  const outer = [decoded, shapesRead, lastShapeRead, lastMakerRead] as const;
+  const outer = [decoded, shapesRead, lastShapeRead, lastMakerRead] as const,
+    outerGiven = given;
   decoded = undefined;
   shapesRead = undefined;
   lastShapeRead = -1;
   lastMakerRead = null;
+  if (frozen) given = null; // a shared value keeps its counts
   try {
     return get(a, 0, frozen);
   } finally {
     [decoded, shapesRead, lastShapeRead, lastMakerRead] = outer;
+    given = outerGiven;
   }
 }
 
@@ -437,10 +452,13 @@ type Maker = (
   frozen: boolean,
 ) => object;
 // hash of the key addresses -> [ { keys, frozen, make } ]
+// by its keys' addresses, and their serials: a key's string may go, and its
+// address be another string's (runtime.ts $intern)
 const makers = new Map<
   number,
-  {keys: number[]; frozen: boolean; make: Maker}[]
+  {keys: number[]; serials: number[]; frozen: boolean; make: Maker}[]
 >();
+const serialOf = (a: number) => (a === 0 ? 0 : I32[(a >> 2) + 5]);
 function maker(base: number, shape: number, frozen: boolean) {
   const n = I32[(base >> 2) + shape * 2],
     k0 = (base >> 2) + (shape + 1) * 2;
@@ -450,15 +468,21 @@ function maker(base: number, shape: number, frozen: boolean) {
   if (list !== undefined) {
     outer: for (const m of list) {
       if (m.frozen !== frozen || m.keys.length !== n) continue;
-      for (let k = 0; k < n; k++)
-        if (m.keys[k] !== I32[k0 + k * 2]) continue outer;
+      for (let k = 0; k < n; k++) {
+        const a = I32[k0 + k * 2];
+        if (m.keys[k] !== a || m.serials[k] !== serialOf(a)) continue outer;
+      }
       return m.make;
     }
-  } else makers.set(h, (list = []));
-  const keys = Array.from({length: n}, (_, k) => I32[k0 + k * 2]);
+  } else {
+    if (makers.size >= 4096) makers.clear();
+    makers.set(h, (list = []));
+  }
+  const keys = Array.from({length: n}, (_, k) => I32[k0 + k * 2]),
+    serials = keys.map(serialOf);
   const fields = keys.map(
     (a, k) =>
-      `${JSON.stringify($str(a))}: (v = F64[(base >> 3) + at + ${k}]) === v ? v : get(base, at + ${k}, frozen)`,
+      `${JSON.stringify(__str(a))}: (v = F64[(base >> 3) + at + ${k}]) === v ? v : get(base, at + ${k}, frozen)`,
   );
   const make = new Function(
     'F64',
@@ -468,7 +492,7 @@ function maker(base: number, shape: number, frozen: boolean) {
     'frozen',
     `let v; return ${frozen ? 'Object.freeze(' : ''}{ ${fields.join(', ')} }${frozen ? ')' : ''};`,
   ) as Maker;
-  list.push({keys, frozen, make});
+  list.push({keys, serials, frozen, make});
   return make;
 }
 
@@ -502,10 +526,21 @@ export function __message(v: unknown, depth = 0): [number, number] {
   revoke(moved);
   return [a, bytes];
 }
+// the counts a message holds on its strings and its shapes' keys, which its
+// reader gives back once it has read them (see put); null outside a message's
+// read
+let given: number[] | null = null;
 export function __unmessage<T = unknown>(a: number, bytes: number) {
-  const v = read(a, false) as T;
-  $freeBlock(a, bytes);
-  return v;
+  const outer = given;
+  given = [];
+  try {
+    return read(a, false) as T;
+  } finally {
+    const list = given;
+    given = outer;
+    for (const p of list) __release(p);
+    $freeBlock(a, bytes);
+  }
 }
 
 // ---- sharing ----
@@ -543,7 +578,7 @@ const K_BARRIER = 20,
 // counted cells defined outside this module (maps.ts): what freeing a block of
 // their kind releases and frees, given drop, which gives back a count it held
 type Destroy = (b: number, drop: (p: number) => void) => void;
-const destroys = new Map<number, Destroy>();
+const destroys = new Map<number, Destroy>([[K_STR, b => $stringDying(b)]]);
 // structs, SharedArrays and those (REFCOUNT.md)
 const counted: (kind: number) => boolean = kind =>
   kind === K_SHARED_ARRAY || kind >= 100 || destroys.has(kind);
@@ -715,6 +750,7 @@ export interface StructType<T = unknown> {
   fields: string[];
   refs: number[];
   kinds: string;
+  strs: number[]; // the string fields
 }
 // `const Name = struct({a: f64, b: ref<Name>(), c: bool, d: str, e: i32, f: u8,
 // g: ref<Channel>()})`
@@ -725,7 +761,7 @@ export interface StructType<T = unknown> {
 // fields, 8 bytes each, in order, each as its kind says: f an f64; r a struct's
 // or a SharedArray's address in the slot's low half, 0 for null; b a byte, 0 or
 // 1, and u a byte, at the slot's start; s an interned string's address in the
-// low half, 0 for "" (see __intern); i an i32 in the low half; c a channel's
+// low half, 0 for "" (see __storeStr); i an i32 in the low half; c a channel's
 // address in the low half, 0 for null, with no count (a channel is never
 // freed). compiled code has c where uncompiled code, which cannot tell a
 // channel from a struct, has r. compiled with the tsgo fork's typed layout, a
@@ -766,6 +802,7 @@ export function __sharedStruct<T = unknown>(
   Struct.fields = fields;
   Struct.refs = refs;
   Struct.kinds = kinds;
+  Struct.strs = kinds.split('').flatMap((kind, k) => (kind === 's' ? [k] : []));
   const accessors: Record<
     string,
     (k: number) => PropertyDescriptor & ThisType<CellObject>
@@ -817,7 +854,7 @@ export function __sharedStruct<T = unknown>(
         return __str(I32[(this.$cell >> 2) + 2 + 2 * k]);
       },
       set(v: string) {
-        I32[(this.$cell >> 2) + 2 + 2 * k] = __intern(v);
+        __storeStr((this.$cell >> 2) + 2 + 2 * k, v);
       },
     }),
     f: k => ({
@@ -847,12 +884,23 @@ export function __sharedStruct<T = unknown>(
 // these views
 export {I32 as __I32, F64 as __F64, U8 as __U8};
 // strings in shared memory are interned (runtime.ts $intern): one copy of each,
-// which every thread decodes once and keeps. a string field or element holds
-// its address, 0 for "": compiled, a read is __str(__I32[i]) and a write
-// __I32[i] = __intern(v). interned strings are never freed
-type Intern = (s: string) => number;
-export const __intern: Intern = s => (s === '' ? 0 : $intern(String(s)));
+// which every thread decodes once and keeps, and counted: a string goes when
+// nothing refers to it. a string field or element holds its address and a count
+// of it, 0 for "": compiled, a read is __str(__I32[i]) and a write
+// __storeStr(i, v)
 export const __str: (a: number) => string = a => (a === 0 ? '' : $str(a));
+// a string field's or element's store at i32 index i: counts the new string,
+// and gives back the old one's count (runtime.ts $releaseString); returns s.
+// storing the string the field holds already changes nothing
+export function __storeStr(i: number, s: string) {
+  s = String(s);
+  const here = s === '' ? 0 : $internedHere(s);
+  if (I32[i] === here && (here !== 0 || s === '')) return s;
+  const a = $internRef(s),
+    old = Atomics.exchange(I32, i, a);
+  $releaseString(old === a ? a : old); // one count is enough
+  return s;
+}
 // a zeroed struct: [kind][count 1], then its fields from byte 8. the caller
 // owns the count
 export function __newStruct(type: StructType) {
@@ -939,15 +987,19 @@ function destroy(o: number) {
         size = elementSize(b);
       if (size > 8 && n !== 0) {
         // structs
-        const refs = cellKinds.get(I32[(b + 16) >> 2])!.refs!;
-        if (refs.length !== 0)
-          for (let e = b + 16, end = e + n * size; e < end; e += size)
-            for (const k of refs) drop(I32[(e >> 2) + 2 + 2 * k]);
-      }
+        const T = cellKinds.get(I32[(b + 16) >> 2]) as StructType;
+        if (T.refs.length + T.strs.length !== 0)
+          for (let e = b + 16, end = e + n * size; e < end; e += size) {
+            for (const k of T.refs) drop(I32[(e >> 2) + 2 + 2 * k]);
+            for (const k of T.strs) drop(I32[(e >> 2) + 2 + 2 * k]);
+          }
+      } else if (elementKind(b) === E_STR)
+        for (let e = (b + 16) >> 2, end = e + n; e < end; e++) drop(I32[e]);
       $freeBlock(b, 16 + n * size);
     } else {
       const T = cellKinds.get(kind) as StructType;
       for (const k of T.refs) drop(I32[(b >> 2) + 2 + 2 * k]);
+      for (const k of T.strs) drop(I32[(b >> 2) + 2 + 2 * k]);
       $freeBlock(b, T.size);
     }
   }
@@ -1117,7 +1169,7 @@ function sharedArrayHandle(a: number): SharedArrayHandle {
           U8[e] = v ? 1 : 0;
           break;
         case E_STR:
-          I32[e >> 2] = __intern(v);
+          __storeStr(e >> 2, v);
           break;
         case E_I32:
           I32[e >> 2] = v;

@@ -31,6 +31,7 @@ const C_RING_HEAD = 8,
   C_SHUTDOWN = 12;
 const C_LIVE = 13; // threads spawned and not finished
 const C_STR_TABLE = 14; // the interned strings' table (see $intern)
+const C_STR_SERIAL = 15; // the last string's serial (see $intern)
 const C_HEAP_END = 16;
 const C_EPOCH = 17; // reclamation's global epoch (see $defer)
 const C_FREE_LOCK = 18; // guards the free lists
@@ -128,7 +129,8 @@ export const K_OBJ = 1,
   K_THREAD = 6,
   K_VIEW = 7,
   K_SAB = 8,
-  K_STR = 9;
+  K_STR = 9,
+  K_STR_TABLE = 10;
 
 // lock word: an owner's tag (thread id << 12 | LOCAL), PENDING while a takeover
 // waits on it, 0 when shared and unlocked, or a holder's id << 12 | depth
@@ -690,7 +692,8 @@ export function $freeBlock(p: number, bytes: number) {
 // running thread's word is past g. a thread that ends hands what it still has
 // to the shared list (C_PEND), which any thread works off
 const IDLE = 0x7fffffff;
-// this thread's queued decrements: epoch, address, epoch, address, ...
+// this thread's queued decrements: epoch, address, epoch, address, ... (an
+// address -p is a block to free, see retire)
 let pend: number[] = [];
 let deferHandler: ((p: number) => void) | null = null,
   qsTick = 0;
@@ -755,8 +758,9 @@ function reclaim() {
     munlock(C_PEND_LOCK);
   }
   for (let k = 0; k < list.length; k += 2) {
-    if (list[k] < min) deferHandler!(list[k + 1]); // may queue more, in pend
-    else pend.push(list[k], list[k + 1]);
+    if (list[k] >= min) pend.push(list[k], list[k + 1]);
+    else if (list[k + 1] < 0) retire(-list[k + 1]);
+    else deferHandler!(list[k + 1]); // may queue more, in pend
   }
   if (pend.length >= 4096) nudgeHosts();
 }
@@ -855,116 +859,228 @@ export function $decodeUtf16(u: number, n: number) {
 }
 
 // ---- strings: interned, so a string's address is its identity (keys compare
-// by address). a string is [K_STR][length][hash][ascii] and then its text ----
-const strAddr = new Map<string, number>(),
-  addrStr = new Map<number, string>();
+// by address), and counted, so a string goes when nothing refers to it any
+// more: a struct's str field, a SharedArray<string>'s element, a map's key or
+// value, a message (REFCOUNT.md). a string is [K_STR][count][length][hash]
+// [ASCII][serial] and then its text, a byte per char if it is ASCII, else
+// UTF-16 units. a pinned string has PIN in its count, and stays: the
+// publish-on-escape heap's keys and values, and the structs' layouts. a string
+// whose count reaches 0 leaves the table at once, its count DEAD so that
+// nothing counts it again, and its block goes a grace period later, once every
+// thread has passed a quiescent point (see $defer): a lookup that found it
+// before it left may be reading it still. no two strings have one serial, so
+// this thread's caches (address -> string, string -> address) tell by it
+// whether a block is still the string they knew ----
+const STR_HEAD = 24,
+  PIN = 1 << 30,
+  DEAD = 1 << 31,
+  TOMB = 1; // a slot whose string left
+// this thread's caches, each with the string's serial
+const strAddr = new Map<string, [number, number]>(),
+  addrStr = new Map<number, [string, number]>();
+const remember = (s: string, a: number) => {
+  if (addrStr.size >= 1 << 14) {
+    addrStr.clear();
+    strAddr.clear();
+  }
+  const serial = I32[(a >> 2) + 5];
+  addrStr.set(a, [s, serial]);
+  strAddr.set(s, [a, serial]);
+};
+// the address of s, if this thread knows it and its block is still s
+function known(s: string) {
+  const k = strAddr.get(s);
+  if (k === undefined) return 0;
+  const a = k[0];
+  return I32[a >> 2] === K_STR && I32[(a >> 2) + 5] === k[1] ? a : 0;
+}
 const strHash: (s: string) => number = s => {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++)
     h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
   return h;
 };
+const strBytes = (a: number) =>
+  STR_HEAD + I32[(a >> 2) + 2] * (I32[(a >> 2) + 4] !== 0 ? 1 : 2);
 const strIs = (a: number, s: string) => {
-  if (I32[(a + 4) >> 2] !== s.length) return false;
-  if (I32[(a + 12) >> 2] !== 0) {
+  if (I32[(a >> 2) + 2] !== s.length) return false;
+  if (I32[(a >> 2) + 4] !== 0) {
     for (let i = 0; i < s.length; i++)
-      if (U8[a + 16 + i] !== s.charCodeAt(i)) return false;
+      if (U8[a + STR_HEAD + i] !== s.charCodeAt(i)) return false;
   } else {
-    const u = (a + 16) >> 1;
+    const u = (a + STR_HEAD) >> 1;
     for (let i = 0; i < s.length; i++)
       if (U16[u + i] !== s.charCodeAt(i)) return false;
   }
   return true;
 };
-// the table is a block [capacity][count] and then its slots, each 0 or a
-// string's address. a filled slot never changes, so a lookup takes no lock; an
-// insert takes C_STR_LOCK, and when the table is half full it doubles: the
-// bigger table replaces it with one store. a lookup still probing the old table
-// misses, and looks again under the lock. old tables are not freed (all of them
-// together are no bigger than the newest), and neither are interned strings
+// the table is a block [K_STR_TABLE][capacity][used][live] and then its slots,
+// each 0, a string's address, or TOMB where one left. a lookup takes no lock;
+// an insert or a removal takes C_STR_LOCK. a slot is used once, so when used
+// slots (live and left) fill half the table, a new table with only the live
+// ones, about four times as big as they need, replaces it with one store, and
+// the old one goes a grace period later. a lookup still probing the old table
+// may miss, and looks again under the lock
+const MIN_TABLE = 1 << 12;
 function strFind(t: number, s: string, h: number) {
   // the string's address in table t, or -1 - the empty slot where it goes
-  const slots = (t >> 2) + 2,
-    mask = I32[t >> 2] - 1;
+  const slots = (t >> 2) + 4,
+    mask = I32[(t >> 2) + 1] - 1;
   for (let i = h & mask; ; i = (i + 1) & mask) {
     const a = Atomics.load(I32, slots + i);
     if (a === 0) return -1 - i;
-    if (I32[(a + 8) >> 2] === h && strIs(a, s)) return a;
+    if (a !== TOMB && I32[(a >> 2) + 3] === h && strIs(a, s)) return a;
   }
 }
-function strGrow(t: number) {
+function strResize(t: number) {
   // under C_STR_LOCK
-  const cap = I32[t >> 2] * 2,
-    n = $alloc(8 + cap * 4),
-    slots = (n >> 2) + 2,
+  const live = I32[(t >> 2) + 3];
+  let cap = MIN_TABLE;
+  while (cap < live * 4) cap *= 2;
+  const n = $allocBlock(16 + cap * 4),
+    slots = (n >> 2) + 4,
     mask = cap - 1;
-  I32[n >> 2] = cap;
-  I32[(n >> 2) + 1] = I32[(t >> 2) + 1];
-  for (let k = (t >> 2) + 2, end = k + (cap >> 1); k < end; k++) {
+  I32[n >> 2] = K_STR_TABLE;
+  I32[(n >> 2) + 1] = cap;
+  I32[(n >> 2) + 2] = live;
+  I32[(n >> 2) + 3] = live;
+  for (let k = (t >> 2) + 4, end = k + I32[(t >> 2) + 1]; k < end; k++) {
     const a = I32[k];
-    if (a === 0) continue;
-    let i = I32[(a + 8) >> 2] & mask;
+    if (a === 0 || a === TOMB) continue;
+    let i = I32[(a >> 2) + 3] & mask;
     while (I32[slots + i] !== 0) i = (i + 1) & mask;
     I32[slots + i] = a;
   }
   Atomics.store(I32, C_STR_TABLE, n);
+  $defer(-t);
 }
-export function $intern(s: string) {
-  let a = strAddr.get(s);
-  if (a !== undefined) return a;
+// a new string in table t's empty slot -1 - at, with count count
+function strAdd(t: number, at: number, s: string, h: number, count: number) {
+  // under C_STR_LOCK
+  // a pinned string stays: bump-allocated, as nothing will free it
+  const ascii = $isAscii(s),
+    bytes = STR_HEAD + s.length * (ascii ? 1 : 2),
+    a = count >= PIN ? $alloc(bytes) : $allocBlock(bytes, false);
+  I32[a >> 2] = K_STR;
+  I32[(a >> 2) + 1] = count;
+  I32[(a >> 2) + 2] = s.length;
+  I32[(a >> 2) + 3] = h;
+  I32[(a >> 2) + 4] = ascii ? 1 : 0;
+  I32[(a >> 2) + 5] = Atomics.add(I32, C_STR_SERIAL, 1) + 1;
+  if (ascii)
+    for (let k = 0; k < s.length; k++) U8[a + STR_HEAD + k] = s.charCodeAt(k);
+  else
+    for (let k = 0, u = (a + STR_HEAD) >> 1; k < s.length; k++)
+      U16[u + k] = s.charCodeAt(k);
+  Atomics.store(I32, (t >> 2) + 4 + (-1 - at), a);
+  I32[(t >> 2) + 3]++;
+  if (++I32[(t >> 2) + 2] * 2 > I32[(t >> 2) + 1]) strResize(t);
+  return a;
+}
+// adds add to string a's count if it is alive, or at 0 and not yet DEAD (the
+// count brings it back: $stringDying sees it); pinning (add PIN) does nothing
+// to a pinned one, and waits for the lock if a's count is 0
+function strCount(a: number, add: number) {
+  const i = (a >> 2) + 1;
+  if (add !== PIN) {
+    if (Atomics.add(I32, i, add) >= 0) return true;
+    Atomics.sub(I32, i, add); // DEAD: as it was
+    return false;
+  }
+  for (let c = Atomics.load(I32, i); c > 0; c = Atomics.load(I32, i))
+    if (c >= PIN || Atomics.compareExchange(I32, i, c, c + PIN) === c)
+      return true;
+  return false;
+}
+// s's string with add added to its count (PIN or 1), made if there is none
+function intern(s: string, add: number) {
+  let a = known(s);
+  if (a !== 0 && strCount(a, add)) return a;
   const h = strHash(s);
   a = strFind(Atomics.load(I32, C_STR_TABLE), s, h);
-  if (a < 0) {
+  if (a <= 0 || !strCount(a, add)) {
+    // not there, or about to leave: under the lock, a string in the table is
+    // alive or at 0, which counting again brings back
     mlock(C_STR_LOCK);
     const t = Atomics.load(I32, C_STR_TABLE);
     a = strFind(t, s, h);
-    if (a < 0) {
-      const slot = (t >> 2) + 2 - 1 - a,
-        ascii = $isAscii(s);
-      a = $alloc(16 + s.length * (ascii ? 1 : 2));
-      I32[a >> 2] = K_STR;
-      I32[(a + 4) >> 2] = s.length;
-      I32[(a + 8) >> 2] = h;
-      I32[(a + 12) >> 2] = ascii ? 1 : 0;
-      if (ascii)
-        for (let k = 0; k < s.length; k++) U8[a + 16 + k] = s.charCodeAt(k);
-      else
-        for (let k = 0, u = (a + 16) >> 1; k < s.length; k++)
-          U16[u + k] = s.charCodeAt(k);
-      Atomics.store(I32, slot, a);
-      if (++I32[(t >> 2) + 1] * 2 > I32[t >> 2]) strGrow(t);
-    }
+    if (a < 0) a = strAdd(t, a, s, h, add);
+    else if (add !== PIN || Atomics.load(I32, (a >> 2) + 1) < PIN)
+      Atomics.add(I32, (a >> 2) + 1, add);
     munlock(C_STR_LOCK);
   }
-  strAddr.set(s, a);
-  addrStr.set(a, s);
+  remember(s, a);
   return a;
 }
-// the address of s if this thread has interned or read it already, else 0: a
-// lookup, no hashing
-export const $internedHere: (s: string) => number = s => strAddr.get(s) ?? 0;
+// s's address, pinned: it stays
+export const $intern = (s: string) => intern(s, PIN);
+// s's address, with a count the caller holds and gives back with
+// $releaseString ("" is 0, and has none)
+export const $internRef = (s: string) => (s === '' ? 0 : intern(s, 1));
+// another count on string a, if it is alive
+export const $retainString = (a: number) => strCount(a, 1);
 // the address of s if any thread has interned it, else 0: a lookup that adds
-// nothing to the table
+// nothing, and counts nothing
 export function $internFind(s: string) {
-  let a = strAddr.get(s);
-  if (a !== undefined) return a;
-  a = strFind(Atomics.load(I32, C_STR_TABLE), s, strHash(s));
-  if (a < 0) return 0;
-  strAddr.set(s, a);
-  addrStr.set(a, s);
-  return a;
+  const a = known(s);
+  if (a !== 0) return a;
+  const f = strFind(Atomics.load(I32, C_STR_TABLE), s, strHash(s));
+  return f > 0 ? f : 0;
 }
+// the address of s if this thread has interned or read it already and it is
+// alive, else 0: a lookup, no hashing
+export const $internedHere: (s: string) => number = s => {
+  const a = known(s);
+  return a !== 0 && Atomics.load(I32, (a >> 2) + 1) > 0 ? a : 0;
+};
 export function $str(a: number) {
-  let s = addrStr.get(a);
-  if (s !== undefined) return s;
-  const n = I32[(a + 4) >> 2];
-  s =
-    I32[(a + 12) >> 2] !== 0
-      ? $decodeAscii(a + 16, n)
-      : $decodeUtf16((a + 16) >> 1, n);
-  addrStr.set(a, s);
-  strAddr.set(s, a);
+  const k = addrStr.get(a);
+  if (k !== undefined && k[1] === I32[(a >> 2) + 5]) return k[0];
+  const n = I32[(a >> 2) + 2],
+    s =
+      I32[(a >> 2) + 4] !== 0
+        ? $decodeAscii(a + STR_HEAD, n)
+        : $decodeUtf16((a + STR_HEAD) >> 1, n);
+  remember(s, a);
   return s;
+}
+// gives back a count on string a (0 for "" has none). no thread holds a
+// string's address across a quiescent point (compiled code reads a string field
+// as a JS string), so the decrement need not wait: a string that a reader found
+// a moment ago is still there until the grace period after it leaves
+export function $releaseString(a: number) {
+  if (a !== 0 && Atomics.sub(I32, (a >> 2) + 1, 1) === 1) $stringDying(a);
+}
+// string a's count reached 0 ($releaseString, own.ts's __release): unless
+// something counted it again meanwhile, it leaves the table, and its block goes
+// a grace period later
+export function $stringDying(a: number) {
+  mlock(C_STR_LOCK);
+  if (Atomics.compareExchange(I32, (a >> 2) + 1, 0, DEAD) === 0) {
+    const t = Atomics.load(I32, C_STR_TABLE),
+      slots = (t >> 2) + 4,
+      mask = I32[(t >> 2) + 1] - 1;
+    for (
+      let i = I32[(a >> 2) + 3] & mask;
+      I32[slots + i] !== 0;
+      i = (i + 1) & mask
+    )
+      if (I32[slots + i] === a) {
+        Atomics.store(I32, slots + i, TOMB);
+        I32[(t >> 2) + 3]--;
+        break;
+      }
+    $defer(-a);
+  }
+  munlock(C_STR_LOCK);
+}
+// a block whose grace period is over: a string that left, or a string table
+// that was replaced
+function retire(p: number) {
+  $freeBlock(
+    p,
+    I32[p >> 2] === K_STR ? strBytes(p) : 16 + I32[(p >> 2) + 1] * 4,
+  );
 }
 export const $key = $intern;
 
@@ -1586,8 +1702,9 @@ export function initShared(sab: SharedArrayBuffer) {
     table = root + 24; // the root shape (all zero) and the string table
   i32[C_ROOT_SHAPE] = root;
   i32[C_STR_TABLE] = table;
-  i32[table >> 2] = cap; // [capacity][count], then the slots
-  i32[C_ALLOC] = table + 8 + cap * 4;
+  i32[table >> 2] = K_STR_TABLE; // see strFind
+  i32[(table >> 2) + 1] = cap;
+  i32[C_ALLOC] = table + 16 + cap * 4;
   i32[C_HEAP_END] = sab.byteLength;
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
   i32[C_EPOCH] = 1;

@@ -167,6 +167,59 @@ describe('SharedMap', () => {
     ).toBe(0);
   });
 
+  it('counts its strings: one no map refers to goes', () => {
+    // block counts, on this thread's heap, once what waits has been freed
+    const live = () => {
+      own.__collect();
+      return T.heapStats().allocated - T.heapStats().freed;
+    };
+    const m = new T.SharedMap<string, string>(),
+      s = new T.SharedSet<string>(),
+      before = live();
+    for (let round = 0; round < 50; round++) {
+      // distinct strings each round: keys, values, ASCII or not, long or
+      // empty
+      for (let i = 0; i < 100; i++) {
+        const k = `key ${round}-${i}`;
+        m.set(
+          k,
+          i % 3 === 0 ? `välue ${round} 😀` : `value ${round}`.repeat(i),
+        );
+        s.add(k);
+      }
+      m.set('', '');
+      for (let i = 0; i < 100; i++) {
+        const k = `key ${round}-${i}`;
+        expect(m.get(k)).toBe(
+          i % 3 === 0 ? `välue ${round} 😀` : `value ${round}`.repeat(i),
+        );
+        expect(s.has(k)).toBe(true);
+        m.set(k, 'replaced'); // the old value's string goes
+      }
+      for (let i = 0; i < 100; i++) {
+        m.delete(`key ${round}-${i}`);
+        s.delete(`key ${round}-${i}`);
+      }
+    }
+    expect([...m]).toEqual([['', '']]);
+    expect(s.size).toBe(0);
+    m.clear();
+    // nothing kept but the two tables, as before (they shrank back)
+    expect(live()).toBe(before);
+  });
+
+  it('finds a string key by its text, wherever the string came from', () => {
+    const m = new T.SharedMap<unknown, number>();
+    m.set('ab'.concat('c'), 1);
+    m.set('é', 2);
+    m.set('1', 3);
+    expect(m.get(['a', 'b', 'c'].join(''))).toBe(1);
+    expect(m.get('\u00e9')).toBe(2);
+    expect(m.get('e\u0301')).toBeUndefined(); // another string, same look
+    expect(m.get(1)).toBeUndefined();
+    expect(m.has('abd')).toBe(false);
+  });
+
   it('getOrInsert and getOrInsertComputed: the first value stays', () => {
     const m = new T.SharedMap<string, number>([['a', 1]]);
     expect(m.getOrInsert('a', 2)).toBe(1);
@@ -334,22 +387,23 @@ describe('freeing a map', () => {
     own.__release(a); // the handle holds the struct's only count
     expect(count(a)).toBe(1);
     const m = new T.SharedMap<string, unknown>();
-    m.set('k', h);
+    m.set('only this map', h);
     expect(count(a)).toBe(2);
-    m.set('k', h); // the same value again: one count still
+    m.set('only this map', h); // the same value again: one count still
     own.__collect();
     expect(count(a)).toBe(2);
-    m.delete('k');
+    m.delete('only this map');
     own.__collect(); // the decrement waits for a quiescent point
     expect(count(a)).toBe(1);
-    m.set('k', h);
+    m.set('only this map', h);
     // the map's count reaches 0, as when its last handle is collected: it
-    // gives back what it held, and frees its table and itself. (its handle
-    // lives on here, in this thread's cache under an address the heap gives
-    // out again, so this test is the file's last)
+    // gives back what it held, and frees its key's string, its table and
+    // itself. (its handle lives on here, in this thread's cache under an
+    // address the heap gives out again, so this test is the file's last)
     const before = T.heapStats();
     own.__release(m.$cell);
     expect(count(a)).toBe(1);
-    expect(T.heapStats().freed - before.freed).toBe(2);
+    own.__collect(); // the key's string goes a grace period later
+    expect(T.heapStats().freed - before.freed).toBe(3);
   });
 });
