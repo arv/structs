@@ -3,7 +3,8 @@
 // its types only erased) and the ownership checker's errors; run it on the
 // page's pool of workers. The Vite plugin's dev server compiles (POST
 // /__threads/compile); the page imports the result as a module, and so do the
-// workers.
+// workers. Without a dev server (a static build, or ?wasm) the page compiles
+// itself, with the fork in WebAssembly (wasm.ts).
 // first: the shared memory, before anything that uses it loads
 import '@arv/threads/heap';
 import {run, start} from '@arv/threads/browser';
@@ -33,6 +34,11 @@ import sieve from './programs/sieve.ts?raw';
 import strings from './programs/strings.ts?raw';
 import structTally from './programs/struct-tally.ts?raw';
 import tutorial from './programs/tutorial.ts?raw';
+import {compileInBrowser, programUrl, startCompiler} from './wasm.ts';
+
+// where programs compile: on the dev server, or here in WebAssembly
+const inBrowser =
+  !import.meta.env.DEV || new URLSearchParams(location.search).has('wasm');
 
 type Diagnostic = {line: number; col: number; code: string; message: string};
 type Result = {
@@ -241,12 +247,12 @@ function showJs() {
   if (mode() === 'compiled') {
     $('js-title').textContent = 'Compiled JavaScript';
     $('js-hint').textContent =
-      `by the tsgo fork in ${result.compiled.ms} ms · marked: what the compiler added`;
+      `by the tsgo fork${inBrowser ? ', in WebAssembly,' : ''} in ${result.compiled.ms} ms · marked: what the compiler added`;
     jsModel.setValue(result.compiled.js ?? '// nothing emitted');
   } else {
     $('js-title').textContent = 'JavaScript, types erased';
     $('js-hint').textContent =
-      "node's type stripping · marked: the one line the runtime needs";
+      `${inBrowser ? 'tsgo, types only erased' : "node's type stripping"} · marked: the one line the runtime needs`;
     jsModel.setValue(result.erased.js ?? `// ${result.erased.error ?? ''}`);
   }
   markAdded();
@@ -316,28 +322,52 @@ async function compile() {
   status.textContent = 'Compiling…';
   updateRun();
   try {
-    const response = await fetch('/__threads/compile', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({source: sourceModel.getValue()}),
-    });
-    if (!response.ok)
-      throw new Error((await response.text()) || `HTTP ${response.status}`);
-    const compiled = (await response.json()) as Result;
+    const compiled = inBrowser
+      ? await compileInBrowser(sourceModel.getValue(), threadsTypes)
+      : await compileOnServer(sourceModel.getValue());
     if (id !== compiling) return;
     result = compiled;
     status.textContent = ready();
     showJs();
   } catch (e) {
     if (id !== compiling) return;
-    status.textContent =
-      "The playground compiles on Vite's dev server, which this page could not reach.";
+    status.textContent = inBrowser
+      ? 'The compiler failed.'
+      : "The playground compiles on Vite's dev server, which this page could not reach.";
     jsModel.setValue(`// ${String(e)}`);
   } finally {
     if (id === compiling) {
       compilingNow = false;
       updateRun();
     }
+  }
+}
+
+async function compileOnServer(source: string) {
+  const response = await fetch('/__threads/compile', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({source}),
+  });
+  if (!response.ok)
+    throw new Error((await response.text()) || `HTTP ${response.status}`);
+  return (await response.json()) as Result;
+}
+
+// the compiler's download, in WebAssembly: Go's is big
+const download = $('download');
+function showDownload(p: Parameters<Parameters<typeof startCompiler>[0]>[0]) {
+  const mb = (n: number) => (n / 1e6).toFixed(1);
+  if ('loaded' in p) {
+    download.hidden = false;
+    $<HTMLProgressElement>('download-bar').value = p.loaded / p.total;
+    $('download-text').textContent =
+      `Go's WebAssembly is huge… sorry. Downloading the compiler: ${mb(p.loaded)} of ${mb(p.total)} MB`;
+  } else if ('ready' in p) download.hidden = true;
+  else {
+    download.hidden = false;
+    $('download-bar').hidden = true;
+    $('download-text').textContent = `The compiler did not load: ${p.error}`;
   }
 }
 
@@ -410,7 +440,8 @@ runButton.addEventListener('click', async () => {
     .map(s => Number(s.trim()))
     .filter(n => Number.isInteger(n) && n > 0);
   const erased = mode() === 'erased',
-    name = erased ? `${result.key}.erased` : result.key;
+    name = erased ? `${result.key}.erased` : result.key,
+    code = erased ? result.erased.js : result.compiled.js;
   running = true;
   updateRun();
   print(
@@ -419,7 +450,9 @@ runButton.addEventListener('click', async () => {
   const t0 = performance.now();
   try {
     const program = await import(
-      /* @vite-ignore */ `/@id/virtual:threads/playground/${name}.js`
+      /* @vite-ignore */ inBrowser
+        ? programUrl(code!)
+        : `/@id/virtual:threads/playground/${name}.js`
     );
     if (typeof program.main !== 'function')
       throw new Error('the program exports no main(threadCounts)');
@@ -483,6 +516,7 @@ $('clear').addEventListener('click', () => {
   output.textContent = '';
 });
 
+if (inBrowser) startCompiler(showDownload);
 compile();
 start({onLog: text => print(ansiToHtml(text))}).then(() => {
   workers = navigator.hardwareConcurrency;

@@ -34,6 +34,13 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
 import {searchForWorkspaceRoot, type Plugin} from 'vite-plus';
+import {
+  diagnostics,
+  helpersOf,
+  keyRegistration,
+  registration,
+  type Diagnostic,
+} from './compiled.ts';
 
 const ISOLATED = {
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -45,88 +52,6 @@ const MODULES = 'virtual:threads/modules',
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLAYGROUND = 'virtual:threads/playground/';
 const exec = promisify(execFile);
-
-// The runtime helpers the fork's emit imports. It imports them under other
-// names (`__register as __register_1`) where a module declares or uses the name
-// itself, and so does the erased variant here.
-const HELPERS = new Set([
-  '__F64',
-  '__I32',
-  '__OOB',
-  '__U8',
-  '__box',
-  '__cellAddress',
-  '__hold',
-  '__moved',
-  '__newSharedArray',
-  '__newStruct',
-  '__quiescent',
-  '__ref',
-  '__register',
-  '__release',
-  '__retain',
-  '__sharedStruct',
-  '__store',
-  '__storeStr',
-  '__str',
-  '__unbox',
-]);
-
-// The local names of the helpers that compiled code imports from `runtime` :
-// the specifiers of its first import of nothing but helpers.
-function helpersOf(code: string, runtime: string): Record<string, string> {
-  for (const m of code.matchAll(/^import \{ ([^}]*) \} from "([^"]*)";$/gm)) {
-    if (m[2] !== runtime) continue;
-    const pairs = m[1].split(',').map(s => s.trim().split(/\s+as\s+/));
-    if (pairs.every(([name]) => HELPERS.has(name)))
-      return Object.fromEntries(
-        pairs.map(([name, local]) => [name, local ?? name]),
-      );
-  }
-  return {};
-}
-
-// A name like `name` that no identifier in `source` has, as TypeScript makes
-// one: name, name_1, ...
-function uniqueName(source: string, name: string) {
-  const used = new Set(source.match(/[A-Za-z_$][\w$]*/g));
-  let unique = name;
-  for (let n = 1; used.has(unique); n++) unique = `${name}_${n}`;
-  return unique;
-}
-
-// Code that registers its functions (`__register(import.meta.url, { ... })`,
-// its last statement, under whatever name it imported __register as) with `key`
-// in place of import.meta.url.
-function keyRegistration(code: string, runtime: string, key: string) {
-  const register = helpersOf(code, runtime).__register;
-  if (!register) return code;
-  const call = `${register}(import.meta.url, {`,
-    at = code.lastIndexOf(call);
-  if (at < 0) return code;
-  return `${code.slice(0, at)}${register}(${JSON.stringify(key)}, {${code.slice(at + call.length)}`;
-}
-
-type Diagnostic = {line: number; col: number; code: string; message: string};
-
-// `file(line,col): error TS1234: message` lines, with their indented
-// continuations
-function diagnostics(text: string | undefined) {
-  const out: Diagnostic[] = [];
-  for (const line of String(text ?? '').split('\n')) {
-    const m = /^[^()\n]*\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(line);
-    if (m)
-      out.push({
-        line: Number(m[1]),
-        col: Number(m[2]),
-        code: m[3],
-        message: m[4],
-      });
-    else if (out.length !== 0 && /^\s+\S/.test(line))
-      out.at(-1)!.message += ` ${line.trim()}`;
-  }
-  return out;
-}
 
 // The plugin's options, described above.
 export interface Options {
@@ -312,20 +237,8 @@ export default function threads(options: Options = {}): Plugin {
       : [];
     let erased: Erased = {js: null, error: null, added: 0};
     try {
-      const names = [
-        ...source.matchAll(
-          /^(?:export\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)/gm,
-        ),
-      ].map(m => m[1]);
-      const register = uniqueName(source, '__register'),
-        specifier =
-          register === '__register' ? register : `__register as ${register}`;
-      const tail = `\n// added: the runtime finds a thread's function by module and name\nimport { ${specifier} } from "${runtime}";\n${register}(import.meta.url, { ${names.join(', ')} });\n`;
-      erased = {
-        js: stripTypeScriptTypes(source) + tail,
-        error: null,
-        added: tail.split('\n').length - 2,
-      };
+      const {tail, added} = registration(source, runtime);
+      erased = {js: stripTypeScriptTypes(source) + tail, error: null, added};
       fs.writeFileSync(path.join(dir, 'erased.js'), erased.js!);
     } catch (e: any) {
       erased.error = String(e.message ?? e);

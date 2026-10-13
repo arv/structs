@@ -37,9 +37,30 @@ TypeScript's hover types, completions and errors from the threads API, and see:
 `vp run typecheck` checks the programs' types, and `vp run own-check` runs the
 ownership checker on them, as CI would.
 
-The dev server compiles, so a production build (`vp build`) shows the page but
-cannot compile. It needs cross-origin isolation for SharedArrayBuffer: the dev
-server sends the COOP and COEP headers, and a production server must too.
+## A static build, compiling in the browser
+
+Without a dev server the page compiles itself, with the fork compiled to
+WebAssembly ([arv/threads-checker](https://github.com/arv/threads-checker)'s
+`cmd/wasm`), in a worker: the same JavaScript, `tsgo own check`'s ownership
+errors, and tsgo erasing the types. The compiler is 34 MB (about 8 MB
+compressed), and the page shows its download: Go's WebAssembly is huge.
+
+```sh
+vp run build-wasm                                          # the compiler, into public/compiler/ (needs Go)
+TSGO=/path/to/threads-checker/built/local/tsgo vp build    # into dist/, for threads.arv.tools/playground/
+vp preview                                                 # dist/, at /playground/
+```
+
+`vp run build-wasm` builds from the clone that `TSGO_FORK` names
+(~/src/arv/threads-checker by default). The build is served from `/playground/`;
+`BASE=/elsewhere/ vp build` serves it from another path. In the dev server,
+`?wasm` compiles in the browser too.
+
+SharedArrayBuffer needs a cross-origin isolated page: the COOP and COEP headers,
+which the dev and preview servers send. A host that cannot send them, such as
+GitHub Pages, gets them from a service worker
+([public/coi-sw.js](public/coi-sw.js)): the first visit loads the page once
+more, under it.
 
 ## Programs
 
@@ -66,12 +87,15 @@ threads:
 
 ## Layout
 
-| Path                    | What                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------- |
-| `index.html`, `main.ts` | the page, on [Monaco](https://github.com/microsoft/monaco-editor)                            |
-| `programs/`             | its programs                                                                                 |
-| `vite.config.ts`        | the dev server: the runtime's Vite plugin, which compiles with the fork and runs the checker |
-| `assets.d.ts`           | the types of what Vite imports besides modules                                               |
+| Path                     | What                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `index.html`, `main.ts`  | the page, on [Monaco](https://github.com/microsoft/monaco-editor)                            |
+| `programs/`              | its programs                                                                                 |
+| `vite.config.ts`         | the dev server: the runtime's Vite plugin, which compiles with the fork and runs the checker |
+| `wasm.ts`, `compiler.ts` | compiling in the browser: the page's side, and the worker that runs the compiler             |
+| `build-wasm.ts`          | builds the compiler, in WebAssembly, into `public/compiler/`                                 |
+| `public/coi-sw.js`       | the service worker that isolates the page where the host cannot                              |
+| `assets.d.ts`            | the types of what Vite imports besides modules                                               |
 
 The runtime and the checker are in [src/](../src).
 

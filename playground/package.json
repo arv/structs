@@ -10,6 +10,7 @@
     "dev": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
+    "build-wasm": "node build-wasm.ts",
     "typecheck": "tsc --noEmit",
     "own-check": "threads-check -p tsconfig.json --runtime @arv/threads"
   },

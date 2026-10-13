@@ -24,9 +24,17 @@
       "@arv/threads/runtime": ["./src/runtime/runtime.ts"]
     }
   },
-  "include": ["src/**/*.ts", "playground/vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "playground/vite.config.ts",
+    "playground/build-wasm.ts"
+  ],
   "exclude": ["src/checker"],
   // a glob leaves out a .d.ts beside a .ts of its name: a page's API is checked
   // as well, by name
-  "files": ["src/runtime/browser.d.ts", "src/runtime/heap.d.ts"]
+  "files": [
+    "src/runtime/browser.d.ts",
+    "src/runtime/compiled.d.ts",
+    "src/runtime/heap.d.ts"
+  ]
 }

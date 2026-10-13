@@ -358,6 +358,7 @@ runs pnpm at the version `packageManager` names. You need Node 22.18 or later
 ```sh
 pnpm install                # once, at the root
 vp dev                      # the playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
+vp run build-wasm           # the compiler the playground's build runs in the browser (needs Go)
 vp build                    # the playground's production build
 vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace

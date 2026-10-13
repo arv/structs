@@ -10,13 +10,15 @@
     "strict": true,
     "lib": ["es2022", "dom"],
     "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true,
     "paths": {
       "@arv/threads": ["../src/runtime/threads.d.ts"],
       "@arv/threads/heap": ["../src/runtime/heap.d.ts"],
-      "@arv/threads/browser": ["../src/runtime/browser.d.ts"]
+      "@arv/threads/browser": ["../src/runtime/browser.d.ts"],
+      "@arv/threads/compiled": ["../src/runtime/compiled.d.ts"]
     }
   },
   "include": ["*.ts", "programs/*.ts"],
-  // the Vite config runs on node, with the runtime: ../tsconfig.json checks it
-  "exclude": ["programs/mistakes.ts", "vite.config.ts"]
+  // the Vite config and build-wasm.ts run on node: ../tsconfig.json checks them
+  "exclude": ["programs/mistakes.ts", "vite.config.ts", "build-wasm.ts"]
 }

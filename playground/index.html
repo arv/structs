@@ -98,6 +98,21 @@
         color: var(--muted);
         font-size: 13px;
       }
+      #download {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-basis: 100%;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      #download[hidden] {
+        display: none;
+      }
+      #download progress {
+        width: 240px;
+        accent-color: var(--accent);
+      }
       main {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -271,6 +286,10 @@
         Run
       </button>
       <span id="status">Starting the workers…</span>
+      <div id="download" hidden>
+        <progress id="download-bar" max="1" value="0"></progress>
+        <span id="download-text"></span>
+      </div>
     </header>
     <main>
       <section class="pane">
@@ -302,6 +321,24 @@
       </h2>
       <pre id="output" aria-live="polite"></pre>
     </section>
+    <script>
+      // SharedArrayBuffer needs a cross-origin isolated page. A host that
+      // cannot send the headers for it gets them from a service worker
+      // (public/coi-sw.js), and the page loads once more, under it
+      if (
+        !crossOriginIsolated &&
+        isSecureContext &&
+        'serviceWorker' in navigator &&
+        !sessionStorage.getItem('coi-reloaded')
+      )
+        navigator.serviceWorker.register('coi-sw.js').then(
+          () => {
+            sessionStorage.setItem('coi-reloaded', '1');
+            location.reload();
+          },
+          e => console.error('threads: no service worker', e),
+        );
+    </script>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

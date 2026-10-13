@@ -2,7 +2,12 @@
 // page's shared memory and runs threads. a thread names its function by module
 // and name; the worker loads that module the first time a thread needs it, from
 // the list the bundler plugin makes (virtual:threads/modules), so the page's
-// own entry module never runs here
+// own entry module never runs here. a module the page compiled itself (the
+// playground's, compiled in WebAssembly) is a blob: URL, and its imports of the
+// runtime read globalThis.__threads, the threads API, as they do on the page
+declare global {
+  var __threads: unknown;
+}
 onmessage = async ({data: {sab, opts}}) => {
   // before the runtime loads: its views are module constants
   globalThis.__escapeSab = sab;
@@ -16,16 +21,21 @@ onmessage = async ({data: {sab, opts}}) => {
     );
     const {setModuleLoader} = await import('./own.ts');
     const {default: modules} = await import('virtual:threads/modules');
-    // a playground program (the plugin's dev server compiles it on request) is
-    // not in the list
+    // a playground program (the plugin's dev server compiles it on request, or
+    // the page in WebAssembly) is not in the list
     setModuleLoader(id =>
       modules[id]
         ? modules[id]()
-        : id.startsWith('playground/')
-          ? import(
-              /* @vite-ignore */ `/@id/virtual:threads/playground/${id.slice('playground/'.length)}.js`
-            )
-          : undefined,
+        : id.startsWith('blob:')
+          ? import('./threads.ts').then(api => {
+              globalThis.__threads = api;
+              return import(/* @vite-ignore */ id);
+            })
+          : id.startsWith('playground/')
+            ? import(
+                /* @vite-ignore */ `/@id/virtual:threads/playground/${id.slice('playground/'.length)}.js`
+              )
+            : undefined,
     );
     postMessage({type: 'ready'});
     await R.poolLoop();
@@ -33,3 +43,6 @@ onmessage = async ({data: {sab, opts}}) => {
     postMessage({type: 'crash', message: String(e?.stack ?? e)});
   }
 };
+
+// a module, for TypeScript (declare global)
+export {};
