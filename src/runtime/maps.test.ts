@@ -273,21 +273,21 @@ describe('SharedMap', () => {
 });
 
 describe('as compiled code calls it', () => {
-  // compiled code passes a struct as its address, set's arguments as __ref(p)
+  // compiled code passes a struct as its address, set's arguments as __countedRef(p)
   // (a count for the map), and reads one back as the address
-  const N = own.__sharedStruct('MapRaw', ['v'], []);
+  const N = own.sharedStruct('MapRaw', ['v'], []);
 
   it('keeps an address as that, with a count', () => {
-    const a = own.__newStruct(N),
-      b = own.__newStruct(N),
+    const a = own.newStruct(N),
+      b = own.newStruct(N),
       m = new T.SharedMap<string, number>();
-    m.set('k', own.__ref(a) as unknown as number);
+    m.set('k', own.countedRef(a) as unknown as number);
     expect(m.get('k')).toBe(a);
     expect(count(a)).toBe(2);
-    m.set('k', own.__ref(b) as unknown as number); // a's count, given back
+    m.set('k', own.countedRef(b) as unknown as number); // a's count, given back
     own.__collect();
     expect(count(a)).toBe(1);
-    expect(m.getOrInsert('k', own.__ref(a) as unknown as number)).toBe(b);
+    expect(m.getOrInsert('k', own.countedRef(a) as unknown as number)).toBe(b);
     expect(count(a)).toBe(1); // not kept: its count given back at once
     const seen: unknown[] = [];
     m.forEach(v => seen.push(v));
@@ -295,26 +295,26 @@ describe('as compiled code calls it', () => {
     m.delete('k');
     own.__collect();
     expect(count(b)).toBe(1);
-    own.__release(a);
-    own.__release(b);
+    own.release(a);
+    own.release(b);
   });
 
   it('finds a key by its address', () => {
-    const a = own.__newStruct(N),
+    const a = own.newStruct(N),
       m = new T.SharedMap<number, string>(),
       s = new T.SharedSet<number>();
-    m.set(own.__ref(a) as unknown as number, 'a');
+    m.set(own.countedRef(a) as unknown as number, 'a');
     expect(m.get(a)).toBe('a');
     expect([...m.keys()]).toEqual([a]);
-    s.add(own.__ref(a) as unknown as number);
-    s.add(own.__ref(a) as unknown as number); // there already
+    s.add(own.countedRef(a) as unknown as number);
+    s.add(own.countedRef(a) as unknown as number); // there already
     expect(count(a)).toBe(3);
     expect(s.has(a)).toBe(true);
     m.delete(a);
     s.delete(a);
     own.__collect();
     expect(count(a)).toBe(1);
-    own.__release(a);
+    own.release(a);
   });
 });
 
@@ -381,10 +381,10 @@ describe('SharedSet', () => {
 
 describe('freeing a map', () => {
   it('holds a count on each cell in it, and gives it back', () => {
-    const N = own.__sharedStruct('MapN', ['v'], []);
-    const a = own.__newStruct(N),
-      h = own.__box(a)!;
-    own.__release(a); // the handle holds the struct's only count
+    const N = own.sharedStruct('MapN', ['v'], []);
+    const a = own.newStruct(N),
+      h = own.box(a)!;
+    own.release(a); // the handle holds the struct's only count
     expect(count(a)).toBe(1);
     const m = new T.SharedMap<string, unknown>();
     m.set('only this map', h);
@@ -401,7 +401,7 @@ describe('freeing a map', () => {
     // itself. (its handle lives on here, in this thread's cache under an
     // address the heap gives out again, so this test is the file's last)
     const before = T.heapStats();
-    own.__release(m.$cell);
+    own.release(m.$cell);
     expect(count(a)).toBe(1);
     own.__collect(); // the key's string goes a grace period later
     expect(T.heapStats().freed - before.freed).toBe(3);

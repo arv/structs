@@ -147,7 +147,7 @@ const reserve: (words: number) => void = words => {
   wb = new Uint8Array(wf.buffer);
   wu = new Uint16Array(wf.buffer);
 };
-const box = (at: number, tag: number, p: number) => {
+const boxWord = (at: number, tag: number, p: number) => {
   wi[at * 2] = p;
   wi[at * 2 + 1] = BOX | (tag << 11);
 };
@@ -157,7 +157,7 @@ export type CellObject = {$cell: number};
 type F64Cell = Float64Array & CellObject;
 // null, or a cell: what a reference field holds
 type MaybeCell = {$cell?: number} | null | undefined;
-// a struct type's class also describes its layout (see __sharedStruct)
+// a struct type's class also describes its layout (see sharedStruct)
 type CellClass = {prototype: object} & Partial<StructType>;
 // a cell is a JS object of one of these classes; it crosses as its block's
 // address
@@ -211,10 +211,10 @@ function put(
     }
     return;
   }
-  if (v === undefined) return box(at, T_UNDEF, 0);
-  if (v === null) return box(at, T_NULL, 0);
-  if (v === true) return box(at, T_TRUE, 0);
-  if (v === false) return box(at, T_FALSE, 0);
+  if (v === undefined) return boxWord(at, T_UNDEF, 0);
+  if (v === null) return boxWord(at, T_NULL, 0);
+  if (v === true) return boxWord(at, T_TRUE, 0);
+  if (v === false) return boxWord(at, T_FALSE, 0);
   if (typeof v === 'string') {
     // written already (or -its address, when this thread interned or read it:
     // it crosses as that)
@@ -224,14 +224,14 @@ function put(
       const interned = $internedHere(v);
       if (interned !== 0 && $retainString(interned)) {
         written.set(v, -interned);
-        return box(at, T_ISTR, interned);
+        return boxWord(at, T_ISTR, interned);
       }
     } else if (body < 0) {
       $retainString(-body);
-      return box(at, T_ISTR, -body);
+      return boxWord(at, T_ISTR, -body);
     } else {
       if (wi[body * 2 + 1] >>> 2 === 0) wi[body * 2 + 1] |= ++repeats << 2;
-      return box(at, T_STR, body);
+      return boxWord(at, T_STR, body);
     }
     // a byte per char if it is ASCII (encodeInto writes ASCII as is, and
     // anything else as more bytes than chars), else UTF-16 units
@@ -262,7 +262,7 @@ function put(
     wi[body * 2] = n;
     wi[body * 2 + 1] = ascii ? STR_ASCII : 0;
     written.set(v, body);
-    return box(at, T_STR, body);
+    return boxWord(at, T_STR, body);
   }
   if (typeof v !== 'object')
     throw new TypeError(`own: cannot send a ${typeof v}`);
@@ -275,17 +275,17 @@ function put(
     // a plain object or array: shared already if it is frozen and in sharedAddr
     if (Object.isFrozen(v)) {
       const shared = sharedAddr.get(v);
-      if (shared !== undefined) return box(at, T_SHARED, shared);
+      if (shared !== undefined) return boxWord(at, T_SHARED, shared);
     }
   } else {
-    if (v instanceof CountedArg) return box(at, T_COUNTED, v.a);
+    if (v instanceof CountedArg) return boxWord(at, T_COUNTED, v.a);
     if (v.$cell !== undefined) {
       // a struct, SharedArray or map: the value holds a count of it, so it
       // outlives the sender's handle. a moved value's reader gives the count
       // back once it has a handle of its own; a shared value keeps it
-      if (!counted(I32[v.$cell >> 2])) return box(at, T_CELL, v.$cell);
-      __retain(v.$cell);
-      return box(at, freeze ? T_CELL : T_CELL_COUNTED, v.$cell);
+      if (!counted(I32[v.$cell >> 2])) return boxWord(at, T_CELL, v.$cell);
+      retain(v.$cell);
+      return boxWord(at, freeze ? T_CELL : T_CELL_COUNTED, v.$cell);
     }
     if (!Array.isArray(v))
       throw new TypeError('own: only plain objects and arrays can be sent');
@@ -317,7 +317,7 @@ function put(
       put(body + 1 + k, values[k], moved, freeze, depth + 1);
   }
   if (freeze) Object.freeze(v);
-  return box(at, Array.isArray(v) ? T_ARR : T_OBJ, body);
+  return boxWord(at, Array.isArray(v) ? T_ARR : T_OBJ, body);
 }
 // a blob of v in the shared heap; its address
 function write(v: Sent, moved: Moved | null, freeze: boolean, alloc = $alloc) {
@@ -402,7 +402,7 @@ function get(base: number, at: number, frozen: boolean): unknown {
       return cell(p);
     case T_CELL_COUNTED: {
       const c = cell(p);
-      __release(p);
+      release(p);
       return c;
     }
     case T_COUNTED:
@@ -476,7 +476,7 @@ function maker(base: number, shape: number, frozen: boolean) {
     serials = keys.map(serialOf);
   const fields = keys.map(
     (a, k) =>
-      `${JSON.stringify(__str(a))}: (v = F64[(base >> 3) + at + ${k}]) === v ? v : get(base, at + ${k}, frozen)`,
+      `${JSON.stringify(strAt(a))}: (v = F64[(base >> 3) + at + ${k}]) === v ? v : get(base, at + ${k}, frozen)`,
   );
   const make = new Function(
     'F64',
@@ -532,7 +532,7 @@ export function __unmessage<T = unknown>(a: number, bytes: number) {
   } finally {
     const list = given;
     given = outer;
-    for (const p of list) __release(p);
+    for (const p of list) release(p);
     $freeBlock(a, bytes);
   }
 }
@@ -587,10 +587,10 @@ const handles = new FinalizationRegistry<number>(a => {
   const r = cells.get(a);
   if (r instanceof WeakRef && r.deref() === undefined) cells.delete(a);
   finalizable--;
-  __release(a);
+  release(a);
 });
 const holdFor = (h: object, a: number) => {
-  __retain(a);
+  retain(a);
   handles.register(h, a);
   finalizable++;
 };
@@ -678,7 +678,7 @@ class Held {
   }
   [Symbol.dispose]() {
     if (this.i === 0) return;
-    release(this.i);
+    unlock(this.i);
     this.i = 0;
   }
 }
@@ -705,7 +705,7 @@ async function acquireAsync(i: number) {
   }
   $resumed();
 }
-const release = (i: number) => {
+const unlock = (i: number) => {
   if (Atomics.exchange(I32, i, 0) === 2) Atomics.notify(I32, i, 1);
 };
 
@@ -725,7 +725,7 @@ export class Condition {
     const s = (this.$cell >> 2) + 1,
       seq = Atomics.load(I32, s),
       l = (lock.$cell >> 2) + 1;
-    release(l);
+    unlock(l);
     $waitBegin();
     let k = 0;
     while (k < SPINS && Atomics.load(I32, s) === seq) k++;
@@ -738,7 +738,7 @@ export class Condition {
     const s = (this.$cell >> 2) + 1,
       seq = Atomics.load(I32, s),
       l = (lock.$cell >> 2) + 1;
-    release(l);
+    unlock(l);
     while (Atomics.load(I32, s) === seq) {
       const w = Atomics.waitAsync(I32, s, seq);
       if (w.async) await w.value;
@@ -791,19 +791,19 @@ export interface StructType<T = unknown> {
 // fields, 8 bytes each, in order, each as its kind says: f an f64; r a struct's
 // or a SharedArray's address in the slot's low half, 0 for null; b a byte, 0 or
 // 1, and u a byte, at the slot's start; s an interned string's address in the
-// low half, 0 for "" (see __storeStr); i an i32 in the low half; c a channel's
+// low half, 0 for "" (see storeStr); i an i32 in the low half; c a channel's
 // address in the low half, 0 for null, with no count (a channel is never
 // freed). compiled code has c where uncompiled code, which cannot tell a
 // channel from a struct, has r. compiled with the tsgo fork's typed layout, a
 // struct value is the block's address and `p.a` is `__F64[(p >> 3) + 1]` (see
-// __newStruct). where one flows into `any` or `unknown` the compiler boxes it
+// newStruct). where one flows into `any` or `unknown` the compiler boxes it
 // (__box): the handle is an instance of the class this returns, an object whose
 // accessors read and write the same block. uncompiled code can use the class
 // directly. a struct's kind is the address of its name and layout in the shared
 // string table, so every thread agrees on it whatever order it loads modules in
 // (a page's workers load them on demand), and two structs with one layout may
 // share it. it is at least CTRL_BYTES, so never a small cell kind
-export function __sharedStruct<T = unknown>(
+export function sharedStruct<T = unknown>(
   name: string,
   fields: string[],
   refs: number[] = [],
@@ -819,11 +819,11 @@ export function __sharedStruct<T = unknown>(
     [name]: class {
       declare $cell: number;
       constructor() {
-        const a = __newStruct(Struct);
+        const a = newStruct(Struct);
         this.$cell = a;
         holdFor(this, a);
         cells.set(a, new WeakRef(this));
-        __release(a);
+        release(a);
       }
     },
   }[name] as StructType<T>;
@@ -843,7 +843,7 @@ export function __sharedStruct<T = unknown>(
         return q === 0 ? null : cell(q);
       },
       set(v: MaybeCell) {
-        __store((this.$cell >> 2) + 2 + 2 * k, __retain(__cellAddress(v)));
+        store((this.$cell >> 2) + 2 + 2 * k, retain(cellAddress(v)));
       },
     }),
     c: k => ({
@@ -852,7 +852,7 @@ export function __sharedStruct<T = unknown>(
         return q === 0 ? null : cell(q);
       },
       set(v: MaybeCell) {
-        I32[(this.$cell >> 2) + 2 + 2 * k] = __cellAddress(v);
+        I32[(this.$cell >> 2) + 2 + 2 * k] = cellAddress(v);
       },
     }),
     b: k => ({
@@ -881,10 +881,10 @@ export function __sharedStruct<T = unknown>(
     }),
     s: k => ({
       get() {
-        return __str(I32[(this.$cell >> 2) + 2 + 2 * k]);
+        return strAt(I32[(this.$cell >> 2) + 2 + 2 * k]);
       },
       set(v: string) {
-        __storeStr((this.$cell >> 2) + 2 + 2 * k, v);
+        storeStr((this.$cell >> 2) + 2 + 2 * k, v);
       },
     }),
     f: k => ({
@@ -912,17 +912,17 @@ export function __sharedStruct<T = unknown>(
 // heap, so threads pass it along as a number and all use the same memory:
 // nothing is copied. the compiler reads and writes fields and elements through
 // these views
-export {I32 as __I32, F64 as __F64, U8 as __U8};
+export {I32, F64, U8};
 // strings in shared memory are interned (runtime.ts $intern): one copy of each,
 // which every thread decodes once and keeps, and counted: a string goes when
 // nothing refers to it. a string field or element holds its address and a count
-// of it, 0 for "": compiled, a read is __str(__I32[i]) and a write
+// of it, 0 for "": compiled, a read is __strAt(__I32[i]) and a write
 // __storeStr(i, v)
-export const __str: (a: number) => string = a => (a === 0 ? '' : $str(a));
+export const strAt: (a: number) => string = a => (a === 0 ? '' : $str(a));
 // a string field's or element's store at i32 index i: counts the new string,
 // and gives back the old one's count (runtime.ts $releaseString); returns s.
 // storing the string the field holds already changes nothing
-export function __storeStr(i: number, s: string) {
+export function storeStr(i: number, s: string) {
   s = String(s);
   const here = s === '' ? 0 : $internedHere(s);
   if (I32[i] === here && (here !== 0 || s === '')) return s;
@@ -933,7 +933,7 @@ export function __storeStr(i: number, s: string) {
 }
 // a zeroed struct: [kind][count 1], then its fields from byte 8. the caller
 // owns the count
-export function __newStruct(type: StructType) {
+export function newStruct(type: StructType) {
   const a = $allocBlock(type.size);
   I32[a >> 2] = type.kind;
   I32[(a >> 2) + 1] = 1;
@@ -961,7 +961,7 @@ const elementCodes = new Map([
 ]);
 const elementSize: (a: number) => number = a => I32[(a >> 2) + 2] & 0xffff,
   elementKind: (a: number) => number = a => I32[(a >> 2) + 2] >>> 16;
-export function __newSharedArray(type: StructType | number, length: number) {
+export function newSharedArray(type: StructType | number, length: number) {
   const struct = typeof type !== 'number',
     size = struct ? type.size : Math.abs(type);
   const a = $allocBlock(16 + length * size);
@@ -988,11 +988,11 @@ const countAt: (o: number) => number = o =>
 // null is 0; a raw value can also be undefined at run time (a missing argument,
 // `f?.()` ). a reference field may also hold a channel (uncompiled code cannot
 // tell), which lives as long as the program and has no count
-export function __retain(p: number) {
+export function retain(p: number) {
   if (p && counted(I32[p >> 2])) Atomics.add(I32, countAt(owner(p)), 1);
   return p;
 }
-export function __release(p: number) {
+export function release(p: number) {
   if (!p || !counted(I32[p >> 2])) return;
   const o = owner(p);
   if (Atomics.sub(I32, countAt(o), 1) === 1) destroy(o);
@@ -1037,24 +1037,24 @@ function destroy(o: number) {
 // a reference field store at i32 index i: takes over v's count. a thread may
 // have read the old value and not counted it yet, so its decrement waits for
 // every thread's next quiescent point
-export function __store(i: number, v: number) {
+export function store(i: number, v: number) {
   const old = Atomics.exchange(I32, i, v);
   if (old !== 0) $defer(old);
   return v;
 }
-setDeferHandler(__release);
-export const __quiescent = $quiescent;
-export const __heapStats = $heapStats;
+setDeferHandler(release);
+export const quiescent = $quiescent;
+export const heapStats = $heapStats;
 // works off the decrements that wait: all of them when no other thread runs
 export const __collect = $drain;
 // a closure that captures counted addresses holds a count on each until V8
 // collects it
 const closures = new FinalizationRegistry<number[]>(ps => {
   finalizable--;
-  for (const p of ps) __release(p);
+  for (const p of ps) release(p);
 });
-export function __hold<F extends object>(fn: F, ...ps: number[]) {
-  for (const p of ps) __retain(p);
+export function capture<F extends object>(fn: F, ...ps: number[]) {
+  for (const p of ps) retain(p);
   closures.register(fn, ps);
   finalizable++;
   return fn;
@@ -1067,12 +1067,12 @@ class CountedArg {
     this.a = a;
   }
 }
-export const __ref: (a: number) => CountedArg = a =>
-  new CountedArg(__retain(a));
+export const countedRef: (a: number) => CountedArg = a =>
+  new CountedArg(retain(a));
 // a counted result the compiler returns to the runtime (a callback's of a
 // runtime function whose result is `Sending`, as a SharedMap's
 // getOrInsertComputed's): it carries its count already
-export const __moved: (a: number) => CountedArg = a => new CountedArg(a);
+export const moved: (a: number) => CountedArg = a => new CountedArg(a);
 // where get() records the counted values it reads: a thread's arguments,
 // released when its function returns, or null, when the reader owns them (a
 // channel message's receiver)
@@ -1086,10 +1086,10 @@ export const __isCounted: (v: unknown) => boolean = v =>
 // still holds), and unwraps it on the way back. a struct's handle is an
 // instance of its class; a SharedArray's is an array-like Proxy over the same
 // memory
-export const __box: (a: number) => CellValue | null = a => (a ? cell(a) : null);
+export const box: (a: number) => CellValue | null = a => (a ? cell(a) : null);
 // the address of a cell's block (a struct's, a SharedArray's, a channel's...),
 // 0 for null: what a reference or channel field holds
-export function __cellAddress(v: MaybeCell) {
+export function cellAddress(v: MaybeCell) {
   if (v == null) return 0;
   const a = typeof v === 'object' ? v.$cell : undefined;
   if (a === undefined)
@@ -1133,13 +1133,13 @@ export class SharedArray<E extends ElementType = ElementType> {
               : type?.kind === 'u8'
                 ? -1
                 : type;
-    const a = __newSharedArray(code as StructType | number, length),
+    const a = newSharedArray(code as StructType | number, length),
       h = cell(a) as SharedArray<E>;
-    __release(a); // the handle holds its own count
+    release(a); // the handle holds its own count
     return h;
   }
 }
-export function __unbox(v: MaybeCell) {
+export function unbox(v: MaybeCell) {
   if (v == null) return 0;
   const a = typeof v === 'object' ? v.$cell : undefined;
   if (
@@ -1174,7 +1174,7 @@ function sharedArrayGet(a: number, i: number) {
     case E_BOOL:
       return U8[e] !== 0;
     case E_STR:
-      return __str(I32[e >> 2]);
+      return strAt(I32[e >> 2]);
     case E_I32:
       return I32[e >> 2];
     case E_U8:
@@ -1199,7 +1199,7 @@ function sharedArrayHandle(a: number): SharedArrayHandle {
           U8[e] = v ? 1 : 0;
           break;
         case E_STR:
-          __storeStr(e >> 2, v);
+          storeStr(e >> 2, v);
           break;
         case E_I32:
           I32[e >> 2] = v;
@@ -1230,7 +1230,7 @@ function oob(a: number, i: number): never {
 // by index. compiled, a call is the Atomics call itself, on the i32's index;
 // code the compiler did not lay out finds the index here, through the handle
 function atomicIndex(target: MaybeCell, key: any) {
-  const a = __unbox(target);
+  const a = unbox(target);
   if (I32[a >> 2] === K_SHARED_ARRAY) {
     if (elementKind(a) !== E_I32)
       throw new TypeError(
@@ -1290,7 +1290,7 @@ export const atomic: {
 // function: a read of this Proxy throws. an optimized loop with a call in it
 // (even one never taken) loses some of V8's loop optimizations; a property read
 // with no feedback costs nothing until it happens
-export const __OOB = new Proxy(
+export const outOfBounds = new Proxy(
   {},
   {
     get(_, i) {
@@ -1343,12 +1343,12 @@ setThreadEntry(t => {
       return r
         .then(v => resultOf(t, v))
         .finally(() => {
-          for (const p of mine) __release(p);
+          for (const p of mine) release(p);
         });
     }
     return resultOf(t, r);
   } finally {
-    if (!pending) for (const p of mine) __release(p);
+    if (!pending) for (const p of mine) release(p);
   }
 });
 function resultOf(t: number, r: unknown) {
@@ -1415,7 +1415,7 @@ class Thread<R = unknown> {
   }
 }
 // a thread's arguments as spawn takes them: an address may come counted
-// (__ref), and arrives as the number
+// (__countedRef), and arrives as the number
 export type SpawnArgs<A extends unknown[]> = {
   [K in keyof A]: A[K] extends number ? A[K] | CountedArg : A[K];
 };
@@ -1435,7 +1435,7 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
   const key = keyOf.get(fn);
   if (key === undefined)
     throw new TypeError(
-      'own: spawn a top-level function of a module the compiler registered (or fns())',
+      'own: spawn a top-level function of a module that registers it: the compiler adds `register(import.meta.url, {...})`, and a module run uncompiled calls it',
     );
   const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;

@@ -650,7 +650,7 @@ export function $str(a: number) {
 export function $releaseString(a: number) {
   if (a !== 0 && Atomics.sub(I32, (a >> 2) + 1, 1) === 1) $stringDying(a);
 }
-// string a's count reached 0 ($releaseString, own.ts's __release): unless
+// string a's count reached 0 ($releaseString, own.ts's release): unless
 // something counted it again meanwhile, it leaves the table, and its block goes
 // a grace period later
 export function $stringDying(a: number) {

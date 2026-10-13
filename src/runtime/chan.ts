@@ -5,7 +5,7 @@ import {
   __cellKind,
   __start,
   __isCounted,
-  __release,
+  release,
 } from './own.ts';
 import type {ThreadFn} from './own.ts';
 // Go-style concurrency on own.ts: goroutines, channels, close, range over a
@@ -26,7 +26,7 @@ import type {ThreadFn} from './own.ts';
 // recvAsync, selectAsync and for await, without blocking the host. its blocking
 // calls throw instead: they would stop every goroutine on the host. a shared
 // struct or SharedArray is sent as its address, with no copy: the compiler
-// passes it as __ref(p), so the message carries a count, and the receiver owns
+// passes it as __countedRef(p), so the message carries a count, and the receiver owns
 // what recv() returns
 import {
   I32,
@@ -199,7 +199,7 @@ export class Channel {
     if (I32[c + CLOSED] !== 0) {
       unlock(c + LOCK);
       const back = __unmessage<number>(m, bytes);
-      if (__isCounted(v)) __release(back); // the count the message carried
+      if (__isCounted(v)) release(back); // the count the message carried
       throw new TypeError('own: send on a closed channel');
     }
     const t = I32[c + TAIL];
@@ -229,7 +229,7 @@ export class Channel {
     if (I32[c + CLOSED] !== 0) {
       unlock(c + LOCK);
       const back = __unmessage<number>(m, bytes);
-      if (__isCounted(v)) __release(back); // the count the message carried
+      if (__isCounted(v)) release(back); // the count the message carried
       throw new TypeError('own: send on a closed channel');
     }
     const t = I32[c + TAIL];

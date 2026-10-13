@@ -160,16 +160,16 @@ describe('atomic operations', () => {
 
 describe('reference counts', () => {
   // as compiled code counts: a struct is an address, owned (+1) when new
-  const N = own.__sharedStruct('N', ['v', 'next'], [1]);
+  const N = own.sharedStruct('N', ['v', 'next'], [1]);
   // the i32 index of field `next`
   const next: (a: number) => number = a => (a >> 2) + 2 + 2 * 1;
 
   it('free a struct, and what it refers to, at count 0', () => {
     const before = T.heapStats();
-    const a = own.__newStruct(N),
-      b = own.__newStruct(N);
-    own.__store(next(a), b); // a.next = b, taking over b's count
-    own.__release(a);
+    const a = own.newStruct(N),
+      b = own.newStruct(N);
+    own.store(next(a), b); // a.next = b, taking over b's count
+    own.release(a);
     const after = T.heapStats();
     expect(after.allocated - before.allocated).toBe(2);
     expect(after.freed - before.freed).toBe(2);
@@ -177,17 +177,17 @@ describe('reference counts', () => {
 
   it('keep a struct while something holds it', () => {
     const before = T.heapStats();
-    const a = own.__newStruct(N);
-    own.__retain(a);
-    own.__release(a);
+    const a = own.newStruct(N);
+    own.retain(a);
+    own.release(a);
     expect(T.heapStats().freed - before.freed).toBe(0);
-    own.__release(a);
+    own.release(a);
     expect(T.heapStats().freed - before.freed).toBe(1);
   });
 
   it('intern strings: one copy each', () => {
     expect(runtime.$internRef('abc')).toBe(runtime.$internRef('abc'));
-    expect(own.__str(runtime.$internFind('abc'))).toBe('abc');
+    expect(own.strAt(runtime.$internFind('abc'))).toBe('abc');
   });
 });
 
@@ -199,22 +199,22 @@ describe('strings are collected', () => {
     return s.allocated - s.freed;
   };
   // as compiled code stores them: a str field at i32 index (a >> 2) + 2
-  const S = own.__sharedStruct('Named', ['name'], [], 's');
+  const S = own.sharedStruct('Named', ['name'], [], 's');
 
   it('a field holds a count on its string, and gives it back', () => {
-    const a = own.__newStruct(S),
+    const a = own.newStruct(S),
       before = live();
     for (let i = 0; i < 2000; i++) {
-      own.__storeStr((a >> 2) + 2, `name ${i} ${'é'.repeat(i % 3)}`);
-      expect(own.__str(runtime.I32[(a >> 2) + 2])).toBe(
+      own.storeStr((a >> 2) + 2, `name ${i} ${'é'.repeat(i % 3)}`);
+      expect(own.strAt(runtime.I32[(a >> 2) + 2])).toBe(
         `name ${i} ${'é'.repeat(i % 3)}`,
       );
     }
     expect(live()).toBe(before + 1); // the last one
-    own.__storeStr((a >> 2) + 2, '');
+    own.storeStr((a >> 2) + 2, '');
     expect(live()).toBe(before);
-    own.__storeStr((a >> 2) + 2, 'one more, unique to this test');
-    own.__release(a); // the struct goes, and with it its string
+    own.storeStr((a >> 2) + 2, 'one more, unique to this test');
+    own.release(a); // the struct goes, and with it its string
     expect(live()).toBe(before - 1);
   });
 
@@ -230,8 +230,8 @@ describe('strings are collected', () => {
   });
 
   it('a message holds counts on its strings and keys until it is read', () => {
-    const a = own.__newStruct(S);
-    own.__storeStr((a >> 2) + 2, 'known here'); // sent by address
+    const a = own.newStruct(S);
+    own.storeStr((a >> 2) + 2, 'known here'); // sent by address
     const before = live();
     for (let i = 0; i < 1000; i++) {
       const sent = {[`key ${i}`]: 'known here', [`other ${i}`]: [`text ${i}`]};
@@ -242,15 +242,15 @@ describe('strings are collected', () => {
       });
     }
     expect(live()).toBe(before);
-    own.__release(a);
+    own.release(a);
   });
 
   it('a pinned string stays, counted or not', () => {
     const counted = runtime.$internRef('pinned later, unique to this test'),
       pinned = runtime.$intern('pinned, unique to this test');
     expect(runtime.$intern('pinned later, unique to this test')).toBe(counted);
-    own.__release(counted);
-    own.__release(runtime.$internRef('pinned, unique to this test'));
+    own.release(counted);
+    own.release(runtime.$internRef('pinned, unique to this test'));
     live();
     expect(runtime.$internFind('pinned later, unique to this test')).toBe(
       counted,
@@ -262,12 +262,12 @@ describe('strings are collected', () => {
     for (let i = 0; i < 200; i++) {
       const a = runtime.$internRef(`gone ${i}`);
       expect(runtime.$str(a)).toBe(`gone ${i}`); // now cached here
-      own.__release(a);
+      own.release(a);
       own.__collect();
       expect(runtime.$internFind(`gone ${i}`)).toBe(0);
       const b = runtime.$internRef(`new ${i}`); // the same block, often
       expect(runtime.$str(b)).toBe(`new ${i}`);
-      own.__release(b);
+      own.release(b);
     }
   });
 });

@@ -4,30 +4,30 @@
 // browser.
 
 // The runtime helpers the fork's emit imports, by the names the runtime exports
-// them as. It imports them under other names where a module declares or uses
-// the name itself (`__F64 as __F64_1`), and `register`, the one that is part of
-// the API, always (`register as __register`).
+// them as. It imports each under a name of its own, the same with two leading
+// underscores (`retain as __retain`), or with a number too where a module
+// declares or uses that name itself (`retain as __retain_1`).
 export const HELPERS = new Set([
-  '__F64',
-  '__I32',
-  '__OOB',
-  '__U8',
-  '__box',
-  '__cellAddress',
-  '__hold',
-  '__moved',
-  '__newSharedArray',
-  '__newStruct',
-  '__quiescent',
-  '__ref',
-  '__release',
-  '__retain',
-  '__sharedStruct',
-  '__store',
-  '__storeStr',
-  '__str',
-  '__unbox',
+  'F64',
+  'I32',
+  'U8',
+  'box',
+  'capture',
+  'cellAddress',
+  'countedRef',
+  'moved',
+  'newSharedArray',
+  'newStruct',
+  'outOfBounds',
+  'quiescent',
   'register',
+  'release',
+  'retain',
+  'sharedStruct',
+  'store',
+  'storeStr',
+  'strAt',
+  'unbox',
 ]);
 
 // The local names of the helpers that compiled code imports from `runtime` :

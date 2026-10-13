@@ -22,19 +22,19 @@
 // the map holds a count on each (runtime.ts $intern): a string no map, field or
 // message refers to goes. compiled code passes a shared struct or SharedArray
 // as its address, a number, and reads one back as that: the map keeps it as
-// that number, and the compiler's __ref(p) (set's parameters are a `Sending`
+// that number, and the compiler's __countedRef(p) (set's parameters are a `Sending`
 // rest parameter, as spawn's are) says it is an address. the map holds a count
 // on each cell and string in it, a flag in the entry saying which of its words
 // do (REFCOUNT.md); a map is counted too, as a SharedArray is, and freeing it
 // gives back what it held. an object or array stored moves in (the ownership
 // checker sees to it): the map shares it, frozen
 import {
-  __box,
+  box,
   __countedCellKind,
   __isCounted,
   __materialize,
-  __release,
-  __retain,
+  release,
+  retain,
   __sharedAddress,
   share,
 } from './own.ts';
@@ -95,7 +95,7 @@ const STR_HI = BOX | (T_STR << 11),
   HOLE_HI = BOX | (T_HOLE << 11);
 // the word encode made, and what the map does to hold it: nothing, retain (a
 // handle's cell), or adopt the count that comes with it (compiled code's
-// __ref(p), a raw address; a string's, which encode counts)
+// __countedRef(p), a raw address; a string's, which encode counts)
 let lo = 0,
   hi = 0,
   held = 0,
@@ -197,14 +197,14 @@ function counted(l: number, how: number, s: string | null): [number, number] {
 function unheld(l: number, h: number, how: number) {
   if (how !== ADOPT) return;
   if (h === STR_HI) {
-    __release(l);
+    release(l);
     return;
   }
   bits[0] = l;
   bits[1] = h;
-  __release(scratch[0]);
+  release(scratch[0]);
 }
-// what a key or value is to the code that passed it: compiled code's __ref(p)
+// what a key or value is to the code that passed it: compiled code's __countedRef(p)
 // is p
 const plain = (v: unknown) => (__isCounted(v) ? (v as {a: number}).a : v);
 // a value word, as its f64 and its two i32s, as a value of this thread: a map's
@@ -228,7 +228,7 @@ function decodeWord(f: number, h: number, p: number): unknown {
     case T_SHARED:
       return __materialize(p);
     default:
-      return __box(p); // a cell: this thread's handle, which holds a count
+      return box(p); // a cell: this thread's handle, which holds a count
   }
 }
 // what a held word at at refers to: a string, a handle's cell (boxed), or an
@@ -255,7 +255,7 @@ function store(
   const f = (e + w + FLAGS) >> 2;
   if (how === 0) I32[f] &= ~bit;
   else {
-    if (how === RETAIN) __retain(l);
+    if (how === RETAIN) retain(l);
     I32[f] |= bit;
   }
 }
@@ -423,8 +423,8 @@ function make(kind: number, w: number) {
   I32[m >> 2] = kind;
   I32[(m >> 2) + 1] = 1;
   I32[(m >> 2) + TABLE] = newTable(MIN, w);
-  const h = __box(m);
-  __release(m);
+  const h = box(m);
+  release(m);
   return h;
 }
 // what freeing a map's block gives back: the cells its keys and values hold
