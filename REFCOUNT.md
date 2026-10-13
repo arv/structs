@@ -7,8 +7,8 @@
 > the playground's "Reference counting under a race" runs it in a browser
 > ([programs/refcount.ts](playground/programs/refcount.ts)). Shared structs,
 > SharedArrays, SharedMaps and SharedSets, and interned strings, are freed when
-> nothing refers to them; other cells (`Barrier`, `Slots`) and moved or shared
-> values are still never freed.
+> nothing refers to them; other cells (`Lock`, `Condition`, `Channel`) and
+> shared values are still never freed.
 
 A shared struct or SharedArray is an address in the shared heap, passed around
 as a plain number, so V8's collector cannot see who holds one. Each block counts
@@ -44,22 +44,22 @@ thread holds an uncounted address of the block or of anything it read through
 it. The block is freed at once, and its reference fields are released at once,
 so a list of any length is freed in one pass. No block is ever revived.
 
-Quiescent points are `Barrier.wait`, `spawn`, `join`, the end of a `scope`, a
-thread's start and end, and `__quiescent()`, which the compiler puts at the end
-of each iteration of a loop that reads or stores a reference field (an atomic
-load and store; numeric loops get none). A thread blocked in a wait counts as
-quiescent throughout. A thread that runs long without one delays reclaiming
-(memory grows), never correctness.
+Quiescent points are `Condition.wait` (and a `Lock.hold` that has to wait),
+`spawn`, `join`, the end of a `scope`, a thread's start and end, and
+`__quiescent()`, which the compiler puts at the end of each iteration of a loop
+that reads or stores a reference field (an atomic load and store; numeric loops
+get none). A thread blocked in a wait counts as quiescent throughout. A thread
+that runs long without one delays reclaiming (memory grows), never correctness.
 
 Async functions share a thread: a worker that hosts async goroutines runs one at
 a time, each until its next `await`. The compiler holds no uncounted address
 across an `await` (an `await` counts as a call, and an async function's counted
 parameters are owned), so when one of them resumes from the runtime's waits
-(`recvAsync`, `sendAsync`, `selectAsync`, `joinAsync`, `Barrier.waitAsync`),
-every other one is suspended with nothing uncounted, and that is a quiescent
-point for the thread; so is each turn of the host's loop. A host whose async
-functions all wait passes none, so a thread with many decrements queued rings
-the bells of the hosts behind it, and each passes one.
+(`recvAsync`, `sendAsync`, `selectAsync`, `joinAsync`, `Condition.waitAsync`,
+`Lock.holdAsync`), every other one is suspended with nothing uncounted, and that
+is a quiescent point for the thread; so is each turn of the host's loop. A host
+whose async functions all wait passes none, so a thread with many decrements
+queued rings the bells of the hosts behind it, and each passes one.
 
 This is quiescent-state-based reclamation: a global epoch, and a word per thread
 with the epoch it last saw at a quiescent point.

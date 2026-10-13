@@ -129,7 +129,8 @@ const blockingCalls = new Map([
   ['ChannelCell.send', 'sendAsync'],
   ['ChannelCell.recv', 'recvAsync'],
   ['Thread.join', 'joinAsync'],
-  ['Barrier.wait', 'waitAsync'],
+  ['Lock.hold', 'holdAsync'],
+  ['Condition.wait', 'waitAsync'],
   ['select', 'selectAsync'],
   ['scope', ''],
 ]);
@@ -185,7 +186,7 @@ function getRuntimeType(c: Own, name: string): Type | undefined {
 }
 
 // Reports whether a type is a cell of the plain API: assignable to the
-// runtime's `Cell` (Barrier, Slots, Channel, Thread, Scope, SharedArray, a
+// runtime's `Cell` (Lock, Condition, Channel, Thread, Scope, SharedArray, a
 // struct's values), or a struct type or a field marker (immutable,
 // `IntegerField` included). Its values are shared, with no region.
 export function isCellBranded(c: Own, t: Type | undefined): boolean {

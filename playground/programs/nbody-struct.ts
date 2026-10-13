@@ -5,9 +5,12 @@
 // copying: each thread writes only its own slice, and the barriers order the
 // reads and the writes.
 import {
-  Barrier,
+  Condition,
   f64,
+  i32,
+  Lock,
   log,
+  ref,
   scope,
   SharedArray,
   struct,
@@ -93,6 +96,37 @@ function energy(bodies: SharedArray<Body>): number {
   return e;
 }
 
+// a barrier for n threads, from a Lock and a Condition, as the preset builds
+// its own: wait(b) returns once all n have called it
+const Barrier = struct({
+  n: i32,
+  waiting: i32,
+  round: i32,
+  lock: ref<Lock>(),
+  changed: ref<Condition>(),
+});
+type Barrier = Struct<typeof Barrier>;
+
+function newBarrier(n: number): Barrier {
+  const b = new Barrier();
+  b.n = n | 0;
+  b.lock = new Lock();
+  b.changed = new Condition();
+  return b;
+}
+
+function wait(b: Barrier) {
+  const lock = b.lock!,
+    changed = b.changed!;
+  using _ = lock.hold();
+  const round = b.round;
+  if (++b.waiting === b.n) {
+    b.waiting = 0;
+    b.round = round + 1;
+    changed.notifyAll();
+  } else while (b.round === round) changed.wait(lock);
+}
+
 // a thread: its slice [lo, hi) of the shared bodies, and the barrier
 function worker(
   lo: number,
@@ -102,15 +136,15 @@ function worker(
 ) {
   for (let s = 0; s < STEPS; s++) {
     accelerate(bodies, lo, hi);
-    barrier.wait(); // everyone has read the old positions
+    wait(barrier); // everyone has read the old positions
     move(bodies, lo, hi);
-    barrier.wait(); // everyone has written the new ones
+    wait(barrier); // everyone has written the new ones
   }
 }
 
 function simulate(threads: number): number {
   const bodies = makeBodies(),
-    barrier = new Barrier(threads);
+    barrier = newBarrier(threads);
   scope(s => {
     for (let t = 0; t < threads; t++)
       s.spawn(

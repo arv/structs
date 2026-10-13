@@ -1,9 +1,10 @@
+import {Condition, i32, Lock, ref, struct, type Struct} from '@arv/threads';
 // presets/nbody.js for own and shared values (own.ts), with the positions in a
 // shared Float64Array cell instead of shared snapshots: plain JS, no
 // translation. each thread owns its slice of the bodies (moved in, moved back
 // by join). every step it writes its bodies' positions into the cell, and after
 // a barrier everyone reads all of them in place: nothing is copied per step
-import {fns, spawn, Barrier, sharedFloat64Array, log} from '@arv/threads/own';
+import {fns, spawn, sharedFloat64Array, log} from '@arv/threads/own';
 
 interface Body {
   x: number;
@@ -81,6 +82,37 @@ const energy: (bodies: Body[]) => number = bodies => {
   return e;
 };
 
+// a barrier for n threads, from a Lock and a Condition, as the preset builds
+// its own: wait(b) returns once all n have called it
+const Barrier = struct({
+  n: i32,
+  waiting: i32,
+  round: i32,
+  lock: ref<Lock>(),
+  changed: ref<Condition>(),
+});
+type Barrier = Struct<typeof Barrier>;
+
+const newBarrier = (n: number): Barrier => {
+  const b = new Barrier();
+  b.n = n | 0;
+  b.lock = new Lock();
+  b.changed = new Condition();
+  return b;
+};
+
+const wait = (b: Barrier) => {
+  const lock = b.lock!,
+    changed = b.changed!;
+  using _ = lock.hold();
+  const round = b.round;
+  if (++b.waiting === b.n) {
+    b.waiting = 0;
+    b.round = round + 1;
+    changed.notifyAll();
+  } else while (b.round === round) changed.wait(lock);
+};
+
 // a thread: the first body index of its slice, the slice it owns, the positions
 // cell, the barrier
 const worker: (
@@ -98,9 +130,9 @@ const worker: (
       pos[k + 2] = b.z;
       pos[k + 3] = b.m;
     }
-    barrier.wait(); // every position is written
+    wait(barrier); // every position is written
     accelerate(mine, pos);
-    barrier.wait(); // everyone has read them, so they can change
+    wait(barrier); // everyone has read them, so they can change
     move(mine);
   }
   return mine;
@@ -110,7 +142,7 @@ fns({worker});
 const simulate: (threads: number) => number = threads => {
   const bodies = makeBodies();
   const pos = sharedFloat64Array(BODIES * 4),
-    barrier = new Barrier(threads);
+    barrier = newBarrier(threads);
   const ts = [];
   for (let t = 0; t < threads; t++) {
     const lo = Math.floor((BODIES * t) / threads),

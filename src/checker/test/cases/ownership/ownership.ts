@@ -1,5 +1,5 @@
 // The region analysis on ordinary values (ownership.go), in the plain API.
-import { Barrier, Channel, consume, scope, share, spawn, take, partition, type Sending, type Shared } from "threads";
+import { Channel, consume, Lock, scope, share, spawn, take, partition, type Sending, type Shared } from "threads";
 
 declare const flag: boolean;
 declare function use(...values: unknown[]): void;
@@ -107,11 +107,11 @@ export class Counter {
   }
 }
 
-export function barrier(b: Barrier, ch: Channel<number[]>) {
+export function locked(lock: Lock, ch: Channel<number[]>) {
   const xs = [1, 2];
   const copy = { items: xs, label: "x" };
   const { items } = copy;
   ch.send(xs);
-  b.wait();
+  using _ = lock.hold();
   return items.length;                       // error: shares objects with xs
 }

@@ -16,9 +16,12 @@
 //     `Sending<T>` moves it: the caller gives it up and the receiver owns it;
 //   - shared: `Shared<T>` , deeply immutable, so any number of threads may read
 //     it;
-//   - a cell: shared and mutable, but only through what synchronizes it
-//     (Barrier, Slots, Channel), or, for shared structs and SharedArrays, in
-//     place, ordered by one of those.
+//   - a cell: shared and mutable, but only through what synchronizes it (Lock,
+//     Condition, Channel), or, for shared structs and SharedArrays, in place,
+//     ordered by one of those.
+
+// Lock.hold() returns a Disposable, for `using`
+/// <reference lib="esnext.disposable" />
 
 declare const cellBrand: unique symbol;
 declare const fieldBrand: unique symbol;
@@ -109,9 +112,10 @@ export declare const bool: Field<boolean>;
  */
 export declare const str: Field<string>;
 /**
- * A reference field: a shared struct, a SharedArray or a Channel, or null. A
- * channel lives as long as the program, so a struct can hand one to any thread:
- * `struct({ changed: ref<Channel<void>>() })` .
+ * A reference field: a shared struct, a SharedArray, a Channel, a Lock or a
+ * Condition, or null. A channel, a lock and a condition live as long as the
+ * program, so a struct can hand one to any thread:
+ * `struct({ lock: ref<Lock>(), changed: ref<Channel<void>>() })` .
  */
 export declare function ref<T>(): Field<T | null>;
 
@@ -128,7 +132,7 @@ export type Struct<S> = S extends StructType<infer T> ? T & Cell : never;
 /**
  * Declares a shared struct: fields at fixed places in shared memory, which
  * every thread reads and writes in place. Reads and writes are not ordered
- * between threads: a Barrier or a Channel orders them.
+ * between threads: a Lock or a Channel orders them.
  *
  *     const Body = struct({ x: f64, y: f64, m: f64 });
  *     type Body = Struct<typeof Body>;
@@ -151,8 +155,8 @@ export declare function struct<T>(fields: {
  * A fixed-length array in shared memory: of numbers (`Number`), of i32s
  * (`i32`), of bytes (`u8`), of booleans (`Boolean`, a byte each), of strings
  * (`String`, interned as `str` fields are), or of shared structs stored inline.
- * Every thread reads and writes the same elements, with no copying; a Barrier,
- * a Channel or an atomic operation orders them.
+ * Every thread reads and writes the same elements, with no copying; a Lock, a
+ * Channel or an atomic operation orders them.
  */
 export interface SharedArray<T, L = ElementLayout<T>> extends Cell {
   readonly length: number;
@@ -327,31 +331,49 @@ export declare function partition<T>(
  */
 export declare function take<T>(items: Sending<T>[], index: number): Sending<T>;
 
-/** A reusable barrier for a fixed number of threads. */
-export declare class Barrier implements Cell {
+/**
+ * A lock: one thread at a time holds it. It protects what several threads
+ * change together, such as two fields that must agree. A struct may hold one
+ * (`ref<Lock>()`).
+ */
+export declare class Lock implements Cell {
   readonly [cellBrand]: true;
-  constructor(threads: number);
-  /** Blocks until all threads have called `wait`. */
-  wait(): void;
+  constructor();
   /**
-   * Waits, without blocking, until all threads have called `wait` or
-   * `waitAsync` : for an async function.
+   * Blocks until this thread holds the lock. Disposing what it returns
+   * releases the lock: `using _ = lock.hold();` holds it to the end of the
+   * block.
    */
-  waitAsync(): Promise<void>;
+  hold(): Disposable;
+  /**
+   * The same in an async function: waits for the lock without blocking.
+   * `using _ = await lock.holdAsync();`
+   */
+  holdAsync(): Promise<Disposable>;
 }
 
 /**
- * One slot per thread: a thread publishes a shared value into its slot, and
- * everyone reads every slot.
+ * A condition: a thread that holds a lock waits on it until another thread
+ * notifies it. A waiter may also wake without a notify, so it waits in a loop
+ * that checks what it waits for:
+ *
+ *     using _ = lock.hold();
+ *     while (!job.done) changed.wait(lock);
  */
-export declare class Slots<T> implements Cell {
+export declare class Condition implements Cell {
   readonly [cellBrand]: true;
-  constructor(count: number);
-  readonly length: number;
-  set(index: number, value: Shared<T>): void;
-  get(index: number): Shared<T> | undefined;
-  /** The arrays in all slots, concatenated in slot order. */
-  flat(): Shared<T extends readonly (infer E)[] ? E[] : T[]>;
+  constructor();
+  /**
+   * Releases `lock`, which this thread holds, blocks until notified, and holds
+   * `lock` again.
+   */
+  wait(lock: Lock): void;
+  /** The same in an async function: waits without blocking. */
+  waitAsync(lock: Lock): Promise<void>;
+  /** Wakes one thread that waits. */
+  notifyOne(): void;
+  /** Wakes every thread that waits. */
+  notifyAll(): void;
 }
 
 // ---- maps and sets ----

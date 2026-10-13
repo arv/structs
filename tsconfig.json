@@ -13,7 +13,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "lib": ["es2024", "dom"],
+    "lib": ["es2024", "esnext.disposable", "dom"],
     "types": ["node"],
     "skipLibCheck": true,
     // the runtime's API, and its modules, which the programs import (run.ts

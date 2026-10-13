@@ -8,7 +8,7 @@
 //            heap once. a thread it reaches makes its own frozen copy on first
 //            use, then reads plain objects
 //   a cell   shared and mutable, explicitly: a struct, a SharedArray, a
-//            channel, a map, a Barrier, Slots. their state lives in the shared
+//            channel, a map, a Lock, a Condition. their state lives in the shared
 //            heap
 // ordinary code reads and writes ordinary objects: nothing per access,
 // everything at the crossings
@@ -565,8 +565,8 @@ function materialize(a: number) {
 }
 
 // ---- cells: shared and mutable, explicitly ----
-const K_BARRIER = 20,
-  K_SLOTS = 21,
+const K_LOCK = 20,
+  K_CONDITION = 21,
   K_F64 = 22,
   K_SHARED_ARRAY = 23;
 // counted cells defined outside this module (maps.ts): what freeing a block of
@@ -639,55 +639,129 @@ const newCell = (kind: number, bytes: number, self: CellObject) => {
   return a;
 };
 
-// a reusable barrier for n threads: the last to arrive wakes the others. a
-// waiter spins a little first: steps between barriers are often shorter than a
-// sleep and a wake-up
+// spins before a thread sleeps: the other side is often only a moment away
 const SPINS = 20000;
-export class Barrier {
+
+// `using` needs Symbol.dispose, which an engine may not have yet
+(Symbol as {dispose?: symbol}).dispose ??= Symbol.for('Symbol.dispose');
+
+// a lock: one thread at a time holds it. its block is [kind][state], state 0
+// free, 1 held, 2 held with threads waiting (a futex, as in Drepper's "Futexes
+// Are Tricky"). a thread that waits for it is quiescent meanwhile
+// (REFCOUNT.md). hold() returns the hold, which releases the lock when it is
+// disposed: `using _ = lock.hold();` holds it to the end of the block, with no
+// callback, which compiled code would have to count what it captures in
+export class Lock {
   declare $cell: number;
-  constructor(n: number) {
-    const a = newCell(K_BARRIER, 16, this);
-    I32[(a >> 2) + 1] = n;
+  constructor() {
+    newCell(K_LOCK, 8, this);
   }
-  wait() {
-    $mustNotBlock('Barrier.wait()', 'await waitAsync()');
-    const i = this.$cell >> 2,
-      gen = Atomics.load(I32, i + 3);
-    // a quiescent point (REFCOUNT.md), and quiescent while it waits
-    $waitBegin();
-    if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
-      Atomics.store(I32, i + 2, 0);
-      Atomics.add(I32, i + 3, 1);
-      Atomics.notify(I32, i + 3);
-    } else {
-      let k = 0;
-      while (k < SPINS && Atomics.load(I32, i + 3) === gen) k++;
-      while (Atomics.load(I32, i + 3) === gen) Atomics.wait(I32, i + 3, gen);
-    }
-    $waitEnd();
+  hold(): Disposable {
+    $mustNotBlock('Lock.hold()', 'using _ = await lock.holdAsync()');
+    const i = (this.$cell >> 2) + 1;
+    acquire(i);
+    return new Held(i);
   }
-  // the same in an async function: waits without blocking its worker
-  async waitAsync() {
-    const i = this.$cell >> 2,
-      gen = Atomics.load(I32, i + 3);
-    if (Atomics.add(I32, i + 2, 1) === I32[i + 1] - 1) {
-      Atomics.store(I32, i + 2, 0);
-      Atomics.add(I32, i + 3, 1);
-      Atomics.notify(I32, i + 3);
+  // the same in an async function: waits for the lock without blocking its
+  // worker
+  async holdAsync(): Promise<Disposable> {
+    const i = (this.$cell >> 2) + 1;
+    await acquireAsync(i);
+    return new Held(i);
+  }
+}
+// a lock's hold: disposing it releases the lock, once
+class Held {
+  declare i: number;
+  constructor(i: number) {
+    this.i = i;
+  }
+  [Symbol.dispose]() {
+    if (this.i === 0) return;
+    release(this.i);
+    this.i = 0;
+  }
+}
+cellKinds.set(K_LOCK, Lock);
+function acquire(i: number) {
+  if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
+  $waitBegin();
+  for (let k = 0; k < SPINS; k++)
+    if (
+      Atomics.load(I32, i) === 0 &&
+      Atomics.compareExchange(I32, i, 0, 1) === 0
+    ) {
+      $waitEnd();
       return;
     }
-    while (Atomics.load(I32, i + 3) === gen) {
-      const w = Atomics.waitAsync(I32, i + 3, gen);
+  while (Atomics.exchange(I32, i, 2) !== 0) Atomics.wait(I32, i, 2);
+  $waitEnd();
+}
+async function acquireAsync(i: number) {
+  if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
+  while (Atomics.exchange(I32, i, 2) !== 0) {
+    const w = Atomics.waitAsync(I32, i, 2);
+    if (w.async) await w.value;
+  }
+  $resumed();
+}
+const release = (i: number) => {
+  if (Atomics.exchange(I32, i, 0) === 2) Atomics.notify(I32, i, 1);
+};
+
+// a condition: threads that hold a lock wait on it until another thread
+// notifies them. its block is [kind][seq]: every notify changes seq, which
+// waiters wait on. a waiter may wake without a notify, so it waits in a loop
+// that checks what it waits for
+export class Condition {
+  declare $cell: number;
+  constructor() {
+    newCell(K_CONDITION, 8, this);
+  }
+  // releases lock, which this thread holds, waits for a notify, and holds lock
+  // again
+  wait(lock: Lock) {
+    $mustNotBlock('Condition.wait()', 'await waitAsync()');
+    const s = (this.$cell >> 2) + 1,
+      seq = Atomics.load(I32, s),
+      l = (lock.$cell >> 2) + 1;
+    release(l);
+    $waitBegin();
+    let k = 0;
+    while (k < SPINS && Atomics.load(I32, s) === seq) k++;
+    while (Atomics.load(I32, s) === seq) Atomics.wait(I32, s, seq);
+    $waitEnd();
+    acquire(l);
+  }
+  // the same in an async function: waits without blocking its worker
+  async waitAsync(lock: Lock) {
+    const s = (this.$cell >> 2) + 1,
+      seq = Atomics.load(I32, s),
+      l = (lock.$cell >> 2) + 1;
+    release(l);
+    while (Atomics.load(I32, s) === seq) {
+      const w = Atomics.waitAsync(I32, s, seq);
       if (w.async) await w.value;
     }
     $resumed();
+    await acquireAsync(l);
+  }
+  notifyOne() {
+    const s = (this.$cell >> 2) + 1;
+    Atomics.add(I32, s, 1);
+    Atomics.notify(I32, s, 1);
+  }
+  notifyAll() {
+    const s = (this.$cell >> 2) + 1;
+    Atomics.add(I32, s, 1);
+    Atomics.notify(I32, s);
   }
 }
-cellKinds.set(K_BARRIER, Barrier);
+cellKinds.set(K_CONDITION, Condition);
 
 // numbers every thread reads and writes in place: a Float64Array over the
 // shared heap. no copies; the program orders its reads and writes itself (with
-// a Barrier, say)
+// a Lock, say)
 export function sharedFloat64Array(n: number) {
   const a = $alloc(16 + n * 8);
   I32[a >> 2] = K_F64;
@@ -697,41 +771,6 @@ export function sharedFloat64Array(n: number) {
   cells.set(a, v);
   return v;
 }
-
-// n slots, each holding a shared value (or nothing)
-export class Slots {
-  declare $cell: number;
-  constructor(n: number) {
-    const a = newCell(K_SLOTS, 8 + n * 4, this);
-    I32[(a >> 2) + 1] = n;
-  }
-  get length() {
-    return I32[(this.$cell >> 2) + 1];
-  }
-  set(i: number, v: object) {
-    const a = sharedAddr.get(v);
-    if (a === undefined)
-      throw new TypeError(
-        'own: a slot holds shared values only (share() it first)',
-      );
-    Atomics.store(I32, (this.$cell >> 2) + 2 + i, a);
-  }
-  get(i: number) {
-    const a = Atomics.load(I32, (this.$cell >> 2) + 2 + i);
-    return a === 0 ? undefined : materialize(a);
-  }
-  // the arrays in every slot, concatenated in slot order (their elements are
-  // this thread's copies)
-  flat() {
-    const all: unknown[] = [];
-    for (let k = 0; k < this.length; k++) {
-      const v = this.get(k) as unknown[] | undefined;
-      if (v !== undefined) for (const o of v) all.push(o);
-    }
-    return all;
-  }
-}
-cellKinds.set(K_SLOTS, Slots);
 
 // a struct type: a class of handles on its blocks, and its layout
 export interface StructType<T = unknown> {

@@ -120,7 +120,7 @@ const sleepAsync: (c: number) => Promise<void> = c => {
   });
 };
 // holding the lock: let it go and sleep until the channel changes, then take it
-// again. it spins a little first, as Barrier does: the other side is often only
+// again. it spins a little first, as a Condition does: the other side is often
 // microseconds away. a blocked thread is at a quiescent point (REFCOUNT.md)
 const SPINS = 20000;
 const sleep: (c: number) => void = c => {

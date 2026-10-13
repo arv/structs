@@ -277,10 +277,46 @@ describe('the rest', () => {
     logged.length = 0;
   });
 
-  it('a barrier for one thread does not wait', async () => {
-    const barrier = new T.Barrier(1);
-    barrier.wait();
-    await barrier.waitAsync();
+  it('a lock is held until its hold is disposed', async () => {
+    const lock = new T.Lock();
+    {
+      using _ = lock.hold();
+    }
+    // released at the end of the block, even after a throw
+    expect(() => {
+      using _ = lock.hold();
+      throw new Error('inside');
+    }).toThrow('inside');
+    {
+      using _ = await lock.holdAsync();
+    }
+    // disposing a hold twice releases the lock once: not someone else's hold
+    const state = () =>
+      runtime.I32[((lock as unknown as {$cell: number}).$cell >> 2) + 1];
+    const first = lock.hold();
+    first[Symbol.dispose]();
+    const second = lock.hold();
+    first[Symbol.dispose]();
+    expect(state()).toBe(1);
+    second[Symbol.dispose]();
+    expect(state()).toBe(0);
+  });
+
+  it('a condition wakes a thread that waits, which holds the lock again', async () => {
+    const lock = new T.Lock(),
+      changed = new T.Condition();
+    let ready = false;
+    setTimeout(() => {
+      ready = true;
+      changed.notifyAll();
+    }, 5);
+    {
+      using _ = await lock.holdAsync();
+      while (!ready) await changed.waitAsync(lock);
+    }
+    expect(ready).toBe(true);
+    // the lock is free again
+    using _ = lock.hold();
   });
 
   it('log writes a line', () => {

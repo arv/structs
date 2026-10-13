@@ -6,31 +6,17 @@ value is owned by one thread, shared read-only, or a cell built for sharing, and
 a checker proves you follow the rules.
 
 ```ts
-import {
-  Barrier,
-  f64,
-  scope,
-  SharedArray,
-  struct,
-  type Struct,
-} from '@arv/threads';
+import {f64, scope, SharedArray, struct, type Struct} from '@arv/threads';
 
 const Body = struct({x: f64, y: f64, vx: f64, vy: f64, m: f64}); // lives in shared memory
 type Body = Struct<typeof Body>;
 
-function step(
-  bodies: SharedArray<Body>,
-  lo: number,
-  hi: number,
-  barrier: Barrier,
-) {
+function step(bodies: SharedArray<Body>, lo: number, hi: number) {
   for (let i = lo; i < hi; i++) bodies[i].x += bodies[i].vx; // every thread, the same memory
-  barrier.wait();
 }
 
 export function main(threads: number) {
-  const bodies = new SharedArray(Body, 800),
-    barrier = new Barrier(threads);
+  const bodies = new SharedArray(Body, 800);
   scope(s => {
     for (let t = 0; t < threads; t++)
       s.spawn(
@@ -38,9 +24,8 @@ export function main(threads: number) {
         bodies,
         Math.floor((t * 800) / threads),
         Math.floor(((t + 1) * 800) / threads),
-        barrier,
       );
-  });
+  }); // joins every thread it started
 }
 ```
 
@@ -61,11 +46,11 @@ Try it in the browser, with the compiled JavaScript side by side:
 A thread is a worker with its own JavaScript heap, and objects cannot cross
 between heaps. So every value is one of three kinds:
 
-| Kind   | In the types                                                | Crosses threads by                                       | For                                                             |
-| ------ | ----------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
-| Owned  | ordinary types; `Sending<T>` where it moves                 | moving: copied once, and the sender loses it             | work a thread does alone, and its result                        |
-| Shared | `Shared<T>`, deeply readonly                                | being frozen: every thread reads its own copy, made once | tables, settings, lookups                                       |
-| Cell   | `struct(...)`, `SharedArray`, `Barrier`, `Slots`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
+| Kind   | In the types                                                 | Crosses threads by                                       | For                                                             |
+| ------ | ------------------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------------------------- |
+| Owned  | ordinary types; `Sending<T>` where it moves                  | moving: copied once, and the sender loses it             | work a thread does alone, and its result                        |
+| Shared | `Shared<T>`, deeply readonly                                 | being frozen: every thread reads its own copy, made once | tables, settings, lookups                                       |
+| Cell   | `struct(...)`, `SharedArray`, `Lock`, `Condition`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
 
 Code inside a thread is plain JavaScript on plain objects, at full speed. The
 cost is at the crossings, and the types say where they are.
@@ -161,7 +146,7 @@ export default {
 
 **2. The page** imports the shared memory first, then runs functions on the pool
 of workers. `main` runs on a worker too, so it may block (join a thread, wait on
-a barrier, receive from a channel); the page only awaits its result.
+a condition, receive from a channel); the page only awaits its result.
 
 ```ts
 // main.ts, the page's entry module
@@ -205,14 +190,14 @@ All from `"@arv/threads"`, unless noted.
 
 **Threads**
 
-|                                             |                                                                                         |
-| ------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.       |
-| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                            |
-| `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.             |
-| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                          |
-| `new Barrier(n)`                            | `wait()` blocks until `n` threads have called it; `waitAsync()` waits without blocking. |
-| `new Slots<T>(n)`                           | One slot per thread to publish a shared value into; everyone reads all slots.           |
+|                                             |                                                                                                                                     |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.                                                   |
+| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                                                                        |
+| `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.                                                         |
+| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                                                                      |
+| `new Lock()`                                | `using _ = lock.hold()` holds it to the end of the block; `await lock.holdAsync()` waits without blocking.                          |
+| `new Condition()`                           | `wait(lock)` releases the lock until another thread calls `notifyOne()` or `notifyAll()`; `waitAsync(lock)` waits without blocking. |
 
 **Goroutines and channels**
 
@@ -224,13 +209,13 @@ All from `"@arv/threads"`, unless noted.
 | `select(...channels)`, `selectAsync(...channels)`                | Waits for the first channel with a value: `[index, value]`.                                                                                      |
 
 **Shared memory**: data many threads read and write in place, with no copying.
-Reads and writes are not ordered between threads: a `Barrier`, a `Channel`,
-joining a thread or an atomic operation orders them.
+Reads and writes are not ordered between threads: a `Lock`, a `Channel`, joining
+a thread or an atomic operation orders them.
 
 |                                                                          |                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `struct({ x: f64, n: i32, done: bool, name: str, next: ref<T>() })`      | A shared struct type; `new S()` makes a zeroed one. `Struct<typeof S>` is its values' type.                                                                                                                                  |
-| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()`                            | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct, a SharedArray or a Channel (or null).                                                                              |
+| `f64`, `i32`, `u8`, `bool`, `str`, `ref<T>()`                            | Field kinds: a number, a 32-bit integer, a byte, a boolean, a string (interned), a reference to a struct, a SharedArray, a Channel, a Lock or a Condition (or null).                                                         |
 | `new SharedArray(Number \| i32 \| u8 \| Boolean \| String \| S, length)` | A fixed-length array of numbers, i32s, bytes, booleans, strings or structs, stored inline.                                                                                                                                   |
 | `atomic.add(s, "field", v)`, `atomic.add(array, i, v)`                   | An atomic operation on an `i32` field or an element of a `SharedArray<i32>`: `load`, `store`, `add`, `sub`, `and`, `or`, `xor`, `exchange`, `compareExchange`, `wait`, `notify`. Compiled, it is that `Atomics` call itself. |
 

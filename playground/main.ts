@@ -157,7 +157,7 @@ ts.typescriptDefaults.setCompilerOptions({
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.NodeJs,
   strict: true,
-  lib: ['es2022', 'dom'],
+  lib: ['es2022', 'esnext.disposable', 'dom'],
   allowNonTsExtensions: true,
   noEmit: true,
 });

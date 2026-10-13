@@ -23,7 +23,7 @@ Every value a thread touches is one of three kinds, and the types say which:
 - **Shared**: `Shared<T>`, deeply immutable, so any number of threads may read
   it at once.
 - **A cell**: shared _and_ mutable, but only through what synchronizes it
-  (`Barrier`, `Slots`, a `Channel`), or in place for shared structs and
+  (`Lock`, `Condition`, a `Channel`), or in place for shared structs and
   SharedArrays, ordered by one of those.
 
 To TypeScript, `Sending<T>` is just `T` and `Shared<T>` is a deeply readonly
@@ -159,7 +159,7 @@ node src/chrome.ts build/ts/tutorial.js --threads=1,2,4
 thread A (its own V8 heap)          SharedArrayBuffer                   thread B (its own V8 heap)
 owned points   -- spawn: copy --->  moved data         -- read ----->   owned points (plain objects)
 share(centers) -- write once ---->  shared values      -- first use ->  frozen copy (plain objects)
-                                    cells: Barrier, Slots, structs  <-> used in place by both
+                                    cells: Lock, Condition, structs <-> used in place by both
 ```
 
 - **The heaps stay separate.** V8 objects cannot cross workers, so each thread

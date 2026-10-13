@@ -150,33 +150,33 @@ objects and their handover, so they replaced it.
 ## Own and shared values
 
 ```js
-import {fns, spawn, share, Barrier, Slots} from './own.ts';
+import {spawn, share} from './own.ts';
 
 const t = spawn(worker, id, slice, board, barrier); // slice moves to the thread; cells pass by reference
 const back = t.join(); // the thread's result moves back
 const snap = share(obj); // obj is deeply frozen now; any thread reads its own copy
-board.set(i, snap);
-barrier.wait(); // cells: the explicit shared, mutable state
+board.set(i, snap); // a SharedMap: a cell, the explicit shared, mutable state
+wait(barrier); // a struct holding a Lock and a Condition: cells too
 slice[0].x; // after the move: throws "own: used after move"
 ```
 
 A moved value is copied into the shared heap once, and the sender's objects are
 revoked. A shared value is written once, and each thread that reads it makes its
-own frozen copy on first use. Cells (`Barrier`, `Slots`, shared structs) live in
-the shared heap and synchronize. The ownership checker proves what `own.ts`
-checks at run time (moved objects unused, shared ones unchanged). The compiler
-emits the function table `spawn` needs (`register`) and lowers shared structs
-(`__sharedStruct`).
+own frozen copy on first use. Cells (shared structs, maps, locks and conditions)
+live in the shared heap and synchronize. The ownership checker proves what
+`own.ts` checks at run time (moved objects unused, shared ones unchanged). The
+compiler emits the function table `spawn` needs (`register`) and lowers shared
+structs (`__sharedStruct`).
 
 ## Plain TypeScript, a bundler plugin and a checker
 
 ```ts
-import { Barrier, f64, scope, SharedArray, struct, type Struct, type Sending, type Shared } from "@arv/threads";
+import { f64, Lock, scope, SharedArray, struct, type Struct, type Sending, type Shared } from "@arv/threads";
 
 const Body = struct({ x: f64, y: f64, vx: f64, vy: f64, m: f64 });   // a shared struct
 type Body = Struct<typeof Body>;
 
-function worker(lo: number, hi: number, bodies: SharedArray<Body>, barrier: Barrier) { ... }
+function worker(lo: number, hi: number, bodies: SharedArray<Body>, lock: Lock) { ... }
 function count(points: Sending<Point[]>, centers: Shared<Point[]>): Sending<number[]> { ... }
 ```
 
@@ -185,7 +185,7 @@ tsc, editors, linters and formatters take programs as they are. `Sending<T>` (to
 TypeScript, just T) marks a value whose ownership moves, `Shared<T>` (deeply
 readonly, so tsc already rejects most writes) a value every thread may read,
 `consume(x)` the end of a variable's life, and the `Cell` interface the shared,
-mutable kinds: Barrier, Slots, Channel, Thread, SharedArray and structs,
+mutable kinds: Lock, Condition, Channel, Thread, SharedArray and structs,
 declared with `struct({...})` (or `struct<I>({...})` with an interface, for a
 struct that refers to itself). Two tools add what the types cannot say:
 

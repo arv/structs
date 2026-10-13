@@ -1,9 +1,19 @@
+import {
+  Condition,
+  i32,
+  Lock,
+  ref,
+  type Shared,
+  SharedMap,
+  struct,
+  type Struct,
+} from '@arv/threads';
 // presets/nbody.js written for own and shared values (own.ts): plain JS, no
 // translation. each thread owns its slice of the bodies (moved in, moved back
 // by join). every step each thread shares a frozen snapshot of its positions;
 // the others read their own copies of it. the board of snapshots and the
 // barrier are the only shared mutable state
-import {fns, spawn, share, Barrier, Slots, log} from '@arv/threads/own';
+import {fns, spawn, share, log} from '@arv/threads/own';
 
 interface Body {
   x: number;
@@ -88,16 +98,50 @@ const energy: (bodies: Body[]) => number = bodies => {
   return e;
 };
 
+// a barrier for n threads, from a Lock and a Condition, as the preset builds
+// its own: wait(b) returns once all n have called it
+const Barrier = struct({
+  n: i32,
+  waiting: i32,
+  round: i32,
+  lock: ref<Lock>(),
+  changed: ref<Condition>(),
+});
+type Barrier = Struct<typeof Barrier>;
+
+const newBarrier = (n: number): Barrier => {
+  const b = new Barrier();
+  b.n = n | 0;
+  b.lock = new Lock();
+  b.changed = new Condition();
+  return b;
+};
+
+const wait = (b: Barrier) => {
+  const lock = b.lock!,
+    changed = b.changed!;
+  using _ = lock.hold();
+  const round = b.round;
+  if (++b.waiting === b.n) {
+    b.waiting = 0;
+    b.round = round + 1;
+    changed.notifyAll();
+  } else while (b.round === round) changed.wait(lock);
+};
+
+// each thread's snapshot of its positions, by its number
+type Board = SharedMap<number, Shared<Pos[]>>;
+
 // a thread: its own slice, the board, and the barrier
-const worker = (t: number, mine: Body[], board: Slots, barrier: Barrier) => {
+const worker = (t: number, mine: Body[], board: Board, barrier: Barrier) => {
   for (let s = 0; s < STEPS; s++) {
     board.set(t, share(mine.map(b => ({x: b.x, y: b.y, z: b.z, m: b.m}))));
-    barrier.wait(); // everyone has shared their positions
+    wait(barrier); // everyone has shared their positions
     const all: Pos[] = [];
-    for (let k = 0; k < board.length; k++)
-      for (const o of board.get(k) as Pos[]) all.push(o);
+    for (let k = 0; k < barrier.n; k++)
+      for (const o of board.get(k)!) all.push(o);
     accelerate(mine, all);
-    barrier.wait(); // everyone has read them, so the board can change
+    wait(barrier); // everyone has read them, so the board can change
     move(mine);
   }
   return mine;
@@ -106,8 +150,8 @@ fns({worker});
 
 const simulate: (threads: number) => number = threads => {
   let bodies = makeBodies();
-  const board = new Slots(threads),
-    barrier = new Barrier(threads);
+  const board: Board = new SharedMap(),
+    barrier = newBarrier(threads);
   const ts = [];
   for (let t = 0; t < threads; t++) {
     const lo = Math.floor((BODIES * t) / threads),
