@@ -401,19 +401,27 @@ export default function threads(options: Options = {}): Plugin {
       }
       return {code, map};
     },
-    // a changed source: compile again and reload the page (its workers hold the
-    // old modules). a changed runtime file restarts the server instead: Vite
-    // would mark the imports of the changed module with ?t=, and a page or
-    // worker that loaded it before would run a second copy of the runtime
-    // (whose threads' output, for one, goes nowhere)
-    handleHotUpdate({file, server}) {
+    // a source changed, appeared or went: the fork compiles the whole project
+    // again, and what any module compiles to may have changed with it (a
+    // struct's layout is in every read of its fields), so every module is
+    // invalidated, in every environment, and the page reloads (its workers
+    // hold the old modules). the hook runs once per environment; the client's,
+    // which runs first, does the work for all. a changed runtime file restarts
+    // the server instead: Vite would mark the imports of the changed module
+    // with ?t=, and a page or worker that loaded it before would run a second
+    // copy of the runtime (whose threads' output, for one, goes nowhere)
+    hotUpdate({file, server}) {
+      if (this.environment.name !== 'client') return [];
       if (file.startsWith(RUNTIME_DIR + path.sep)) {
-        server.restart();
+        void server.restart();
         return [];
       }
       if (!/\.m?ts$/.test(file) || /\.d\.m?ts$/.test(file)) return;
       emit();
-      server.ws.send({type: 'full-reload'});
+      for (const env of Object.values(server.environments)) {
+        env.moduleGraph.invalidateAll();
+        env.hot.send({type: 'full-reload', path: '*'});
+      }
       return [];
     },
   };
