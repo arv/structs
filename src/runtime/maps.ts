@@ -468,9 +468,9 @@ function* loop<T>(
 
 /**
  * A Map in shared memory: the same methods, and the same semantics (see the top
- * of this module). getOrInsert and getOrInsertComputed are Map's from the
- * upsert proposal, and are atomic here: a thread that adds an entry while
- * another looks the key up gets the one entry either way.
+ * of this module). getOrInsert and getOrInsertComputed are Map's, and are
+ * atomic here: a thread that adds an entry while another looks the key up gets
+ * the one entry either way.
  */
 export class SharedMap<K = unknown, V = unknown> {
   declare $cell: number;

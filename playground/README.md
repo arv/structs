@@ -19,7 +19,7 @@ checker needs no fork: it is [src/checker/](../src/checker), on stock TypeScript
 [its README](../README.md#development)).
 
 ```sh
-pnpm install                                               # at the repository's root
+vp install                                                 # at the repository's root
 TSGO=/path/to/threads-checker/built/local/tsgo vp dev      # here, or at the root
 ```
 

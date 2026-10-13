@@ -267,8 +267,8 @@ that sees what is added while it runs and skips what is deleted. Keys and values
 are numbers, strings, booleans, null, undefined, cells (structs, SharedArrays,
 channels, maps), shared values, or plain objects and arrays, which move in and
 are shared. Each call is atomic, and `getOrInsert(key, value)` and
-`getOrInsertComputed(key, f)` (Map's, from the upsert proposal) add a key only
-if it is missing, so threads adding one key get one value:
+`getOrInsertComputed(key, f)` add a key only if it is missing, so threads adding
+one key get one value:
 
 ```ts
 const Count = struct({n: i32});
@@ -308,6 +308,28 @@ of keys is written once per message, strings repeated in a value are written
 once, and ASCII text is stored a byte per character: 23 MB of JSON text crosses
 in about 7 ms.
 
+### Compiled, or with the types only erased
+
+The compiler is what makes shared structs fast. A program also runs with its
+types only erased (Node's type stripping, say; the Vite plugin needs the
+compiler for now), given the one line the compiler would add:
+`__register(import.meta.url, {main, ...})`, imported from @arv/threads, which
+registers its top-level functions so that a thread finds the one it runs. The
+checker reads the source, so it reports the same errors either way, and the
+runtime still throws on a use after move.
+
+What moves and shares plain objects runs at the same speed either way. Shared
+structs and SharedArrays do not: erased, each struct is a handle whose fields
+are accessors, and a SharedArray is a Proxy, so N-body is 50 to 60 times slower:
+
+| ms on 1, 2, 4 and 8 threads           | Compiled          | Types erased        |
+| ------------------------------------- | ----------------- | ------------------- |
+| N-body, 800 bodies in shared structs  | 29, 15, 8, 6      | 1820, 971, 498, 301 |
+| Mandelbrot on goroutines and channels | 712, 341, 180, 97 | 713, 349, 180, 99   |
+
+[The playground](https://arv.github.io/threads/playground/) runs every program
+both ways (Compiled, Types erased).
+
 ## Status
 
 - **The compiler is a fork.** Shared structs and SharedArrays are compiled to
@@ -316,8 +338,8 @@ in about 7 ms.
   [arv/threads-checker](https://github.com/arv/threads-checker), which is not on
   npm: build it with `go build -o built/local/tsgo ./cmd/tsgo`, and the plugin's
   `tsgo` option names the binary. With types only erased, programs still run,
-  and a use after move still throws, but each struct is a handle behind
-  accessors, about 50 times slower.
+  but shared structs are much slower (see
+  [Performance](#compiled-or-with-the-types-only-erased)).
 - **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
   7.1's API.
 - Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
@@ -358,7 +380,7 @@ runs pnpm at the version `packageManager` names. You need Node 22.18 or later
 (24.11 or later on Node 24).
 
 ```sh
-pnpm install                # once, at the root
+vp install                  # once, at the root
 vp dev                      # the playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
 vp run build-wasm           # the compiler the playground's build runs in the browser (needs Go)
 vp build                    # the playground's production build
@@ -372,8 +394,9 @@ vp run -r typecheck         # tsc in every package
 The code is TypeScript, and node runs it as it is, its types stripped. Tests sit
 next to what they test (`*.test.ts`), and run on Vitest.
 
-`vp` is the CLI of the `vite-plus` dev dependency: `pnpm vp <command>`, or plain
-`vp` with Vite+'s [global CLI](https://viteplus.dev/guide/).
+`vp` is Vite+'s [global CLI](https://viteplus.dev/guide/). Without it,
+`pnpm install` installs, and `pnpm vp <command>` runs the rest, with the
+`vite-plus` dev dependency's CLI.
 
 ## License
 
