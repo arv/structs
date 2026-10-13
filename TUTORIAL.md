@@ -10,8 +10,8 @@ run on [threads.ts](src/runtime/threads.ts). The ideas behind it are in
 [README.md](README.md).
 
 You need the fork built (`go build -o built/local/tsgo ./cmd/tsgo` in a clone of
-it), TypeScript, and node 22 or later. To run in Chrome as well, you also need
-`playwright-core`.
+it), TypeScript, and Node 22.18 or later, which runs TypeScript as it is. To run
+in Chrome as well, you also need `playwright-core`.
 
 ## 1. Write the program
 
@@ -38,13 +38,25 @@ function countNearest(
 ): Sending<number[]> {
   const counts = centers.map(() => 0);
   for (const p of points) {
-    /* plain loops over plain objects: find the nearest center */ counts[
-      best
-    ]++;
+    let best = 0,
+      bestDistance = Infinity;
+    for (let c = 0; c < centers.length; c++) {
+      const dx = p.x - centers[c].x,
+        dy = p.y - centers[c].y,
+        d = dx * dx + dy * dy;
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = c;
+      }
+    }
+    counts[best]++;
   }
   return counts;
 }
 ```
+
+Plain loops over plain objects: nothing in it is about threads but its parameter
+and result types.
 
 `main` makes the data and hands it out:
 
@@ -132,7 +144,10 @@ __register(import.meta.url, { randomPoints, countNearest, main });
 ```
 
 The loops are untouched: the compiled `countNearest` is the plain JavaScript you
-would have written.
+would have written. A program run with its types only erased, by Node's type
+stripping say, makes the `register` call itself (README's
+[Performance](README.md#compiled-or-with-the-types-only-erased) says what that
+costs).
 
 ## 4. Run it
 
@@ -186,8 +201,9 @@ what stops it scaling past a few threads.
 
 ## Limits
 
-- **No collector for what crosses.** Moved and shared data in the
-  SharedArrayBuffer is never freed.
+- **Shared values are never freed.** A moved value is freed once it is read, and
+  structs, SharedArrays, maps and strings are reference counted
+  ([REFCOUNT.md](REFCOUNT.md)), but what `share` writes stays.
 - **A value captured by a closure can't be moved out of it,** even one received
   as `Sending`. Create it inside, as `main` does in the `scope` callback.
 - **Arrays of owned values** are split with the trusted `partition` and `take`.

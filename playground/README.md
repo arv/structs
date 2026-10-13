@@ -7,7 +7,11 @@ the limits are in [the README](../README.md).
 
 > Written iterating with Claude Code (Claude Opus 5.5).
 
-## Try it
+It runs at
+[arv.github.io/threads/playground](https://arv.github.io/threads/playground/),
+compiling in the browser.
+
+## Run it locally
 
 You need Node 22.18 or later (24.11 or later on Node 24), a recent Chrome (or
 another browser with SharedArrayBuffer), and, for the compiled JavaScript, a
@@ -28,8 +32,8 @@ TypeScript's hover types, completions and errors from the threads API, and see:
 
 - the JavaScript the fork compiles it to, with what the compiler added marked;
 - the same program with its types only erased, which still runs;
-- the ownership checker's errors (threads-check's), as squiggles in the editor
-  and in a list;
+- the ownership checker's errors (threads-check's on the dev server, the fork's
+  own check in the browser), as squiggles in the editor and in a list;
 - its output, run on a pool of Web Workers (Run). `main` runs on a worker too,
   started like any other thread, so it may block (`join`, `recv`, a barrier);
   the page itself never blocks, it only awaits `main`'s result.
@@ -47,7 +51,7 @@ compressed), and the page shows its download: Go's WebAssembly is huge.
 
 ```sh
 vp run build-wasm                                          # the compiler, into public/compiler/ (needs Go)
-TSGO=/path/to/threads-checker/built/local/tsgo vp build    # into dist/, for threads.arv.tools/playground/
+TSGO=/path/to/threads-checker/built/local/tsgo vp build    # into dist/, to be served from /playground/
 vp preview                                                 # dist/, at /playground/
 ```
 

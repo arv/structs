@@ -36,7 +36,8 @@ export function main(threads: number) {
 > yourself. See [Status](#status).
 
 Try it in the browser, with the compiled JavaScript side by side:
-[the playground](https://github.com/arv/threads/tree/main/playground).
+[the playground](https://arv.github.io/threads/playground/) (its source is in
+[playground/](playground)).
 
 > **Disclaimer:** this was mostly done iterating with the help of Claude Code
 > (Claude Opus 5.5).
@@ -50,7 +51,7 @@ between heaps. So every value is one of three kinds:
 | ------ | ------------------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------------------------- |
 | Owned  | ordinary types; `Sending<T>` where it moves                  | moving: copied once, and the sender loses it             | work a thread does alone, and its result                        |
 | Shared | `Shared<T>`, deeply readonly                                 | being frozen: every thread reads its own copy, made once | tables, settings, lookups                                       |
-| Cell   | `struct(...)`, `SharedArray`, `Lock`, `Condition`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
+| Cell   | `struct(...)`, `SharedArray`, `SharedMap`, `Lock`, `Channel` | not at all: one copy in shared memory                    | data many threads read and write in place, and what orders them |
 
 Code inside a thread is plain JavaScript on plain objects, at full speed. The
 cost is at the crossings, and the types say where they are.
@@ -124,6 +125,8 @@ npm install @arv/threads
 npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
 ```
 
+Neither is on npm yet; until they are, use this repository.
+
 @arv/threads needs [Vite](https://vite.dev) 8, or [Vite+](https://viteplus.dev),
 which is built on it (with `vite` aliased to Vite+'s core, as this repository's
 pnpm-workspace.yaml does), Node 22.13 or later (Vite+ needs 22.18), and a
@@ -173,7 +176,9 @@ app.ts(23,16): error TS96007: 'order' cannot be sent: it may be referenced by th
 
 **In production**, your server must send
 `Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: require-corp`.
+`Cross-Origin-Embedder-Policy: require-corp`. A host that cannot, such as GitHub
+Pages, can have a service worker add them, as the playground does
+([coi-sw.js](playground/public/coi-sw.js)).
 
 ## API
 
@@ -190,14 +195,15 @@ All from `"@arv/threads"`, unless noted.
 
 **Threads**
 
-|                                             |                                                                                                                                     |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.                                                   |
-| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                                                                        |
-| `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.                                                         |
-| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                                                                      |
-| `new Lock()`                                | `using _ = lock.hold()` holds it to the end of the block; `await lock.holdAsync()` waits without blocking.                          |
-| `new Condition()`                           | `wait(lock)` releases the lock until another thread calls `notifyOne()` or `notifyAll()`; `waitAsync(lock)` waits without blocking. |
+|                                             |                                                                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.                                                                        |
+| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                                                                                             |
+| `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.                                                                              |
+| `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                                                                                           |
+| `register(import.meta.url, {f, ...})`       | Registers a module's top-level functions, so a thread finds the one it runs. The compiler adds it; a program run uncompiled calls it.                    |
+| `new Lock()`                                | `using _ = lock.hold()` holds it to the end of the block; `await lock.holdAsync()` waits without blocking.                                               |
+| `new Condition()`                           | `wait(lock)` releases the lock until another thread calls `notifyOne()` or `notifyAll()`, then holds it again; `waitAsync(lock)` waits without blocking. |
 
 **Goroutines and channels**
 
@@ -233,6 +239,19 @@ function worker(work: Struct<typeof Work>, n: number) {
 }
 ```
 
+A lock makes several reads and writes one step. A struct can hold its own, as it
+holds a channel, and `using` releases it at the end of the block:
+
+```ts
+const Account = struct({balance: f64, deposits: i32, lock: ref<Lock>()});
+
+function deposit(account: Struct<typeof Account>, amount: number) {
+  using _ = account.lock!.hold();
+  account.balance += amount;
+  account.deposits++;
+}
+```
+
 Structs and SharedArrays are reference counted and freed when no thread can
 reach them. A struct that refers to its own type is declared with an interface:
 
@@ -250,8 +269,8 @@ and their semantics: keys compared as SameValueZero (a string by its text, a
 cell or a shared value by identity), iteration in insertion order, and a loop
 that sees what is added while it runs and skips what is deleted. Keys and values
 are numbers, strings, booleans, null, undefined, cells (structs, SharedArrays,
-channels, maps), shared values, or plain objects and arrays, which move in and
-are shared. Each call is atomic, and `getOrInsert(key, value)` and
+maps, channels, locks), shared values, or plain objects and arrays, which move
+in and are shared. Each call is atomic, and `getOrInsert(key, value)` and
 `getOrInsertComputed(key, f)` add a key only if it is missing, so threads adding
 one key get one value:
 
@@ -327,11 +346,12 @@ both ways (Compiled, Types erased).
   [Performance](#compiled-or-with-the-types-only-erased)).
 - **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
   7.1's API.
-- Shared memory is a fixed 256 MB. Structs and SharedArrays are reference
-  counted, but cycles of them leak. Channels are never freed. A moved value (a
-  thread's arguments and result, a channel's message) is freed once it is read;
-  shared values are never freed. Strings are interned, one copy each, and
-  counted: a string goes once no field, element, map or message refers to it.
+- Shared memory is a fixed 256 MB. Structs, SharedArrays and maps are reference
+  counted, but cycles of them leak. Channels, locks and conditions are never
+  freed. A moved value (a thread's arguments and result, a channel's message) is
+  freed once it is read; shared values are never freed. Strings are interned,
+  one copy each, and counted: a string goes once no field, element, map or
+  message refers to it.
 - A thread runs a top-level function: closures do not cross threads.
 - A SharedMap or SharedSet has one lock, which every call takes for a moment:
   threads that change one map all the time wait for each other, so a thread with

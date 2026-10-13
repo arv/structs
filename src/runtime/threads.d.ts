@@ -1,15 +1,16 @@
 // Threads for JavaScript in plain TypeScript: own and shared values, shared
-// structs, and channels.
+// structs, channels, maps, locks and conditions.
 //
 // Code written against these types is ordinary TypeScript: tsc, editors,
 // linters and formatters accept it as it is. Two tools add what the types
 // cannot say:
-//   - the ownership checker (`tsgo own check`, from the tsgo fork) runs in CI
-//     like a linter and proves the rules below: nothing is used after it is
-//     sent, and shared values never change;
-//   - the bundler plugin (vite-plugin-threads.ts) compiles shared structs and
-//     SharedArrays to typed-array accesses on shared memory, counts their
-//     references, and registers the functions threads run.
+//   - the ownership checker (@arv/threads-check, or the tsgo fork's
+//     `tsgo own check`) runs in CI like a linter and proves the rules below:
+//     nothing is used after it is sent, and shared values never change;
+//   - the bundler plugin (@arv/threads/vite) compiles with the tsgo fork:
+//     shared structs and SharedArrays become typed-array accesses on shared
+//     memory, their references are counted, and each module registers the
+//     functions threads run.
 //
 // Every value a thread touches is one of three kinds:
 //   - owned, the default: an ordinary object only one thread can reach.

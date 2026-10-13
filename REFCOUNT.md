@@ -28,7 +28,8 @@ borrowed addresses are not counted.
 A number field is an f64 (`__F64[(p >> 3) + 1 + k]`). A reference field (a
 struct or SharedArray, or either with `| null`) is an i32 address in the low
 half of its slot (`__I32[(p >> 2) + 2 + 2 * k]`), 0 for null. Retaining or
-releasing an element counts its array.
+releasing an element counts its array. A field that holds a Channel, a Lock or a
+Condition is an address too, but uncounted: those last as long as the program.
 
 ## The race, and deferred decrements
 
@@ -66,21 +67,26 @@ with the epoch it last saw at a quiescent point.
 
 ## Runtime (own.ts)
 
-| Function                                   | Does                                                                                                                                                                         |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__sharedStruct(name, fields, refs)`       | `refs`: the indexes of the reference fields                                                                                                                                  |
-| `__newStruct(T)`, `__newSharedArray(T, n)` | a zeroed block with count 1, owned by the caller                                                                                                                             |
-| `__retain(p)`                              | +1, returns p; nothing for 0                                                                                                                                                 |
-| `__release(p)`                             | −1, frees at 0 and releases its reference fields; nothing for 0                                                                                                              |
-| `__store(i, v)`                            | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v                                                                          |
-| `__storeStr(i, s)`                         | a string field's or element's store at i32 index i: counts s's interned string, defers the old one's decrement, returns s                                                    |
-| `__ref(v)`                                 | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
-| `__moved(v)`                               | a counted result that a callback returns to the runtime (a SharedMap's getOrInsertComputed's): it carries its count already                                                  |
-| `__quiescent()`                            | a quiescent point                                                                                                                                                            |
-| `__box(p)`                                 | this thread's handle for p, which holds a count of its own; a FinalizationRegistry releases it when the handle is collected                                                  |
-| `__unbox(v)`                               | the handle's address, borrowed                                                                                                                                               |
-| `__hold(fn, ...ps)`                        | retains each address for a closure that captures them; released when the closure is collected                                                                                |
-| `__heapStats()`                            | heap bytes in use, blocks allocated and freed, decrements pending                                                                                                            |
+The runtime exports these from `@arv/threads`; compiled code imports each under
+the same name with two leading underscores (`retain as __retain`), so that none
+clashes with the program's own names, and the rules below quote it that way.
+
+| Function                                  | Does                                                                                                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sharedStruct(name, fields, refs, kinds)` | `refs`: the indexes of the reference fields; `kinds`: a letter per field (`f` f64, `i` i32, `u` u8, `b` bool, `s` str, `r` reference, `c` channel, lock or condition)        |
+| `newStruct(T)`, `newSharedArray(T, n)`    | a zeroed block with count 1, owned by the caller                                                                                                                             |
+| `retain(p)`                               | +1, returns p; nothing for 0                                                                                                                                                 |
+| `release(p)`                              | −1, frees at 0 and releases its reference fields; nothing for 0                                                                                                              |
+| `store(i, v)`                             | a reference store at i32 index i: takes over v's count, defers the old value's decrement, returns v                                                                          |
+| `storeStr(i, s)`, `strAt(p)`              | a string field's or element's store at i32 index i: counts s's interned string, defers the old one's decrement, returns s; the string at address p                           |
+| `countedRef(v)`                           | a counted argument to `spawn`, `go` or a channel's `send`: retains v for the thread, which releases it when its function returns, or for the message, whose receiver owns it |
+| `moved(v)`                                | a counted result that a callback returns to the runtime (a SharedMap's getOrInsertComputed's): it carries its count already                                                  |
+| `quiescent()`                             | a quiescent point                                                                                                                                                            |
+| `box(p)`                                  | this thread's handle for p, which holds a count of its own; a FinalizationRegistry releases it when the handle is collected                                                  |
+| `unbox(v)`, `cellAddress(v)`              | the handle's address, borrowed; a lasting cell's (a channel's, a lock's, a condition's) address, or 0 for null                                                               |
+| `capture(fn, ...ps)`                      | retains each address for a closure that captures them; released when the closure is collected                                                                                |
+| `F64`, `I32`, `U8`, `outOfBounds`         | the shared heap's views, which field and element accesses index; what an index out of range reads (it throws)                                                                |
+| `heapStats()`                             | heap bytes in use, blocks allocated and freed, decrements pending                                                                                                            |
 
 Freed blocks go to free lists by size (a per-thread cache over global lists),
 and allocation takes from them before bumping. Large blocks are reused only at
@@ -126,10 +132,10 @@ Rules:
 6. **Field reads.** `e.f` is `__I32[(e >> 2) + 2 + 2k]`.
 7. **Threads, channels and maps.** A counted argument to a `Sending<T>`
    parameter of a declared function (`spawn`, `s.spawn`, `go`, a channel's
-   `send`, a SharedMap's `set`) is passed as `__ref(E)`. A channel's `send` also
-   moves it: using the variable, or a local alias of it, afterwards is an error.
-   A rest parameter shares it instead: a thread's arguments, so one SharedArray
-   can go to every thread, and a SharedMap's or SharedSet's entry
+   `send`, a SharedMap's `set`) is passed as `__countedRef(E)`. A channel's
+   `send` also moves it: using the variable, or a local alias of it, afterwards
+   is an error. A rest parameter shares it instead: a thread's arguments, so one
+   SharedArray can go to every thread, and a SharedMap's or SharedSet's entry
    (`set(...entry)`), so a struct stays the caller's. A callback whose type in
    the runtime has a `Sending` result (getOrInsertComputed's) returns a counted
    value as `__moved(E)`, with its count. A map or set holds a count on each
@@ -138,8 +144,10 @@ Rules:
    releases it at the end of the iteration. `select` over channels of counted
    values is rejected: nothing could count the values in the tuple it returns.
 8. **Closures.** A closure that captures counted variables is wrapped:
-   `__hold(fn, x, y)`. A counted variable captured by a closure cannot be
-   reassigned.
+   `__capture(fn, x, y)`. A counted variable captured by a closure cannot be
+   reassigned. Registering the closure costs (see Limits), so the runtime's API
+   avoids callbacks where it can: `Lock.hold()` returns a Disposable for `using`
+   rather than taking a function.
 9. **null.** In raw positions null and undefined are 0, and `x === null` is
    `x === 0`.
 10. **Quiescent points in loops.** A loop whose body reads or stores a reference
@@ -156,15 +164,15 @@ Rules:
     `__storeStr(i, s)`, which does nothing to the counts when the field holds s
     already), a map's key or value, and a message, which counts its strings and
     its objects' keys and gives them back once it is read (a shared value keeps
-    them). Compiled code reads a string field as a JS string (`__str(__I32[i])`)
-    and holds no string's address beyond a runtime call, so a string's decrement
-    need not wait for a quiescent point. A string whose count reaches 0 leaves
-    the table at once, so no lookup finds it again, and its block is freed a
-    grace period later: a lookup on another thread may have found it just
-    before. Each string has a serial, so that a thread's caches (string to
-    address, address to string) never take a reused address for the string that
-    left it. The runtime's own strings (struct layouts, the message for a full
-    heap) are pinned and stay.
+    them). Compiled code reads a string field as a JS string
+    (`__strAt(__I32[i])`) and holds no string's address beyond a runtime call,
+    so a string's decrement need not wait for a quiescent point. A string whose
+    count reaches 0 leaves the table at once, so no lookup finds it again, and
+    its block is freed a grace period later: a lookup on another thread may have
+    found it just before. Each string has a serial, so that a thread's caches
+    (string to address, address to string) never take a reused address for the
+    string that left it. The runtime's own strings (struct layouts, the message
+    for a full heap) are pinned and stay.
 
 ## Limits
 
@@ -174,12 +182,13 @@ Rules:
 - **Handles and closures are released late, or not at all in node.** A
   FinalizationRegistry runs only after V8 collects the handle, and only when the
   worker's event loop gets a turn: a pool worker that has handles to finalize
-  waits for work asynchronously. A WeakRef keeps its target alive until the end
-  of the task that made it, so handles made in a long thread outlive it into
-  V8's old generation. Chrome's workers collect those: 200,000 handle-held nodes
-  were freed within a second of the thread ending. Node's idle workers run no
-  major GC, so there they stay. Compiled code counts with no handles; handles
-  are only for `any`, `unknown` and uncompiled code.
+  gives it one after each thread, and every 50 ms while idle. A WeakRef keeps
+  its target alive until the end of the task that made it, so handles made in a
+  long thread outlive it into V8's old generation. Chrome's workers collect
+  those: 200,000 handle-held nodes were freed within a second of the thread
+  ending. Node's idle workers run no major GC, so there they stay. Compiled code
+  counts with no handles; handles are only for `any`, `unknown` and uncompiled
+  code.
 - **Exceptions.** `finally` releases owned locals; owned temporaries in a
   statement that throws leak.
 - **Races are the program's to avoid.** A channel's `send` moves a value, but
