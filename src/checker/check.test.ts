@@ -16,6 +16,12 @@ afterAll(() => api.close());
 const lines = (text: string) => text.split('\n').filter(l => l !== '');
 
 describe('threads-check', () => {
+  it('refuses a runtime no file imports: a mistyped --runtime', () => {
+    expect(() =>
+      check(join(cases, 'channels/tsconfig.json'), {runtime: 'thread', api}),
+    ).toThrow(/no file of the project imports the runtime as 'thread'/);
+  });
+
   for (const name of readdirSync(cases).sort()) {
     it(`reports what the fork does on ${name}`, () => {
       const dir = join(cases, name);

@@ -112,6 +112,12 @@ function checkProgram(
   }
 
   const checked = files.filter(f => !f.isDeclarationFile);
+  // nothing imports the runtime by that name: the check would find nothing,
+  // and pass. a mistyped --runtime, most likely, which must not pass
+  if (checked.length !== 0 && runtimeFiles.size === 0)
+    throw new CheckError(
+      `no file of the project imports the runtime as '${runtime}', so there is nothing to check: --runtime names the module the programs import it from (@arv/threads, say)`,
+    );
   const c = new Own(host, runtime, [...runtimeFiles.values()], checked);
   // (The fork runs these checks after checking each file; the API's checker
   // answers questions in the order they are asked, and its diagnostics come
