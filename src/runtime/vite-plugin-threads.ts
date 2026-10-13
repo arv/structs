@@ -33,7 +33,7 @@ import {stripTypeScriptTypes} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
-import {searchForWorkspaceRoot, type Plugin} from 'vite-plus';
+import {searchForWorkspaceRoot, type Plugin} from 'vite';
 import {
   diagnostics,
   helpersOf,

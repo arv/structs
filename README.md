@@ -136,10 +136,12 @@ for (let k = 0; k < 10_000; k++) go(request, replica, (k % 1000) + 1, answers); 
 
 ```sh
 npm install @arv/threads
-npm install --save-dev @arv/threads-check   # the ownership checker
+npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
 ```
 
-@arv/threads needs [Vite](https://vite.dev) 7, Node 22.13 or later, and a
+@arv/threads needs [Vite](https://vite.dev) 8, or [Vite+](https://viteplus.dev),
+which is built on it (with `vite` aliased to Vite+'s core, as this repository's
+pnpm-workspace.yaml does), Node 22.13 or later (Vite+ needs 22.18), and a
 browser with `SharedArrayBuffer`.
 
 ## Set up

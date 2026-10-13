@@ -12,6 +12,7 @@
     "@types/node": "catalog:",
     "playwright-core": "^1.64.0",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vite-plus": "catalog:"
   },
   "packageManager": "pnpm@12.11.2"
