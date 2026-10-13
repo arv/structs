@@ -486,12 +486,19 @@ const remember = (s: string, a: number) => {
   addrStr.set(a, [s, serial]);
   strAddr.set(s, [a, serial]);
 };
-// the address of s, if this thread knows it and its block is still s
+// the address of s, if this thread knows it, its block is still s, and the
+// string is alive: one that died (count 0, DEAD) is still s until its block is
+// retired, and must not be found, since another thread may have interned s
+// again at another address, which a map's lookup would then miss
 function known(s: string) {
   const k = strAddr.get(s);
   if (k === undefined) return 0;
   const a = k[0];
-  return I32[a >> 2] === K_STR && I32[(a >> 2) + 5] === k[1] ? a : 0;
+  return I32[a >> 2] === K_STR &&
+    I32[(a >> 2) + 5] === k[1] &&
+    Atomics.load(I32, (a >> 2) + 1) > 0
+    ? a
+    : 0;
 }
 const strHash: (s: string) => number = s => {
   let h = 0x811c9dc5;
@@ -618,20 +625,18 @@ export const $intern = (s: string) => intern(s, PIN);
 export const $internRef = (s: string) => (s === '' ? 0 : intern(s, 1));
 // another count on string a, if it is alive
 export const $retainString = (a: number) => strCount(a, 1);
-// the address of s if any thread has interned it, else 0: a lookup that adds
-// nothing, and counts nothing
+// the address of s if any thread has interned it and it is alive, else 0: a
+// lookup that adds nothing, and counts nothing. a string the table still has
+// may have died a moment ago (its count DEAD, its slot about to leave)
 export function $internFind(s: string) {
   const a = known(s);
   if (a !== 0) return a;
   const f = strFind(Atomics.load(I32, C_STR_TABLE), s, strHash(s));
-  return f > 0 ? f : 0;
+  return f > 0 && Atomics.load(I32, (f >> 2) + 1) > 0 ? f : 0;
 }
 // the address of s if this thread has interned or read it already and it is
 // alive, else 0: a lookup, no hashing
-export const $internedHere: (s: string) => number = s => {
-  const a = known(s);
-  return a !== 0 && Atomics.load(I32, (a >> 2) + 1) > 0 ? a : 0;
-};
+export const $internedHere: (s: string) => number = known;
 export function $str(a: number) {
   const k = addrStr.get(a);
   if (k !== undefined && k[1] === I32[(a >> 2) + 5]) return k[0];
