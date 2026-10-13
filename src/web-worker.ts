@@ -1,4 +1,4 @@
-// a Web Worker: the program's main thread, or a pool worker that runs Threads
+// a Web Worker: the program's main thread, or a pool worker that runs threads
 // (see page.ts). worker.ts is the same for node
 import type {WorkerData} from './worker.ts';
 

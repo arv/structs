@@ -1,8 +1,9 @@
 // the browser coordinator: makes the shared heap, starts a pool of Web Workers
 // and the program's main worker, and grows the pool on demand. the page itself
 // never blocks (it cannot: Atomics.wait is not allowed on a page's main
-// thread). index.html?program=nbody&threads=1,2,4,8 loads build/<program>.js,
-// which chrome.ts expands from <program>.js
+// thread). index.html?program=src/nbody-own.ts&threads=1,2,4,8 loads the
+// program by its path in the repository (chrome.ts's server points its imports
+// of the runtime at src/runtime/)
 import {initShared, shutdown, counters} from './runtime/runtime.ts';
 import type {WorkerData, WorkerMessage} from './worker.ts';
 
@@ -20,7 +21,7 @@ declare global {
 }
 
 const params = new URLSearchParams(location.search);
-const program = params.get('program') ?? 'nbody';
+const program = params.get('program') ?? 'src/nbody-own.ts';
 const threads = (params.get('threads') ?? '1,2,4,8').split(',').map(Number);
 const pool = Number(params.get('pool') ?? navigator.hardwareConcurrency ?? 8);
 const out = document.getElementById('out')!;
@@ -58,7 +59,7 @@ const start: (role: WorkerData['role']) => void = role => {
   w.onerror = e => finish(false, e.message);
   w.postMessage({
     sab,
-    program: new URL(`../build/${program}.js`, import.meta.url).href,
+    program: new URL(`../${program}`, import.meta.url).href,
     opts: {check: params.has('check')},
     role,
     threads,

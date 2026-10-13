@@ -16,8 +16,8 @@
     "lib": ["es2024", "dom"],
     "types": ["node"],
     "skipLibCheck": true,
-    // the runtime's API, and its modules, which the hand-written programs
-    // import (expand.ts points them at the runtime's directory)
+    // the runtime's API, and its modules, which the programs import (run.ts
+    // and chrome.ts point them at the runtime's directory: see program.ts)
     "paths": {
       "@arv/threads": ["./src/runtime/threads.d.ts"],
       "@arv/threads/own": ["./src/runtime/own.ts"],

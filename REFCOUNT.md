@@ -163,8 +163,8 @@ Rules:
     grace period later: a lookup on another thread may have found it just
     before. Each string has a serial, so that a thread's caches (string to
     address, address to string) never take a reused address for the string that
-    left it. The runtime's own strings (the publish-on-escape heap's keys,
-    struct layouts) are pinned and stay.
+    left it. The runtime's own strings (struct layouts, the message for a full
+    heap) are pinned and stay.
 
 ## Limits
 

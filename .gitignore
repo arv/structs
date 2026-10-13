@@ -1,5 +1,4 @@
-# programs expanded for the browser (node src/chrome.ts), and the tsgo fork's
-# emit (build/ts)
+# the tsgo fork's emit (build/ts), and bench.ts's work (build/bench)
 /build
 # the playground's production build (vp build)
 /playground/dist

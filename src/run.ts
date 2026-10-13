@@ -1,28 +1,21 @@
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-// runs a hand-translated program on worker threads sharing one
-// SharedArrayBuffer heap
+// runs a program on worker threads sharing one SharedArrayBuffer heap
 //   node src/run.ts <program> [options]
-//   <program>: a program in this directory by name (mandelbrot, nbody,
-//   nbody-own...), or the path of a module, such as one the tsgo fork emitted
+//   <program>: a program in this directory by name (nbody-own, nbody-cells...),
+//   or the path of a module, such as one the tsgo fork emitted
 //   (build/ts/nbody-ts.js)
 //   --threads=1,2,4,8   the thread counts the program runs its work with
-//   --atomic-poll       clean points poll with Atomics.load instead of a plain
-//                       load
 //   --stats             print the runtime's counters (to stderr) at exit
 //   --heap=MiB          shared heap size (default 512)
 //   --pool=N            workers started up front (default 8; more start on
 //                       demand)
-//   --check             verify every boxed value word right after storing it,
-//                       poison freed blocks
-//   --keep              keep the expanded program (its path goes to stderr)
+//   --check             poison freed blocks
 // node's main thread only coordinates, as the playground's page does: the
 // program's main runs in a worker, so it may block, and the pool can still grow
 // while it does
 import {Worker} from 'node:worker_threads';
-import {expand} from './expand.ts';
+import {findProgram} from './program.ts';
 import {initShared, shutdown, counters} from './runtime/runtime.ts';
 import type {WorkerData} from './worker.ts';
 
@@ -34,37 +27,17 @@ const flag: (n: string) => boolean = n => args.includes(`--${n}`);
 const name = args.find(a => !a.startsWith('--'));
 if (!name) {
   console.error(
-    'usage: node src/run.ts <mandelbrot|nbody> [--threads=1,2,4,8] [--atomic-poll] [--stats]',
+    'usage: node src/run.ts <program> [--threads=1,2,4,8] [--stats]',
   );
   process.exit(1);
 }
-
-// a program by path, or one here by name: TypeScript, or a hand translation
-const src =
-  /\.[jt]s$/.test(name) && fs.existsSync(path.resolve(name))
-    ? path.resolve(name)
-    : (['.ts', '.js']
-        .map(ext => path.resolve(here, `${name}${ext}`))
-        .find(f => fs.existsSync(f)) ?? path.resolve(here, `${name}.js`));
-const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-'));
-// the expanded program is a module (node strips a .ts one's types)
-fs.writeFileSync(path.join(outDir, 'package.json'), '{ "type": "module" }\n');
-const out = path.join(outDir, path.basename(src));
-fs.writeFileSync(
-  out,
-  expand(fs.readFileSync(src, 'utf8'), {
-    atomicPoll: flag('atomic-poll'),
-    runtime: pathToFileURL(path.join(here, 'runtime', 'runtime.ts')).href,
-  }),
-);
-if (flag('keep')) console.error(`expanded: ${out}`);
 
 const sab = new SharedArrayBuffer(Number(opt('heap', 512)) << 20);
 initShared(sab);
 
 const data = {
   sab,
-  program: pathToFileURL(out).href,
+  program: pathToFileURL(findProgram(name)).href,
   opts: {check: flag('check')},
   threads: opt('threads', '1,2,4,8').split(',').map(Number),
 } satisfies Omit<WorkerData, 'role'>;
@@ -76,7 +49,6 @@ const finish: (code: number) => void = code => {
   shutdown(sab);
   if (flag('stats')) console.error(JSON.stringify(counters(sab)));
   for (const w of workers) void w.terminate();
-  if (!flag('keep')) fs.rmSync(outDir, {recursive: true, force: true});
   process.exitCode = code;
 };
 const start: (role: WorkerData['role']) => void = role => {

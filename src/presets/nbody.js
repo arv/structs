@@ -1,8 +1,7 @@
 // the original program, as Porffor's threads playground has it
 // (github.com/arv/porffor, branch arv/shared-everything-threads,
 // threads/playground/presets/3-nbody.js). Thread, Lock and Condition are
-// Porffor's. ../nbody.js translates it by hand, and bench.ts and overhead.ts
-// measure against it
+// Porffor's. bench.ts runs it on plain V8, one thread, as a baseline
 
 // N-body gravity: every body is a plain JS object in one shared array. Each
 // thread moves its own slice of the bodies but reads every body's position, and

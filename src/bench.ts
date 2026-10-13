@@ -1,13 +1,9 @@
 // compares the versions of the presets (presets/) with each other and with
 // plain V8
 //   node src/bench.ts [--runs=5] [--programs=mandelbrot,nbody]
-//     [--only=js-node,...]
+//     [--only=own-node,...]
 // configurations (each a fresh process or browser per run; the median of
-// --runs):
-//   js-node     the hand translation on node worker_threads
-//   js-chrome   the hand translation on Web Workers, in Chrome
-//   js-apoll    js-node with clean points polling by Atomics.load, not a plain
-//               load
+// --runs), those whose program exists:
 //   own-node    the program written for own and shared values
 //               (<program>-own.ts), on node
 //   own-chrome  the same, on Web Workers in Chrome
@@ -41,7 +37,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {runInChrome, expandForChrome} from './chrome.ts';
+import {runInChrome, pageProgram} from './chrome.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..'); // what is built goes in its build/
@@ -83,44 +79,6 @@ for (const p of programs) {
     throw new Error(`${p}: cannot find its thread counts`);
 
   const configs: Record<string, () => string | Promise<string>> = {};
-  if (want('js-node'))
-    configs['js-node'] = () =>
-      node(path.join(here, 'run.ts'), p, `--threads=${COUNTS.join(',')}`);
-  if (want('js-apoll'))
-    configs['js-apoll'] = () =>
-      node(
-        path.join(here, 'run.ts'),
-        p,
-        `--threads=${COUNTS.join(',')}`,
-        '--atomic-poll',
-      );
-  if (want('js-chrome'))
-    configs['js-chrome'] = async () => {
-      expandForChrome(p);
-      const r = await runInChrome({
-        query: {program: p, threads: COUNTS.join(',')},
-      });
-      if (!r.ok) throw new Error(`js-chrome ${p}: ${r.error}`);
-      return r.output;
-    };
-  if (fs.existsSync(path.join(here, `${p}-own.ts`))) {
-    if (want('own-node'))
-      configs['own-node'] = () =>
-        node(
-          path.join(here, 'run.ts'),
-          `${p}-own`,
-          `--threads=${COUNTS.join(',')}`,
-        );
-    if (want('own-chrome'))
-      configs['own-chrome'] = async () => {
-        expandForChrome(`${p}-own`);
-        const r = await runInChrome({
-          query: {program: `${p}-own`, threads: COUNTS.join(',')},
-        });
-        if (!r.ok) throw new Error(`own-chrome ${p}: ${r.error}`);
-        return r.output;
-      };
-  }
   // a module run on node and in Chrome, as configs <name>-node and
   // <name>-chrome
   const both = (name: string, file: string) => {
@@ -131,12 +89,13 @@ for (const p of programs) {
     if (want(`${name}-chrome`))
       configs[`${name}-chrome`] = async () => {
         const r = await runInChrome({
-          query: {program: expandForChrome(file), threads: COUNTS.join(',')},
+          query: {program: pageProgram(file), threads: COUNTS.join(',')},
         });
         if (!r.ok) throw new Error(`${name}-chrome ${p}: ${r.error}`);
         return r.output;
       };
   };
+  both('own', path.join(here, `${p}-own.ts`));
   both('ts', path.join(repo, 'build', 'ts', `${p}-ts.js`));
   both('cells', path.join(here, `${p}-cells.ts`));
   both('struct', path.join(repo, 'build', 'ts', `${p}-struct.js`));

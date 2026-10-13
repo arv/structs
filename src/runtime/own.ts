@@ -7,12 +7,11 @@
 //   shared   immutable: share(v) deep-freezes v and writes it into the shared
 //            heap once. a thread it reaches makes its own frozen copy on first
 //            use, then reads plain objects
-//   a cell   shared and mutable, explicitly: Lock, Condition (runtime.ts),
-//            Barrier, Slots. their state lives in the shared heap and they
-//            synchronize
+//   a cell   shared and mutable, explicitly: a struct, a SharedArray, a
+//            channel, a map, a Barrier, Slots. their state lives in the shared
+//            heap
 // ordinary code reads and writes ordinary objects: nothing per access,
 // everything at the crossings
-import type {Handle} from './runtime.ts';
 import {
   $alloc,
   $checking,
@@ -21,9 +20,7 @@ import {
   $intern,
   $internedHere,
   $str,
-  $h,
   $log,
-  ADDR,
   K_THREAD,
   spawnThread,
   threadJoin,
@@ -75,8 +72,8 @@ export {$log as log};
 // TextEncoder.encodeInto (into this thread's buffer: it takes no view of shared
 // memory). a string this thread has interned (a `str` field's) or read from the
 // string table already is not copied at all: it is the address of its one copy
-// there (T_ISTR). nothing else is added to the string table, whose strings are
-// never freed: a channel message is freed whole once it is read
+// there (T_ISTR), with a count the message holds until it is freed. nothing
+// else is added to the string table: a message is freed whole once it is read
 const BOX = 0xfff80000 | 0;
 // a string body's flags: ASCII, and from the string's second occurrence on, 1 +
 // its number among the blob's repeated strings << 2, by which a reader keeps it
@@ -179,10 +176,9 @@ const REVOKED = new Proxy(Object.create(null), {
   },
 });
 
-// a value put writes. of an object it reads a cell's address too ($cell, or a
-// runtime.ts handle's)
+// a value put writes. of an object it reads a cell's address too ($cell)
 type Sent =
-  | {$cell?: number; [ADDR]?: number; [key: string]: Sent}
+  | {$cell?: number; [key: string]: Sent}
   | string
   | number
   | boolean
@@ -291,8 +287,6 @@ function put(
       __retain(v.$cell);
       return box(at, freeze ? T_CELL : T_CELL_COUNTED, v.$cell);
     }
-    // a runtime.ts Lock or Condition
-    if (v[ADDR] !== undefined) return box(at, T_CELL, v[ADDR]);
     if (!Array.isArray(v))
       throw new TypeError('own: only plain objects and arrays can be sent');
   }
@@ -582,9 +576,8 @@ const destroys = new Map<number, Destroy>([[K_STR, b => $stringDying(b)]]);
 // structs, SharedArrays and those (REFCOUNT.md)
 const counted: (kind: number) => boolean = kind =>
   kind === K_SHARED_ARRAY || kind >= 100 || destroys.has(kind);
-// a cell's object in this thread; a Lock's or a Condition's is runtime.ts's
-// handle ($h)
-type CellValue = CellObject | Handle | Int32Array;
+// a cell's object in this thread
+type CellValue = CellObject | Int32Array;
 // address -> this thread's cell object. a struct's or SharedArray's handle
 // holds a count of its own and is held weakly: when V8 collects it, the
 // registry gives the count back
@@ -611,11 +604,9 @@ function cell(a: number) {
       c = new Float64Array(SAB!, a + 16, I32[(a >> 2) + 1]) as F64Cell;
       c.$cell = a;
     } else if (kind === K_SHARED_ARRAY) c = sharedArrayHandle(a);
-    else
-      // Lock, Condition
-      c = Cls
-        ? Object.assign(Object.create(Cls.prototype) as object, {$cell: a})
-        : $h(a);
+    else if (Cls !== undefined)
+      c = Object.assign(Object.create(Cls.prototype) as object, {$cell: a});
+    else throw new TypeError(`own: no cell of kind ${kind}`);
     if (counted(kind)) {
       holdFor(c, a);
       cells.set(a, new WeakRef(c));
@@ -1360,10 +1351,7 @@ class Thread<R = unknown> {
     this.joined = true;
     $quiescent();
     try {
-      return __unmessage<R>(
-        threadJoin<number>(this.t),
-        I32[(this.t + 20) >> 2],
-      );
+      return __unmessage<R>(threadJoin(this.t), I32[(this.t + 20) >> 2]);
     } finally {
       $freeBlock(this.t, 32);
     }
@@ -1377,7 +1365,7 @@ class Thread<R = unknown> {
     this.joined = true;
     $quiescent();
     try {
-      const a = await threadJoinAsync<number>(this.t);
+      const a = await threadJoinAsync(this.t);
       $resumed();
       return __unmessage<R>(a, I32[(this.t + 20) >> 2]);
     } finally {

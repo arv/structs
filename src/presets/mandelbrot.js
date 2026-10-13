@@ -1,8 +1,7 @@
 // the original program, as Porffor's threads playground has it
 // (github.com/arv/porffor, branch arv/shared-everything-threads,
 // threads/playground/presets/2-mandelbrot.js). Thread, Lock and Condition are
-// Porffor's. ../mandelbrot.js translates it by hand, and bench.ts and
-// overhead.ts measure against it
+// Porffor's. bench.ts runs it on plain V8, one thread, as a baseline
 
 // Mandelbrot: threads take rows from a shared counter and write them into one
 // ordinary JS array, so nothing is copied or posted between them.

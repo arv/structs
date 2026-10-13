@@ -1,7 +1,8 @@
 import fs from 'node:fs';
-// runs a hand-translated program in Chrome (the installed Google Chrome,
-// through Playwright), on real Web Workers sharing one SharedArrayBuffer heap
-//   node src/chrome.ts <mandelbrot|nbody> [options]
+// runs a program in Chrome (the installed Google Chrome, through Playwright),
+// on real Web Workers sharing one SharedArrayBuffer heap
+//   node src/chrome.ts <program> [options]
+//   <program>: as run.ts takes it
 //   --threads=1,2,4,8   the thread counts the program runs its work with
 //   --pool=N            workers started up front (default: the browser's
 //                       hardwareConcurrency)
@@ -10,11 +11,8 @@ import fs from 'node:fs';
 //                       or summarize it with trace-summary.ts
 //   --headed            show the browser window (default: Chrome's headless
 //                       mode)
-//   --atomic-poll       clean points poll with Atomics.load instead of a plain
-//                       load
 //   --stats             print the runtime's counters (to stderr)
-//   --check             verify every boxed value word right after storing it,
-//                       poison freed blocks
+//   --check             poison freed blocks
 // needs playwright-core (a dev dependency of this repository), found
 // normally or through $PLAYWRIGHT_CORE, the path of an install's
 // node_modules/playwright-core
@@ -24,10 +22,10 @@ import type {AddressInfo} from 'node:net';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import type {BrowserType} from 'playwright-core';
-import {expand} from './expand.ts';
+import {findProgram, runtimeModule} from './program.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// the repository: its pages are under src/, what they load is built in build/
+// the repository: its pages are under src/, what the tsgo fork emits in build/
 const repo = path.resolve(here, '..');
 
 const loadChromium = async (): Promise<BrowserType> => {
@@ -42,6 +40,17 @@ const loadChromium = async (): Promise<BrowserType> => {
     : import('playwright-core'));
   return pw.chromium ?? pw.default.chromium; // a CommonJS module, imported
 };
+
+// a module's imports of the runtime (see runtimeModule), as the browser loads
+// them: workers have no import maps
+const runtimeImports: (text: string) => string = text =>
+  text.replace(
+    /(\bfrom\s*|\bimport\s*\(?\s*)(['"])(@arv\/threads[^'"]*)\2/g,
+    (all, before: string, q: string, specifier: string) => {
+      const m = runtimeModule(specifier);
+      return m === null ? all : `${before}${q}/src/runtime/${m}${q}`;
+    },
+  );
 
 // this repository, cross-origin isolated (SharedArrayBuffer needs COOP and
 // COEP)
@@ -70,44 +79,29 @@ const serve = async () => {
       'cross-origin-embedder-policy': 'require-corp',
       'cache-control': 'no-store',
     });
-    // TypeScript as the browser can run it: its types stripped
+    // a module as the browser can run it: a TypeScript one's types stripped
+    const text = fs.readFileSync(file, 'utf8');
     if (file.endsWith('.ts'))
-      res.end(stripTypeScriptTypes(fs.readFileSync(file, 'utf8')));
-    else fs.createReadStream(file).pipe(res);
+      res.end(runtimeImports(stripTypeScriptTypes(text)));
+    else if (file.endsWith('.js')) res.end(runtimeImports(text));
+    else res.end(text);
   });
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
   // listening on a port, so its address is one
   return server as Omit<http.Server, 'address'> & {address(): AddressInfo};
 };
 
-// expands a program for the page: build/<name>.js (build/ is not committed).
-// the program is one in this directory by name, or the path of a module (such
-// as one the tsgo fork emitted); returns the name the page loads it by
-export const expandForChrome: (
-  program: string,
-  options?: {atomicPoll?: boolean},
-) => string = (program, {atomicPoll = false} = {}) => {
-  const file =
-    /\.[jt]s$/.test(program) && fs.existsSync(path.resolve(program))
-      ? path.resolve(program)
-      : (['.ts', '.js']
-          .map(ext => path.join(here, `${program}${ext}`))
-          .find(f => fs.existsSync(f)) ?? path.join(here, `${program}.js`));
-  const name = path.basename(file).replace(/\.[jt]s$/, '');
-  const text = fs.readFileSync(file, 'utf8');
-  fs.mkdirSync(path.join(repo, 'build'), {recursive: true});
-  fs.writeFileSync(
-    path.join(repo, 'build', `${name}.js`),
-    expand(file.endsWith('.ts') ? stripTypeScriptTypes(text) : text, {
-      atomicPoll,
-      runtime: '../src/runtime/runtime.ts',
-    }),
-  );
-  return name;
+// a program as the page takes it: its module's path in this repository
+export const pageProgram: (program: string) => string = program => {
+  const file = findProgram(program);
+  if (!file.startsWith(repo + path.sep))
+    throw new Error(
+      `chrome: ${file} is outside ${repo}, which the page serves`,
+    );
+  return path.relative(repo, file).split(path.sep).join('/');
 };
 
-// runs a program (expanded first, see expandForChrome) on index.html to
-// completion. resolves to { ok, error, output, counters, version }
+// runs a program (see pageProgram) on index.html to completion. resolves to { ok, error, output, counters, version }
 export const runInChrome = async ({
   query = {},
   trace = null,
@@ -168,12 +162,12 @@ if (
   const name = args.find(a => !a.startsWith('--'));
   if (!name) {
     console.error(
-      'usage: node src/chrome.ts <mandelbrot|nbody> [--threads=1,2,4,8] [--trace=file.json] [--headed]',
+      'usage: node src/chrome.ts <program> [--threads=1,2,4,8] [--trace=file.json] [--headed]',
     );
     process.exit(1);
   }
   const query: Record<string, string> = {
-    program: expandForChrome(name, {atomicPoll: flag('atomic-poll')}),
+    program: pageProgram(name),
     threads: opt('threads', '1,2,4,8')!,
   };
   if (opt('pool')) query.pool = opt('pool')!;
