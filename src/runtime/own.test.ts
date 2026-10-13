@@ -195,6 +195,44 @@ describe('reference counts', () => {
     expect(T.heapStats().freed - before.freed).toBe(1);
   });
 
+  it('frees, and boxes, a struct whose type another thread declared', () => {
+    // its type is not declared here (a worker that never loaded its module):
+    // the kind is the address of the layout the declaring thread pinned
+    // (a field's name may hold anything: the layout is JSON)
+    const kind = runtime.$intern(
+      `struct ${JSON.stringify(['Elsewhere', ['v', 'next', 'the name, with a comma'], [1], 'frs'])}`,
+    );
+    const make = () => {
+      const a = runtime.$allocBlock(32); // [kind][count 1] and three fields
+      runtime.I32[a >> 2] = kind;
+      runtime.I32[(a >> 2) + 1] = 1;
+      return a;
+    };
+    const c = make(),
+      d = make();
+    runtime.I32[(c >> 2) + 2 + 2] = d; // c.next = d, taking over d's count
+    own.storeStr((c >> 2) + 2 + 4, 'named elsewhere, unique to this test');
+    const before = T.heapStats().freed;
+    own.release(c); // frees c, and so d
+    expect(T.heapStats().freed - before).toBe(2);
+    own.__collect(); // and the string, a grace period later (with what else waited)
+    expect(T.heapStats().freed - before).toBeGreaterThanOrEqual(3);
+    const e = make(),
+      h = own.box(e) as unknown as {
+        'v': number;
+        'next': object | null;
+        'the name, with a comma': string;
+      };
+    h.v = 1.5;
+    h['the name, with a comma'] = 'boxed';
+    expect([h.v, h.next, h['the name, with a comma']]).toEqual([
+      1.5,
+      null,
+      'boxed',
+    ]);
+    own.release(e); // the handle holds the other count
+  });
+
   it('intern strings: one copy each', () => {
     expect(runtime.$internRef('abc')).toBe(runtime.$internRef('abc'));
     expect(own.strAt(runtime.$internFind('abc'))).toBe('abc');
