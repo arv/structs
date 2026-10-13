@@ -54,7 +54,10 @@ vp preview                                                 # dist/, at /playgrou
 `vp run build-wasm` builds from the clone that `TSGO_FORK` names
 (~/src/arv/threads-checker by default). The build is served from `/playground/`;
 `BASE=/elsewhere/ vp build` serves it from another path. In the dev server,
-`?wasm` compiles in the browser too.
+`?wasm` compiles in the browser too. On every push to main,
+[the Pages workflow](../.github/workflows/pages.yml) builds it all and deploys
+it to GitHub Pages:
+[arv.github.io/threads/playground/](https://arv.github.io/threads/playground/).
 
 SharedArrayBuffer needs a cross-origin isolated page: the COOP and COEP headers,
 which the dev and preview servers send. A host that cannot send them, such as
