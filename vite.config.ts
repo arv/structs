@@ -19,6 +19,7 @@ export default defineConfig({
       // the checker's cases, whose diagnostics are expected at fixed lines and
       // columns
       'src/checker/test/cases/**',
+      'src/checker/test/diverging/**',
       'src/checker/test/expected/**',
     ],
   },
@@ -34,6 +35,7 @@ export default defineConfig({
       // programs wrong on purpose: the checker's cases, and the mistakes it
       // catches
       'src/checker/test/cases/**',
+      'src/checker/test/diverging/**',
       'playground/programs/mistakes.ts',
     ],
   },

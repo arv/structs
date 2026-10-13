@@ -36,3 +36,17 @@ describe('threads-check', () => {
     });
   }
 });
+
+// What threads-check reports and the fork does not, yet (compare.ts compares
+// the two on test/cases alone): programs in test/diverging, each with what it
+// should report
+describe('threads-check, where it differs from the fork', () => {
+  it("reports no blocking call on a Channel that is not the runtime's", () => {
+    const dir = join(checker, 'test/diverging/ambient-channel');
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api}).map(d =>
+        formatDiagnostic(d, dir),
+      ),
+    ).toEqual([]);
+  });
+});

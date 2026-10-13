@@ -14,5 +14,5 @@
     "skipLibCheck": true
   },
   "include": ["*.ts", "test/**/*.ts"],
-  "exclude": ["test/cases"]
+  "exclude": ["test/cases", "test/diverging"]
 }

@@ -30,6 +30,7 @@ import {
   checkStructCall,
   getBlockingCall,
   getCallMarker,
+  getRuntimeExportName,
   isAtomicCallValid,
   isConsumeCall,
 } from './markers.ts';
@@ -158,8 +159,9 @@ function isAmbientHandle(c: Own, handle: NodeHandle | undefined): boolean {
   return !!decl && isAmbientDeclaration(decl);
 }
 
-// The element type of a channel, if t is one: `Channel<T>` (or `ChannelCell<T>`
-// ), declared ambiently.
+// The element type of a channel, if t is one: the runtime's `Channel<T>` (or
+// `ChannelCell<T>`). By the runtime's export, not by name: a class named
+// Channel declared elsewhere is not one (isChannelFieldType does the same).
 export function getChannelElementType(
   c: Own,
   t: Type | undefined,
@@ -171,18 +173,8 @@ export function getChannelElementType(
   )
     return undefined;
   const target = c.host.typeTarget(t);
-  const symbol = target && c.host.typeSymbol(target);
-  if (!symbol || (symbol.name !== 'ChannelCell' && symbol.name !== 'Channel'))
-    return undefined;
-  if (
-    !symbol.declarations.some(
-      d =>
-        (d.kind === K.InterfaceDeclaration || d.kind === K.ClassDeclaration) &&
-        isAmbientHandle(c, d),
-    )
-  ) {
-    return undefined;
-  }
+  const name = getRuntimeExportName(c, target && c.host.typeSymbol(target));
+  if (name !== 'ChannelCell' && name !== 'Channel') return undefined;
   return c.host.typeArguments(t)[0];
 }
 
