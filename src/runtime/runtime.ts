@@ -146,10 +146,18 @@ export function $alloc(bytes: number) {
   return p;
 }
 
-// ---- locks on control words: futex style, 0 free, 1 held, 2 held with waiters
-// ----
+// ---- locks on control words: futex style, 0 free, 1 held, 2 held with waiters.
+// held only for a few loads and stores, so a thread spins a little before it
+// sleeps ----
+const LOCK_SPINS = 1000;
 const mlock: (i: number) => void = i => {
   if (Atomics.compareExchange(I32, i, 0, 1) === 0) return;
+  for (let k = 0; k < LOCK_SPINS; k++)
+    if (
+      Atomics.load(I32, i) === 0 &&
+      Atomics.compareExchange(I32, i, 0, 1) === 0
+    )
+      return;
   while (Atomics.exchange(I32, i, 2) !== 0)
     if (CAN_BLOCK) Atomics.wait(I32, i, 2);
 };
@@ -882,6 +890,8 @@ function endThread(
 // blocking threads, which would stop every async thread on it (a blocking call
 // there throws: $mustNotBlock), until it has had no async thread for LINGER ms
 const DRAFT = -1;
+// ms: how often an idle worker with handles to finalize lets V8 finalize them
+const FINALIZE = 50;
 const HOSTS = Math.max(1, globalThis.navigator?.hardwareConcurrency ?? 8);
 const LINGER = 10,
   // ms: how long a host with no async threads waits for more; between a waiting
@@ -1026,24 +1036,26 @@ export async function poolLoop() {
       continue;
     }
     if (Atomics.load(I32, C_SHUTDOWN)) return;
+    // idle first: a thread queued meanwhile waits for this worker rather than
+    // asking for one more
+    Atomics.add(I32, C_IDLE, 1);
     if (afterTask()) {
       await eventLoopTurn();
       flushCounts();
     }
-    Atomics.add(I32, C_IDLE, 1);
     let p: number;
     for (;;) {
       if (Atomics.load(I32, C_SHUTDOWN)) return;
       p = Atomics.load(I32, C_PENDING);
       if (p === 0) {
         if (afterTask()) {
-          const w = Atomics.waitAsync(I32, C_PENDING, 0, 50);
-          if (w.async) {
-            const alive = keepAlive(60);
-            await w.value;
-            clearTimeout(alive);
+          // V8 finalizes handles only between tasks: block, so that new work
+          // wakes the worker at once, but give the event loop a turn every
+          // FINALIZE ms while idle
+          if (Atomics.wait(I32, C_PENDING, 0, FINALIZE) === 'timed-out') {
+            await eventLoopTurn();
+            flushCounts();
           }
-          flushCounts();
         } else Atomics.wait(I32, C_PENDING, 0);
         continue;
       }

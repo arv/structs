@@ -207,11 +207,13 @@ function unheld(l: number, h: number, how: number) {
 // what a key or value is to the code that passed it: compiled code's __ref(p)
 // is p
 const plain = (v: unknown) => (__isCounted(v) ? (v as {a: number}).a : v);
-// the word at byte address at, as a value of this thread
-function decode(at: number): unknown {
-  const h = I32[(at >> 2) + 1];
-  if ((h & BOX) !== BOX || (h & TAGS) === 0) return F64[at >> 3];
-  const p = I32[at >> 2];
+// a value word, as its f64 and its two i32s, as a value of this thread: a map's
+// methods read the words they return under its lock, and decode them once it
+// is released. decoding a shared value builds this thread's copy of it, which
+// takes a while, and what a word refers to stays until this thread's next
+// quiescent point (REFCOUNT.md)
+function decodeWord(f: number, h: number, p: number): unknown {
+  if ((h & BOX) !== BOX || (h & TAGS) === 0) return f;
   switch ((h & TAGS) >> 11) {
     case T_UNDEF:
       return undefined;
@@ -450,19 +452,23 @@ function* loop<T>(
     const m = h.$cell;
     $lock((m >> 2) + LOCK);
     const e = next(m, w, c);
-    let r: unknown;
-    if (e !== 0)
-      r =
-        what === 0 || w === SET_ENTRY
-          ? what === 2
-            ? [decode(e), decode(e)]
-            : decode(e)
-          : what === 1
-            ? decode(e + 8)
-            : [decode(e), decode(e + 8)];
+    // the key's word and the value's (a set's key twice)
+    const v = e + (w === SET_ENTRY ? 0 : 8),
+      kf = F64[e >> 3],
+      kh = I32[(e >> 2) + 1],
+      kp = I32[e >> 2],
+      vf = F64[v >> 3],
+      vh = I32[(v >> 2) + 1],
+      vp = I32[v >> 2];
     $unlock((m >> 2) + LOCK);
     if (e === 0) return undefined;
-    yield r as T;
+    yield (
+      what === 0
+        ? decodeWord(kf, kh, kp)
+        : what === 1
+          ? decodeWord(vf, vh, vp)
+          : [decodeWord(kf, kh, kp), decodeWord(vf, vh, vp)]
+    ) as T;
   }
 }
 
@@ -490,9 +496,12 @@ export class SharedMap<K = unknown, V = unknown> {
     $lock((m >> 2) + LOCK);
     const t = I32[(m >> 2) + TABLE],
       i = find(t, MAP_ENTRY, l, h),
-      v = i < 0 ? undefined : decode(entriesAt(t) + i * MAP_ENTRY + 8);
+      at = i < 0 ? 0 : entriesAt(t) + i * MAP_ENTRY + 8,
+      wf = F64[at >> 3],
+      wh = I32[(at >> 2) + 1],
+      wp = I32[at >> 2];
     $unlock((m >> 2) + LOCK);
-    return v as V | undefined;
+    return (i < 0 ? undefined : decodeWord(wf, wh, wp)) as V | undefined;
   }
   has(key: K): boolean {
     if (!encode(key, true, false)) return false;
@@ -555,9 +564,11 @@ export class SharedMap<K = unknown, V = unknown> {
       e = append(m, MAP_ENTRY, h, ...counted(l, how, s));
       store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
     }
-    const v = decode(e + 8);
+    const wf = F64[(e + 8) >> 3],
+      wh = I32[((e + 8) >> 2) + 1],
+      wp = I32[(e + 8) >> 2];
     $unlock((m >> 2) + LOCK);
-    return v as V;
+    return decodeWord(wf, wh, wp) as V;
   }
   /**
    * The key's value, after adding `callback(key)` for it if it has none. The
@@ -574,11 +585,14 @@ export class SharedMap<K = unknown, V = unknown> {
       $lock((m >> 2) + LOCK);
       const t = I32[(m >> 2) + TABLE],
         i = find(t, MAP_ENTRY, l, h),
-        v = i < 0 ? undefined : decode(entriesAt(t) + i * MAP_ENTRY + 8);
+        at = i < 0 ? 0 : entriesAt(t) + i * MAP_ENTRY + 8,
+        wf = F64[at >> 3],
+        wh = I32[(at >> 2) + 1],
+        wp = I32[at >> 2];
       $unlock((m >> 2) + LOCK);
       if (i >= 0) {
         unheld(l, h, how);
-        return v as V;
+        return decodeWord(wf, wh, wp) as V;
       }
     }
     return this.getOrInsert(key, callback(plain(key) as K));
