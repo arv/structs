@@ -60,6 +60,12 @@ describe('programs on threads', () => {
     ]);
   });
 
+  it('the ring is recycled under threads that spawn at once', () => {
+    expect(run('ring-recycle', '--threads=1').trim()).toMatch(
+      /^1280 threads through the ring: sum (\d+), expected \1$/,
+    );
+  }, 60_000);
+
   it('reference counting under a race reads no freed memory', () => {
     const out = run('refcount-hand', '--threads=2');
     expect(out).toMatch(/bad reads 0/);

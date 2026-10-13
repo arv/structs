@@ -1516,9 +1516,30 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
   $quiescent();
   // an async function runs on a host, among other async threads: it waits
   // without blocking
-  if (fn instanceof AsyncFunction) spawnAsync(t);
-  else spawnThread(t);
+  try {
+    if (fn instanceof AsyncFunction) spawnAsync(t);
+    else spawnThread(t);
+  } catch (e) {
+    // refused (too many threads waiting): no worker will run it. its
+    // arguments, with the counts the message carries, and its block go
+    discardThread(t);
+    throw e;
+  }
   return t;
+}
+// a thread block no worker will run: its arguments' message is read back and
+// freed, with the counts it carried (as a thread's entry frees them), and the
+// block is freed
+function discardThread(t: number) {
+  const outer = countedInto,
+    mine = (countedInto = []);
+  try {
+    __unmessage(I32[(t + 16) >> 2], I32[(t + 20) >> 2]);
+  } finally {
+    countedInto = outer;
+    for (const p of mine) release(p);
+  }
+  $freeBlock(t, 32);
 }
 
 // structured threads: scope(s => ...) joins every thread s spawned before it
