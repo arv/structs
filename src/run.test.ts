@@ -28,6 +28,14 @@ describe('programs on threads', () => {
     });
   }
 
+  it('an async main runs to its end', () => {
+    expect(run('async-main', '--threads=1,2').trim().split('\n')).toEqual([
+      '1: 1 2',
+      '2: 4 3',
+      'main is done',
+    ]);
+  });
+
   it('reference counting under a race reads no freed memory', () => {
     const out = run('refcount-hand', '--threads=2');
     expect(out).toMatch(/bad reads 0/);

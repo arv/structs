@@ -1064,6 +1064,21 @@ export async function poolLoop() {
     runThread(t);
   }
 }
+// a program's main, on the coordinator's main worker (src/worker.ts,
+// src/web-worker.ts), its thread begun: an async main is awaited, and meanwhile
+// the thread passes a quiescent point every WAKE ms, so that its waits hold up
+// no other thread's frees. it may: when a timer runs, main is suspended at an
+// await, where the compiler leaves no address uncounted (REFCOUNT.md)
+export async function runMain(main: () => unknown) {
+  const r = main();
+  if (!(r instanceof Promise)) return;
+  const tick = setInterval($quiescent, WAKE);
+  try {
+    await r;
+  } finally {
+    clearInterval(tick);
+  }
+}
 // the program's main thread lives until every thread it started has finished
 export function waitAllThreads() {
   let n: number;

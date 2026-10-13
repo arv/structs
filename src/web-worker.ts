@@ -16,10 +16,10 @@ onmessage = async ({data}) => {
       text => postMessage({type: 'out', text}),
     );
     // the program module only defines functions: it runs nothing until main
-    const mod: {main(threads: number[]): void} = await import(program);
+    const mod: {main(threads: number[]): unknown} = await import(program);
     if (role === 'main') {
       R.threadBegin(1);
-      mod.main(threads);
+      await R.runMain(() => mod.main(threads));
       R.waitAllThreads();
       R.threadEnd();
       postMessage({type: 'done'});
