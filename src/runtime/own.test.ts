@@ -33,6 +33,16 @@ describe('moving values', () => {
     expect(move(undefined)).toBeUndefined();
   });
 
+  it('keeps an own "__proto__" key a key', () => {
+    // JSON.parse makes one; in an object literal it would set the prototype
+    const v = JSON.parse('{"__proto__": {"polluted": true}, "x": 1}') as object;
+    const r = move(v) as Record<string, unknown>;
+    expect(Object.hasOwn(r, '__proto__')).toBe(true);
+    expect(r['__proto__']).toEqual({polluted: true});
+    expect(Object.getPrototypeOf(r)).toBe(Object.prototype);
+    expect(r.x).toBe(1);
+  });
+
   it('revokes what the sender moved', () => {
     const v = {a: 1};
     move(v);
