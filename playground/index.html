@@ -98,6 +98,16 @@
         color: var(--muted);
         font-size: 13px;
       }
+      #repo {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+      }
+      #repo:hover {
+        color: var(--accent);
+        text-decoration: underline;
+      }
       #download {
         display: flex;
         align-items: center;
@@ -286,6 +296,9 @@
         Run
       </button>
       <span id="status">Starting the workers…</span>
+      <a id="repo" href="https://github.com/arv/threads"
+        >arv/threads on GitHub</a
+      >
       <div id="download" hidden>
         <progress id="download-bar" max="1" value="0"></progress>
         <span id="download-text"></span>
