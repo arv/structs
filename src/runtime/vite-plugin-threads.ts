@@ -282,7 +282,7 @@ export default function threads(options: Options = {}): Plugin {
         if (entry.isDirectory()) walk(p);
         else if (
           /\.m?js$/.test(entry.name) &&
-          helpersOf(fs.readFileSync(p, 'utf8'), runtime).__register
+          helpersOf(fs.readFileSync(p, 'utf8'), runtime).register
         )
           registering.push(sourceOf(p));
       }

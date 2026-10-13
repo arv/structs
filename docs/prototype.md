@@ -165,7 +165,7 @@ revoked. A shared value is written once, and each thread that reads it makes its
 own frozen copy on first use. Cells (`Barrier`, `Slots`, shared structs) live in
 the shared heap and synchronize. The ownership checker proves what `own.ts`
 checks at run time (moved objects unused, shared ones unchanged). The compiler
-emits the function table `spawn` needs (`__register`) and lowers shared structs
+emits the function table `spawn` needs (`register`) and lowers shared structs
 (`__sharedStruct`).
 
 ## Plain TypeScript, a bundler plugin and a checker

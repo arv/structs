@@ -3,9 +3,10 @@
 // with a compiled program's text. Plain string work: it runs in node and in a
 // browser.
 
-// The runtime helpers the fork's emit imports. It imports them under other
-// names (`__register as __register_1`) where a module declares or uses the name
-// itself, and so does the erased variant.
+// The runtime helpers the fork's emit imports, by the names the runtime exports
+// them as. It imports them under other names where a module declares or uses
+// the name itself (`__F64 as __F64_1`), and `register`, the one that is part of
+// the API, always (`register as __register`).
 export const HELPERS = new Set([
   '__F64',
   '__I32',
@@ -19,7 +20,6 @@ export const HELPERS = new Set([
   '__newStruct',
   '__quiescent',
   '__ref',
-  '__register',
   '__release',
   '__retain',
   '__sharedStruct',
@@ -27,6 +27,7 @@ export const HELPERS = new Set([
   '__storeStr',
   '__str',
   '__unbox',
+  'register',
 ]);
 
 // The local names of the helpers that compiled code imports from `runtime` :
@@ -56,10 +57,10 @@ export function uniqueName(source: string, name: string) {
 }
 
 // Code that registers its functions (`__register(import.meta.url, { ... })`,
-// its last statement, under whatever name it imported __register as) with `key`
+// its last statement, under whatever name it imported register as) with `key`
 // in place of import.meta.url.
 export function keyRegistration(code: string, runtime: string, key: string) {
-  const register = helpersOf(code, runtime).__register;
+  const register = helpersOf(code, runtime).register;
   if (!register) return code;
   const call = `${register}(import.meta.url, {`,
     at = code.lastIndexOf(call);
@@ -76,9 +77,8 @@ export function registration(source: string, runtime: string) {
       /^(?:export\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)/gm,
     ),
   ].map(m => m[1]);
-  const register = uniqueName(source, '__register'),
-    specifier =
-      register === '__register' ? register : `__register as ${register}`;
+  const register = uniqueName(source, 'register'),
+    specifier = register === 'register' ? register : `register as ${register}`;
   const tail = `\n// added: the runtime finds a thread's function by module and name\nimport { ${specifier} } from "${runtime}";\n${register}(import.meta.url, { ${names.join(', ')} });\n`;
   return {tail, added: tail.split('\n').length - 2};
 }

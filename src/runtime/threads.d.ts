@@ -303,6 +303,17 @@ export interface Scope extends Cell {
 export declare function scope<R>(body: (s: Scope) => R): R;
 
 /**
+ * Registers a module's top-level functions, so that a thread finds the one it
+ * runs by module and name: `register(import.meta.url, {main, worker})`, at the
+ * module's end. The compiler adds this call to every module that uses the
+ * threads API; a program whose types are only erased makes it itself.
+ */
+export declare function register(
+  url: string,
+  functions: Record<string, (...args: never[]) => unknown>,
+): void;
+
+/**
  * Splits an owned array into `parts` owned, disjoint chunks of nearly equal
  * size. Trusted.
  */

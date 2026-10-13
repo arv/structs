@@ -121,7 +121,7 @@ import of its helpers, and a table of the module's functions so a thread can
 find the one it should run:
 
 ```js
-import { __register } from "@arv/threads";
+import { register as __register } from "@arv/threads";
 import { log, partition, scope, share, take } from "@arv/threads";
 function countNearest(points, centers) {
     const counts = centers.map(() => 0);
@@ -175,7 +175,7 @@ share(centers) -- write once ---->  shared values      -- first use ->  frozen c
 - **Cells are the only shared mutable state.** They live in the
   SharedArrayBuffer and synchronize with `Atomics`.
 - **Threads come from a pool of workers** that start before the program does. A
-  thread names its function by the key `__register` gave it, and every worker
+  thread names its function by the key `register` gave it, and every worker
   loads the same module, so the key finds the same function in each.
 
 So the cost is copying at the crossings, proportional to what crosses, and

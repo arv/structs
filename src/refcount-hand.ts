@@ -23,7 +23,7 @@ import {
   __quiescent,
   __heapStats,
   __collect,
-  __register,
+  register,
   log,
   scope,
 } from '@arv/threads/own';
@@ -217,7 +217,7 @@ export function main(threadCounts: number[]) {
   );
 }
 
-__register(import.meta.url, {
+register(import.meta.url, {
   makeList,
   sum,
   churn,

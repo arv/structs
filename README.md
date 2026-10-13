@@ -313,7 +313,7 @@ in about 7 ms.
 The compiler is what makes shared structs fast. A program also runs with its
 types only erased (Node's type stripping, say; the Vite plugin needs the
 compiler for now), given the one line the compiler would add:
-`__register(import.meta.url, {main, ...})`, imported from @arv/threads, which
+`register(import.meta.url, {main, ...})`, imported from @arv/threads, which
 registers its top-level functions so that a thread finds the one it runs. The
 checker reads the source, so it reports the same errors either way, and the
 runtime still throws on a use after move.

@@ -2,7 +2,7 @@
 // itself (the playground, in WebAssembly) do with a compiled program's text
 // (compiled.ts)
 
-/** The runtime helpers the fork's emit imports. */
+/** The runtime helpers the fork's emit imports, by their exported names. */
 export declare const HELPERS: Set<string>;
 /** The local names of the helpers `code` imports from `runtime`. */
 export declare function helpersOf(

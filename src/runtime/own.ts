@@ -1269,10 +1269,12 @@ export type ThreadFn = (...args: never[]) => unknown;
 // a thread names its function by key: every worker loads the same modules, so a
 // key finds the same function everywhere. the compiler registers every
 // top-level function of a module that uses the ownership syntax
-// (`__register(import.meta.url, { ... })`); fns() is the same, by hand
+// (`register(import.meta.url, { ... })`, which it imports as __register); a
+// program whose types are only erased calls it itself, and fns() is the same
+// without a module
 const byKey = new Map<string, ThreadFn>(),
   keyOf = new Map<ThreadFn, string>();
-export function __register(url: string, table: Record<string, ThreadFn>) {
+export function register(url: string, table: Record<string, ThreadFn>) {
   for (const [name, f] of Object.entries(table)) {
     const key = `${url}#${name}`;
     byKey.set(key, f);
@@ -1280,7 +1282,7 @@ export function __register(url: string, table: Record<string, ThreadFn>) {
   }
 }
 export const fns: (table: Record<string, ThreadFn>) => void = table =>
-  __register('', table);
+  register('', table);
 setThreadEntry(t => {
   const mine = (countedInto = []);
   // frees the arguments
