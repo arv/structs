@@ -161,7 +161,7 @@ function isAmbientHandle(c: Own, handle: NodeHandle | undefined): boolean {
 
 // The element type of a channel, if t is one: the runtime's `Channel<T>` (or
 // `ChannelCell<T>`). By the runtime's export, not by name: a class named
-// Channel declared elsewhere is not one (isChannelFieldType does the same).
+// Channel declared elsewhere is not one (isLastingCellFieldType does the same).
 export function getChannelElementType(
   c: Own,
   t: Type | undefined,
