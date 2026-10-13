@@ -258,6 +258,20 @@ describe('strings are collected', () => {
     expect(runtime.$internFind('pinned, unique to this test')).toBe(pinned);
   });
 
+  it('a lookup finds no string that died', () => {
+    // this thread's cache knows the address; the string leaves the table at
+    // count 0, but its block stays a grace period. a lookup must not find it:
+    // another thread may intern the string again, at another address, which a
+    // map's lookup with the dead one would miss
+    const a = runtime.$internRef('dies, unique to this test');
+    expect(runtime.$internFind('dies, unique to this test')).toBe(a);
+    expect(runtime.$internedHere('dies, unique to this test')).toBe(a);
+    own.release(a);
+    expect(runtime.$internFind('dies, unique to this test')).toBe(0);
+    expect(runtime.$internedHere('dies, unique to this test')).toBe(0);
+    own.__collect();
+  });
+
   it('an address a string left is never that string again', () => {
     for (let i = 0; i < 200; i++) {
       const a = runtime.$internRef(`gone ${i}`);
