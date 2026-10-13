@@ -699,9 +699,9 @@ function enqueue(t: number) {
   Atomics.notify(I32, C_PENDING, 1);
   if (Atomics.load(I32, C_IDLE) < pending) post({type: 'grow'});
 }
-// wait for thread block a to finish: its result, or what it threw thrown
+// wait for thread block a to finish: its result, or what it threw thrown. the
+// caller checks that it may block before it commits to the join (own.ts)
 export function threadJoin(a: number) {
-  $mustNotBlock('join()', 'await joinAsync()');
   const di = (a + 8) >> 2;
   if (Atomics.load(I32, di) === 0) {
     $waitBegin();

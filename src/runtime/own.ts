@@ -1385,6 +1385,9 @@ class Thread<R = unknown> {
     this.joined = false;
   }
   join(): R {
+    // first: a host must not block, and the thread goes on, so nothing below
+    // may have happened (the finally would free the block of a running thread)
+    $mustNotBlock('join()', 'await joinAsync()');
     if (this.joined)
       throw new TypeError(
         'own: a thread is joined once (its result moves out)',
