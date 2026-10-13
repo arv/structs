@@ -395,21 +395,29 @@ function nudgeHosts() {
 function handOffPending() {
   if (pend.length === 0) return;
   mlock(C_PEND_LOCK);
-  const n = I32[C_PEND_LEN],
-    want = n + pend.length / 2;
-  if (want > I32[C_PEND_CAP]) {
-    const cap = Math.max(1024, want * 2),
-      nb = $alloc(cap * 8),
-      ob = I32[C_PEND];
-    for (let k = 0; k < 2 * n; k++) I32[(nb >> 2) + k] = I32[(ob >> 2) + k];
-    I32[C_PEND] = nb;
-    I32[C_PEND_CAP] = cap;
+  try {
+    const n = I32[C_PEND_LEN],
+      want = n + pend.length / 2;
+    if (want > I32[C_PEND_CAP]) {
+      const cap = Math.max(1024, want * 2),
+        nb = $alloc(cap * 8), // throws when the heap is full
+        ob = I32[C_PEND];
+      for (let k = 0; k < 2 * n; k++) I32[(nb >> 2) + k] = I32[(ob >> 2) + k];
+      I32[C_PEND] = nb;
+      I32[C_PEND_CAP] = cap;
+    }
+    const b = I32[C_PEND] >> 2;
+    for (let k = 0; k < pend.length; k++) I32[b + 2 * n + k] = pend[k];
+    Atomics.store(I32, C_PEND_LEN, want);
+    pend = [];
+  } catch (e) {
+    // a full heap: the queue stays this worker's, to work off at its next
+    // quiescent point (a pool worker runs more threads). the thread's end
+    // goes on: one recorded alive for good would hold up freeing for good
+    if (!(e instanceof RangeError)) throw e;
+  } finally {
+    munlock(C_PEND_LOCK);
   }
-  const b = I32[C_PEND] >> 2;
-  for (let k = 0; k < pend.length; k++) I32[b + 2 * n + k] = pend[k];
-  Atomics.store(I32, C_PEND_LEN, want);
-  munlock(C_PEND_LOCK);
-  pend = [];
 }
 // work off every queued decrement this thread can: when no other thread is
 // running, all of them
@@ -563,7 +571,15 @@ function strResize(t: number) {
 // a new string in table t's empty slot -1 - at, with count count
 function strAdd(t: number, at: number, s: string, h: number, count: number) {
   // under C_STR_LOCK
-  // a pinned string stays: bump-allocated, as nothing will free it
+  // a table the string would fill past half is replaced first: the new table
+  // may not fit (a full heap), and then nothing has changed yet
+  if ((I32[(t >> 2) + 2] + 1) * 2 > I32[(t >> 2) + 1]) {
+    strResize(t);
+    t = Atomics.load(I32, C_STR_TABLE);
+    at = strFind(t, s, h); // the new table's empty slot for s
+  }
+  // a pinned string stays: bump-allocated, as nothing will free it. the block
+  // may not fit either: nothing has changed yet then
   const ascii = $isAscii(s),
     bytes = STR_HEAD + s.length * (ascii ? 1 : 2),
     a = count >= PIN ? $alloc(bytes) : $allocBlock(bytes, false);
@@ -580,7 +596,7 @@ function strAdd(t: number, at: number, s: string, h: number, count: number) {
       U16[u + k] = s.charCodeAt(k);
   Atomics.store(I32, (t >> 2) + 4 + (-1 - at), a);
   I32[(t >> 2) + 3]++;
-  if (++I32[(t >> 2) + 2] * 2 > I32[(t >> 2) + 1]) strResize(t);
+  I32[(t >> 2) + 2]++;
   return a;
 }
 // adds add to string a's count if it is alive, or at 0 and not yet DEAD (the
@@ -608,12 +624,15 @@ function intern(s: string, add: number) {
     // not there, or about to leave: under the lock, a string in the table is
     // alive or at 0, which counting again brings back
     mlock(C_STR_LOCK);
-    const t = Atomics.load(I32, C_STR_TABLE);
-    a = strFind(t, s, h);
-    if (a < 0) a = strAdd(t, a, s, h, add);
-    else if (add !== PIN || Atomics.load(I32, (a >> 2) + 1) < PIN)
-      Atomics.add(I32, (a >> 2) + 1, add);
-    munlock(C_STR_LOCK);
+    try {
+      const t = Atomics.load(I32, C_STR_TABLE);
+      a = strFind(t, s, h);
+      if (a < 0) a = strAdd(t, a, s, h, add); // throws when the heap is full
+      else if (add !== PIN || Atomics.load(I32, (a >> 2) + 1) < PIN)
+        Atomics.add(I32, (a >> 2) + 1, add);
+    } finally {
+      munlock(C_STR_LOCK);
+    }
   }
   remember(s, a);
   return a;

@@ -186,6 +186,21 @@ function encode(v: unknown, key: boolean, adding: boolean): boolean {
     `threads: a SharedMap's or SharedSet's ${key ? 'key' : 'value'} is shared: a number, a string, a boolean, null, undefined, a cell (a shared struct, a SharedArray, a Channel, a map...), or a plain object or array, which the map shares`,
   );
 }
+// encode, for a key, after its value was encoded (vl, vh, vhow): if the key
+// cannot be (it does not fit the heap, say), the value's count goes back
+function encodeKeyOrGiveBack(
+  key: unknown,
+  vl: number,
+  vh: number,
+  vhow: number,
+) {
+  try {
+    encode(key, true, true);
+  } catch (e) {
+    unheld(vl, vh, vhow);
+    throw e;
+  }
+}
 // the key word l, h as the map adds it: a pending string, counted now (its
 // address is the one encode found, if it found one: the string cannot have gone
 // since, with no quiescent point between)
@@ -339,6 +354,32 @@ function append(m: number, w: number, h: number, l: number, how: number) {
   I32[(m >> 2) + SIZE] = size + 1;
   return e;
 }
+// append, for the key l, h held as how says (or a pending string s, counted
+// now), when the heap may be full: a bigger table, or the key's string, may
+// not fit, and then nothing holds the counts the key, and a map's value (vl,
+// vh, vhow), came with. they are given back, and the error goes on
+function appendOrGiveBack(
+  m: number,
+  w: number,
+  h: number,
+  l: number,
+  how: number,
+  s: string | null,
+  vl = 0,
+  vh = 0,
+  vhow = 0,
+) {
+  let kl = l,
+    khow = how;
+  try {
+    [kl, khow] = counted(l, how, s);
+    return append(m, w, h, kl, khow);
+  } catch (e) {
+    unheld(kl, h, khow);
+    unheld(vl, vh, vhow);
+    throw e;
+  }
+}
 // deletes the entry whose key is the word lo, hi, if there is one
 function remove(m: number, w: number, l: number, h: number) {
   const t = I32[(m >> 2) + TABLE],
@@ -366,13 +407,15 @@ function remove(m: number, w: number, l: number, h: number) {
 }
 function clear(m: number, w: number) {
   const t = I32[(m >> 2) + TABLE],
-    e0 = entriesAt(t);
+    e0 = entriesAt(t),
+    // first: it throws when the heap is full, and then nothing has changed
+    n = newTable(MIN, w);
   for (let e = e0, end = e0 + I32[(t >> 2) + 2] * w; e < end; e += w) {
     if (I32[(e >> 2) + 1] === HOLE_HI) continue;
     drop(e, w, 0, KEY_HELD);
     if (w === MAP_ENTRY) drop(e, w, 8, VALUE_HELD);
   }
-  I32[(m >> 2) + TABLE] = newTable(MIN, w);
+  I32[(m >> 2) + TABLE] = n;
   I32[(m >> 2) + SIZE] = 0;
   I32[(m >> 2) + GEN]++;
   $freeBlock(t, tableBytes(I32[t >> 2], w));
@@ -518,25 +561,30 @@ export class SharedMap<K = unknown, V = unknown> {
     const vl = lo,
       vh = hi,
       vhow = held;
-    encode(key, true, true);
+    encodeKeyOrGiveBack(key, vl, vh, vhow);
     const m = this.$cell,
       l = lo,
       h = hi,
       how = held,
       s = pending,
       no = absent;
+    // under the lock, what allocates (a bigger table, a key's string) throws
+    // when the heap is full: the lock is released either way, here and below
     $lock((m >> 2) + LOCK);
-    const t = I32[(m >> 2) + TABLE],
-      i = no ? -1 : find(t, MAP_ENTRY, l, h);
-    let e: number;
-    if (i >= 0) {
-      // a new value, in the key's place
-      e = entriesAt(t) + i * MAP_ENTRY;
-      drop(e, MAP_ENTRY, 8, VALUE_HELD);
-      unheld(l, h, how);
-    } else e = append(m, MAP_ENTRY, h, ...counted(l, how, s));
-    store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
-    $unlock((m >> 2) + LOCK);
+    try {
+      const t = I32[(m >> 2) + TABLE],
+        i = no ? -1 : find(t, MAP_ENTRY, l, h);
+      let e: number;
+      if (i >= 0) {
+        // a new value, in the key's place
+        e = entriesAt(t) + i * MAP_ENTRY;
+        drop(e, MAP_ENTRY, 8, VALUE_HELD);
+        unheld(l, h, how);
+      } else e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, s, vl, vh, vhow);
+      store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
     return this;
   }
   /** The key's value, after adding `value` for it if it has none. */
@@ -545,29 +593,35 @@ export class SharedMap<K = unknown, V = unknown> {
     const vl = lo,
       vh = hi,
       vhow = held;
-    encode(key, true, true);
+    encodeKeyOrGiveBack(key, vl, vh, vhow);
     const m = this.$cell,
       l = lo,
       h = hi,
       how = held,
       s = pending,
       no = absent;
+    let wf = 0,
+      wh = 0,
+      wp = 0;
     $lock((m >> 2) + LOCK);
-    const t = I32[(m >> 2) + TABLE],
-      i = no ? -1 : find(t, MAP_ENTRY, l, h);
-    let e: number;
-    if (i >= 0) {
-      e = entriesAt(t) + i * MAP_ENTRY;
-      unheld(l, h, how);
-      unheld(vl, vh, vhow);
-    } else {
-      e = append(m, MAP_ENTRY, h, ...counted(l, how, s));
-      store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
-    }
-    const wf = F64[(e + 8) >> 3],
-      wh = I32[((e + 8) >> 2) + 1],
+    try {
+      const t = I32[(m >> 2) + TABLE],
+        i = no ? -1 : find(t, MAP_ENTRY, l, h);
+      let e: number;
+      if (i >= 0) {
+        e = entriesAt(t) + i * MAP_ENTRY;
+        unheld(l, h, how);
+        unheld(vl, vh, vhow);
+      } else {
+        e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, s, vl, vh, vhow);
+        store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
+      }
+      wf = F64[(e + 8) >> 3];
+      wh = I32[((e + 8) >> 2) + 1];
       wp = I32[(e + 8) >> 2];
-    $unlock((m >> 2) + LOCK);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
     return decodeWord(wf, wh, wp) as V;
   }
   /**
@@ -603,15 +657,20 @@ export class SharedMap<K = unknown, V = unknown> {
       l = lo,
       h = hi;
     $lock((m >> 2) + LOCK);
-    const found = remove(m, MAP_ENTRY, l, h);
-    $unlock((m >> 2) + LOCK);
-    return found;
+    try {
+      return remove(m, MAP_ENTRY, l, h);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
   }
   clear(): void {
     const m = this.$cell;
     $lock((m >> 2) + LOCK);
-    clear(m, MAP_ENTRY);
-    $unlock((m >> 2) + LOCK);
+    try {
+      clear(m, MAP_ENTRY);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
   }
   forEach(
     callback: (value: V, key: K, map: SharedMap<K, V>) => void,
@@ -667,10 +726,13 @@ export class SharedSet<T = unknown> {
       how = held,
       s = pending;
     $lock((m >> 2) + LOCK);
-    if (absent || find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
-      append(m, SET_ENTRY, h, ...counted(l, how, s));
-    else unheld(l, h, how);
-    $unlock((m >> 2) + LOCK);
+    try {
+      if (absent || find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
+        appendOrGiveBack(m, SET_ENTRY, h, l, how, s);
+      else unheld(l, h, how);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
     return this;
   }
   delete(value: T): boolean {
@@ -679,15 +741,20 @@ export class SharedSet<T = unknown> {
       l = lo,
       h = hi;
     $lock((m >> 2) + LOCK);
-    const found = remove(m, SET_ENTRY, l, h);
-    $unlock((m >> 2) + LOCK);
-    return found;
+    try {
+      return remove(m, SET_ENTRY, l, h);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
   }
   clear(): void {
     const m = this.$cell;
     $lock((m >> 2) + LOCK);
-    clear(m, SET_ENTRY);
-    $unlock((m >> 2) + LOCK);
+    try {
+      clear(m, SET_ENTRY);
+    } finally {
+      $unlock((m >> 2) + LOCK);
+    }
   }
   forEach(
     callback: (value: T, value2: T, set: SharedSet<T>) => void,
