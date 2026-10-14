@@ -1,5 +1,9 @@
 import {spawn} from './own.ts';
 import type {SpawnArgs} from './own.ts';
+// every cell kind's class and destroy: the page frees what workers defer too,
+// maps and channels among them, whether or not its own code uses them
+import './chan.ts';
+import './maps.ts';
 // a page's side of threads: start() makes the pool of Web Workers on the memory
 // threads/heap made, and run(f, ...args) runs f on a thread and resolves with
 // its result. the page's own thread never blocks (it cannot: Atomics.wait is

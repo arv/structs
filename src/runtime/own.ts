@@ -603,14 +603,24 @@ function materialize(a: number) {
 const K_LOCK = 20,
   K_CONDITION = 21,
   K_F64 = 22,
-  K_SHARED_ARRAY = 23;
+  K_SHARED_ARRAY = 23,
+  // maps.ts's, counted here: whether a kind is counted cannot wait for its
+  // module to load, as a thread that has not loaded it may apply a decrement
+  // of one (a pool worker reclaiming what another thread deferred), and a
+  // decrement skipped as uncounted would keep the block for good
+  K_SHARED_MAP = 25,
+  K_SHARED_SET = 26;
 // counted cells defined outside this module (maps.ts): what freeing a block of
 // their kind releases and frees, given drop, which gives back a count it held
 type Destroy = (b: number, drop: (p: number) => void) => void;
 const destroys = new Map<number, Destroy>([[K_STR, b => $stringDying(b)]]);
-// structs, SharedArrays and those (REFCOUNT.md)
+// structs, SharedArrays, strings, maps and sets (REFCOUNT.md)
 const counted: (kind: number) => boolean = kind =>
-  kind === K_SHARED_ARRAY || kind >= 100 || destroys.has(kind);
+  kind === K_SHARED_ARRAY ||
+  kind >= 100 ||
+  kind === K_STR ||
+  kind === K_SHARED_MAP ||
+  kind === K_SHARED_SET;
 // a cell's object in this thread
 type CellValue = CellObject | Int32Array;
 // address -> this thread's cell object. a struct's or SharedArray's handle
@@ -665,6 +675,8 @@ export const __countedCellKind = (
   Cls: CellClass,
   destroy: Destroy,
 ) => {
+  if (kind !== K_SHARED_MAP && kind !== K_SHARED_SET)
+    throw new TypeError(`own: kind ${kind} is not one own.ts counts`);
   cellKinds.set(kind, Cls);
   destroys.set(kind, destroy);
 };
@@ -1102,6 +1114,12 @@ function destroy(o: number) {
       kind = I32[b >> 2],
       d = destroys.get(kind);
     if (d !== undefined) d(b, drop);
+    else if (kind === K_SHARED_MAP || kind === K_SHARED_SET)
+      // the entry points load maps.ts (threads-worker.ts, browser.ts); a
+      // thread that has not would leave the block's contents counted
+      throw new Error(
+        'own: a SharedMap or SharedSet is freed on a thread that has not loaded maps.ts',
+      );
     else if (kind === K_SHARED_ARRAY) {
       const n = I32[(b >> 2) + 1],
         size = elementSize(b);

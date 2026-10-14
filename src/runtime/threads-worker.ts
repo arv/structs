@@ -23,6 +23,10 @@ onmessage = async ({data: {sab, opts}}) => {
       text => postMessage({type: 'out', text}),
     );
     const {setModuleLoader} = await import('./own.ts');
+    // every cell kind's class and destroy, before the worker frees any block:
+    // a thread's decrements may reach this worker (it reclaims what others
+    // deferred) whatever modules its threads load
+    await import('./threads.ts');
     const {default: modules} = await import('virtual:threads/modules');
     // a playground program (the plugin's dev server compiles it on request, or
     // the page in WebAssembly) is not in the list
