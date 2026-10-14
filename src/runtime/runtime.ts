@@ -287,7 +287,7 @@ export function $allocBlock(bytes: number, zero = true) {
 // one goes in address order, merged with the free blocks right before and after
 // it
 function freeLocked(p: number, bytes: number) {
-  I32[p >> 2] = K_FREE;
+  Atomics.store(I32, p >> 2, K_FREE); // atomic, as the kind's every change
   const c = bytes >> 3;
   if (c <= SMALL) {
     I32[(p >> 2) + 1] = I32[C_FREE + c];
@@ -319,7 +319,7 @@ export function $freeBlock(p: number, bytes: number) {
   count(N_BFREE);
   const c = bytes >> 3;
   if (CHECK) F64.fill(POISON, p >> 3, (p + bytes) >> 3);
-  I32[p >> 2] = K_FREE;
+  Atomics.store(I32, p >> 2, K_FREE); // atomic, as the kind's every change
   if (c <= SMALL) {
     const cache = cacheFor(c);
     cache.push(p);
@@ -747,8 +747,10 @@ function known(s: string) {
   const k = strAddr.get(s);
   if (k === undefined) return 0;
   const a = k[0];
-  return I32[a >> 2] === K_STR &&
-    I32[(a >> 2) + 5] === k[1] &&
+  // the kind first, atomically: written last by strAdd, so the serial and the
+  // count read after it are the string's that the block is
+  return Atomics.load(I32, a >> 2) === K_STR &&
+    Atomics.load(I32, (a >> 2) + 5) === k[1] &&
     Atomics.load(I32, (a >> 2) + 1) > 0
     ? a
     : 0;
@@ -828,17 +830,23 @@ function strAdd(t: number, at: number, s: string, h: number, count: number) {
   const ascii = $isAscii(s),
     bytes = STR_HEAD + s.length * (ascii ? 1 : 2),
     a = count >= PIN ? $alloc(bytes) : $allocBlock(bytes, false);
-  I32[a >> 2] = K_STR;
+  // the kind last, atomically: a thread whose cache has a string that died at
+  // this block (known) takes it for that string again while the block says
+  // K_STR, carries that string's serial and has a count, and a recycled block
+  // carries the old serial until the new one is written. so the serial, the
+  // count and the rest come first, and the block is a string once they are
+  // there
   I32[(a >> 2) + 1] = count;
   I32[(a >> 2) + 2] = s.length;
   I32[(a >> 2) + 3] = h;
   I32[(a >> 2) + 4] = ascii ? 1 : 0;
-  I32[(a >> 2) + 5] = Atomics.add(I32, C_STR_SERIAL, 1) + 1;
+  Atomics.store(I32, (a >> 2) + 5, Atomics.add(I32, C_STR_SERIAL, 1) + 1);
   if (ascii)
     for (let k = 0; k < s.length; k++) U8[a + STR_HEAD + k] = s.charCodeAt(k);
   else
     for (let k = 0, u = (a + STR_HEAD) >> 1; k < s.length; k++)
       U16[u + k] = s.charCodeAt(k);
+  Atomics.store(I32, a >> 2, K_STR);
   Atomics.store(I32, (t >> 2) + 4 + (-1 - at), a);
   I32[(t >> 2) + 3]++;
   I32[(t >> 2) + 2]++;
