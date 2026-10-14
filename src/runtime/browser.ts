@@ -52,7 +52,9 @@ export function start({
     if (m.type === 'out') onLog(m.text);
     // every pool thread is busy: one more worker
     else if (m.type === 'grow') {
-      if (generation === g) add();
+      // one that fails to load is reported; the thread that asked waits for a
+      // worker that is there
+      if (generation === g) add().catch(e => console.error(String(e)));
     }
     // the page holds up freeing: between tasks, as now, it holds no uncounted
     // address (REFCOUNT.md), so it passes a quiescent point, and frees what
@@ -68,8 +70,17 @@ export function start({
         name: 'threads',
       });
       workers.push(w);
-      w.onmessage = ({data: m}: MessageEvent<Message>) =>
-        m.type === 'ready' ? resolve() : onMessage(m);
+      let ready = false;
+      w.onmessage = ({data: m}: MessageEvent<Message>) => {
+        if (m.type === 'ready') {
+          ready = true;
+          resolve();
+        } else if (m.type === 'crash' && !ready)
+          // the worker could not start (the runtime did not load, say): a
+          // start that waits for it would wait for good
+          reject(new Error(`threads: a worker failed to start: ${m.message}`));
+        else onMessage(m);
+      };
       w.onerror = e =>
         reject(new Error(`threads: a worker failed to start: ${e.message}`));
       w.postMessage({sab, opts: {check, nudge: true}});
@@ -106,7 +117,14 @@ export function start({
     }),
   ]);
   stopped = false;
-  started.catch(() => {}); // those awaiting it see the rejection
+  // a start that fails is over: its workers (those that did start) are
+  // terminated, and the next start() starts afresh, on a pool reset first;
+  // without this the rejection would be every later start()'s and run()'s,
+  // until stop(). those awaiting it see the rejection
+  const p = started;
+  p.catch(() => {
+    if (started === p) stop();
+  });
   return started;
 }
 
