@@ -186,16 +186,18 @@ Rules:
 - **Cycles leak.** A cycle of reference fields keeps its counts above 0. A
   backup collector (trial deletion at quiescent points) or a rule against
   recursive struct types would close it.
-- **Handles and closures are released late, or not at all in node.** A
-  FinalizationRegistry runs only after V8 collects the handle, and only when the
-  worker's event loop gets a turn: a pool worker that has handles to finalize
-  gives it one after each thread, and every 50 ms while idle. A WeakRef keeps
-  its target alive until the end of the task that made it, so handles made in a
-  long thread outlive it into V8's old generation. Chrome's workers collect
-  those: 200,000 handle-held nodes were freed within a second of the thread
-  ending. Node's idle workers run no major GC, so there they stay. Compiled code
-  counts with no handles; handles are only for `any`, `unknown` and uncompiled
-  code.
+- **Handles and closures are released late, or not at all in node.** So is a
+  thread that is never joined, and its result: they go once its `Thread` is
+  collected. A FinalizationRegistry runs only after V8 collects the handle, and
+  only when the worker's event loop gets a turn: a pool worker that has handles
+  to finalize gives it one after each thread, and while idle 50 ms later, then
+  twice as long after each turn that finalized nothing, up to a second. A
+  WeakRef keeps its target alive until the end of the task that made it, so
+  handles made in a long thread outlive it into V8's old generation. Chrome's
+  workers collect those: 200,000 handle-held nodes were freed within a second of
+  the thread ending. Node's idle workers run no major GC, so there they stay.
+  Compiled code counts with no handles; handles are only for `any`, `unknown`
+  and uncompiled code.
 - **Exceptions.** `finally` releases owned locals; owned temporaries in a
   statement that throws leak.
 - **Races are the program's to avoid.** A channel's `send` moves a value, but

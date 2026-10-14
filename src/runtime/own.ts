@@ -28,6 +28,10 @@ import {
   setThreadEntry,
   setAfterTask,
   setBeforeTask,
+  setThreadDrop,
+  RUNNING,
+  DONE,
+  DETACHED,
   $allocBlock,
   $freeBlock,
   $defer,
@@ -95,12 +99,23 @@ const T_UNDEF = 1,
   T_CELL_COUNTED = 12;
 
 // writing: into a growing private buffer, then copied into the heap in one
-// piece
-let wf = new Float64Array(1024),
+// piece. one grown past BUFFER_KEPT words by a large value goes once that value
+// is written, so that one large message does not keep its size for good
+const BUFFER_WORDS = 1024,
+  BUFFER_KEPT = 1 << 16;
+let wf = new Float64Array(BUFFER_WORDS),
   wi = new Int32Array(wf.buffer),
   wb = new Uint8Array(wf.buffer),
   wu = new Uint16Array(wf.buffer),
   wn = 0;
+const setBuffer = (f: Float64Array<ArrayBuffer>) => {
+  wf = f;
+  wi = new Int32Array(wf.buffer);
+  wb = new Uint8Array(wf.buffer);
+  wu = new Uint16Array(wf.buffer);
+};
+// the buffer's size in words, for its test
+export const __writeBufferWords = () => wf.length;
 const encoder = new TextEncoder();
 // the strings in the blob being written -> their body
 const written = new Map<string, number>();
@@ -155,10 +170,7 @@ const reserve: (words: number) => void = words => {
   if (wn + words <= wf.length) return;
   const nf = new Float64Array(Math.max(wf.length * 2, wn + words));
   nf.set(wf.subarray(0, wn));
-  wf = nf;
-  wi = new Int32Array(wf.buffer);
-  wb = new Uint8Array(wf.buffer);
-  wu = new Uint16Array(wf.buffer);
+  setBuffer(nf);
 };
 const boxWord = (at: number, tag: number, p: number) => {
   wi[at * 2] = p;
@@ -362,6 +374,7 @@ function write(v: Sent, moved: Moved | null, freeze: boolean, alloc = $alloc) {
     takenStrings.length = 0;
     takenCells.length = 0;
     frozen.length = 0;
+    if (wf.length > BUFFER_KEPT) setBuffer(new Float64Array(BUFFER_WORDS));
   }
 }
 
@@ -628,11 +641,15 @@ type CellValue = CellObject | Int32Array;
 // holds a count of its own and is held weakly: when V8 collects it, the
 // registry gives the count back
 const cells = new Map<number, CellValue | WeakRef<CellValue>>();
-let finalizable = 0;
+// what this thread's registries wait to finalize (handles, closures, threads
+// not joined), and how much they have finalized so far
+let finalizable = 0,
+  finalized = 0;
 const handles = new FinalizationRegistry<number>(a => {
   const r = cells.get(a);
   if (r instanceof WeakRef && r.deref() === undefined) cells.delete(a);
   finalizable--;
+  finalized++;
   release(a);
 });
 const holdFor = (h: object, a: number) => {
@@ -1165,6 +1182,7 @@ export const __collect = $drain;
 // collects it
 const closures = new FinalizationRegistry<number[]>(ps => {
   finalizable--;
+  finalized++;
   for (const p of ps) release(p);
 });
 export function capture<F extends object>(fn: F, ...ps: number[]) {
@@ -1496,15 +1514,22 @@ setThreadEntry(t => {
   }
 });
 function resultOf(t: number, r: unknown) {
-  if (I32[(t + 4) >> 2] === 1) return 0; // detached: nothing reads a result
+  // a goroutine's: nothing reads a result. a thread whose Thread was collected
+  // unjoined sends one all the same, which its end drops with the counts it
+  // carries (runtime.ts endThread): a counted value carries its own
+  if (I32[(t + 4) >> 2] === 1) return 0;
   const [a, bytes] = __message(r);
   I32[(t + 20) >> 2] = bytes;
   return a;
 }
 const AsyncFunction = (async () => {}).constructor;
-// between threads, a worker yields to its event loop when handles or closures
-// wait to be finalized
-setAfterTask(() => finalizable > 0);
+// between threads, a worker yields to its event loop when handles, closures or
+// threads not joined wait to be finalized
+setAfterTask(
+  () => finalizable > 0,
+  () => finalized,
+);
+setThreadDrop(dropThread);
 // in a page's worker pool (threads-worker.ts), a worker loads a thread's module
 // the first time a thread needs it: a key is `${module}#${name}` , and the
 // loader maps a module to its import
@@ -1539,6 +1564,45 @@ export function setModuleLoader(load: ModuleLoader) {
     loaded.add(id);
   });
 }
+// a Thread holds its thread's block, and the result, until it is joined. one
+// collected unjoined detaches its thread (abandon): they go then, or at the
+// thread's end. a join takes the Thread out of the registry first, so that it
+// is never detached once joined (and its block, freed, never touched)
+const unjoined = new FinalizationRegistry<number>(t => {
+  finalizable--;
+  finalized++;
+  abandon(t);
+});
+// a thread nothing will join, detached by a compareExchange on its state word
+// (runtime.ts RUNNING): running still, or not started, its end drops its block
+// and result; ended (done), they are this thread's to drop
+function abandon(t: number) {
+  if (Atomics.compareExchange(I32, (t + 8) >> 2, RUNNING, DETACHED) === DONE)
+    dropThread(t);
+}
+// a detached thread's block, once the thread has ended, and its result: what
+// it threw, or a message, dropped with the counts it carries, as a join whose
+// result is dropped gives them back
+function dropThread(t: number) {
+  try {
+    const r = I32[(t + 24) >> 2];
+    if (I32[(t + 12) >> 2] !== 0) $releaseString(r);
+    else if (r !== 0) dropMessage(r, I32[(t + 20) >> 2]);
+  } finally {
+    $freeBlock(t, 32);
+  }
+}
+// a thread is the join's from here: the registry forgets its Thread
+function claim(th: Thread) {
+  th.joined = true;
+  if (unjoined.unregister(th)) finalizable--;
+}
+// what the registry does once th is collected, done now (th is forgotten
+// first, as a Thread the registry finalized is), for its test
+export function __abandon(th: Thread) {
+  if (unjoined.unregister(th)) finalizable--;
+  abandon(th.t);
+}
 // R: what fn returns, or what its promise resolves to
 class Thread<R = unknown> {
   declare t: number;
@@ -1546,6 +1610,8 @@ class Thread<R = unknown> {
   constructor(t: number) {
     this.t = t;
     this.joined = false;
+    unjoined.register(this, t, this);
+    finalizable++;
   }
   join(): R {
     // first: a host must not block, and the thread goes on, so nothing below
@@ -1555,7 +1621,7 @@ class Thread<R = unknown> {
       throw new TypeError(
         'own: a thread is joined once (its result moves out)',
       );
-    this.joined = true;
+    claim(this);
     $quiescent();
     try {
       return __unmessage<R>(threadJoin(this.t), I32[(this.t + 20) >> 2]);
@@ -1569,7 +1635,7 @@ class Thread<R = unknown> {
       throw new TypeError(
         'own: a thread is joined once (its result moves out)',
       );
-    this.joined = true;
+    claim(this);
     $quiescent();
     try {
       const a = await threadJoinAsync(this.t);
@@ -1590,11 +1656,13 @@ export const spawn = <A extends unknown[], R>(
   ...args: SpawnArgs<A>
 ) => new Thread<Awaited<R>>(__start(fn, args, false));
 // a thread block for fn(...args), queued for the pool:
-// [kind][detached][done][threw][arguments][their bytes][result]. the arguments,
-// and then the result, are messages: the thread frees its arguments once it has
-// read them, and whoever joins it frees the result and the block. a detached
-// thread (chan.ts go) is never joined: it has no result, the runtime frees its
-// block and prints its error if it throws. an async function's thread is an
+// [kind][goroutine][state][threw][arguments][their bytes][result]. the
+// arguments, and then the result, are messages: the thread frees its arguments
+// once it has read them, and whoever joins it frees the result and the block. a
+// detached thread is never joined: a goroutine (chan.ts go), which sends no
+// result and has its error printed if it throws, or one whose Thread was
+// collected unjoined (abandon), whose result is dropped. the runtime frees the
+// block at its end (runtime.ts endThread). an async function's thread is an
 // async thread: a host runs it with others, and it ends when its promise
 // settles (runtime.ts spawnAsync)
 export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
@@ -1615,6 +1683,7 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
   const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 4) >> 2] = detached ? 1 : 0;
+  I32[(t + 8) >> 2] = detached ? DETACHED : RUNNING;
   const [a, bytes] = __message([key, ...args], 1);
   I32[(t + 16) >> 2] = a;
   I32[(t + 20) >> 2] = bytes;
@@ -1632,23 +1701,58 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
   }
   return t;
 }
-// a thread block no worker will run: its arguments' message is read back and
-// freed, with the counts it carried (as a thread's entry frees them), and the
-// block is freed
+// a thread block no worker will run: its arguments' message is dropped, with
+// the counts it carried (as a thread's entry frees them), and the block is
+// freed
 function discardThread(t: number) {
   dropArguments(t);
   $freeBlock(t, 32);
 }
-// a thread's arguments read back and dropped, with the counts they carried (as
-// the thread's entry frees them once it has read them)
+// a thread's arguments dropped, with the counts they carried (as the thread's
+// entry frees them once it has read them)
 function dropArguments(t: number) {
-  const outer = countedInto,
-    mine = (countedInto = []);
+  dropMessage(I32[(t + 16) >> 2], I32[(t + 20) >> 2]);
+}
+// a message nothing else will read, freed with the counts it carried: its
+// strings', its shapes' keys', its cells' and its counted values' (which a
+// reader would own). its words are walked, not read: reading a cell would make
+// it a handle here, whose count of its own only V8's collector gives back
+function dropMessage(a: number, bytes: number) {
   try {
-    __unmessage(I32[(t + 16) >> 2], I32[(t + 20) >> 2]);
+    dropWord(a, 0, new Set());
   } finally {
-    countedInto = outer;
-    for (const p of mine) release(p);
+    $freeBlock(a, bytes);
+  }
+}
+// a value word of a message's blob, as get() reads it: a shape's keys are
+// counted once in the blob, at its first object (shapes: the ones seen)
+function dropWord(base: number, at: number, shapes: Set<number>) {
+  const v = F64[(base >> 3) + at];
+  if (v === v) return;
+  const i = (base >> 2) + at * 2,
+    hi = I32[i + 1],
+    p = I32[i];
+  if ((hi & BOX) !== BOX) return;
+  switch ((hi >>> 11) & 0xff) {
+    case T_ISTR:
+    case T_CELL_COUNTED:
+    case T_COUNTED:
+      release(p);
+      return;
+    case T_ARR:
+      for (let k = 0, n = I32[(base >> 2) + p * 2]; k < n; k++)
+        dropWord(base, p + 1 + k, shapes);
+      return;
+    case T_OBJ: {
+      const shape = I32[(base >> 2) + p * 2],
+        n = I32[(base >> 2) + shape * 2];
+      if (!shapes.has(shape)) {
+        shapes.add(shape);
+        for (let k = 0; k < n; k++)
+          release(I32[(base >> 2) + (shape + 1 + k) * 2]);
+      }
+      for (let k = 0; k < n; k++) dropWord(base, p + 1 + k, shapes);
+    }
   }
 }
 

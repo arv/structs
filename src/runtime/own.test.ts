@@ -49,6 +49,16 @@ describe('moving values', () => {
     expect(() => v.a).toThrow(/used after move/);
   });
 
+  it('lets go of the buffer a large value grew, once it is written', () => {
+    const large = {s: 'x'.repeat(1 << 20), n: Array.from({length: 1000})};
+    expect(move(large)).toEqual({
+      s: 'x'.repeat(1 << 20),
+      n: Array.from({length: 1000}),
+    });
+    // the megabyte grew the buffer past 64K words (512 KiB): it is not kept
+    expect(own.__writeBufferWords()).toBeLessThanOrEqual(1 << 16);
+  });
+
   it('sends only plain objects and arrays', () => {
     expect(() => own.__message(new Map())).toThrow(/plain objects and arrays/);
     expect(() => own.__message(1n)).toThrow(/cannot send a bigint/);

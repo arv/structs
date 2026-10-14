@@ -269,7 +269,10 @@ export declare const atomic: Atomic;
  * A thread; joining it moves the thread's result back. If the thread threw,
  * joining it throws an Error that says what it threw (`TypeError: x is not a
  * function`), whose `cause` has the stack where the thread threw: an Error is
- * not shared, so what a thread threw crosses as text.
+ * not shared, so what a thread threw crosses as text. A thread that is never
+ * joined is reclaimed, with its result, once its Thread is collected: when V8
+ * collects it, which is in its own time and only between tasks. A thread whose
+ * result nobody wants is a goroutine: `go` starts one, and frees it as it ends.
  */
 export interface Thread<R> extends Cell {
   /**
@@ -287,7 +290,9 @@ export interface Thread<R> extends Cell {
 /**
  * Starts `f` on a thread. Every argument is sent: owned values move, shared
  * values and cells are shared. An async function's thread is light: a worker
- * runs it among many others (see `go` ).
+ * runs it among many others (see `go` ). Join the thread: one that is not is
+ * reclaimed only once its Thread is collected, so a loop that spawns without
+ * joining holds on to memory until then. `go` is the form to fire and forget.
  */
 export declare function spawn<A extends unknown[], R>(
   f: (...args: A) => Promise<Sending<R>>,

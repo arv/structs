@@ -78,13 +78,24 @@ const flushCounts = () => {
 };
 
 // ---- block kinds and layouts (byte offsets) ----
-// thread: [0 kind][4 detached][8 done][12 threw][16 its arguments' message:
-//         address][20 bytes][24 its result: a message's address, or what it
-//         threw, an interned string (see Failure)] (see own.ts __start)
+// thread: [0 kind][4 1 for a goroutine][8 state][12 threw][16 its arguments'
+//         message: address][20 bytes][24 its result: a message's address, or
+//         what it threw, an interned string (see Failure)] (see own.ts
+//         __start)
 // string: see $intern
 export const K_THREAD = 6,
   K_STR = 9,
   K_STR_TABLE = 10;
+// a thread block's state: running (or queued), done, or detached: nothing
+// joins it, as it is a goroutine (chan.ts go, detached from the start) or its
+// Thread was collected unjoined. the block and the result are freed by one
+// side alone: each moves the word on from running with a compareExchange, the
+// thread's end to done (endThread), a Thread collected unjoined to detached
+// (own.ts abandon), and the one that comes second, finding the other's mark,
+// frees them
+export const RUNNING = 0,
+  DONE = 1,
+  DETACHED = 2;
 
 // in a worker the views are module constants, which the JIT can embed: the
 // worker sets globalThis.__escapeSab before importing this module. a
@@ -1077,10 +1088,10 @@ function enqueue(t: number) {
 // block before it commits to the join (own.ts)
 export function threadJoin(a: number) {
   const di = (a + 8) >> 2;
-  if (Atomics.load(I32, di) === 0) {
+  if (Atomics.load(I32, di) === RUNNING) {
     $waitBegin();
     try {
-      while (Atomics.load(I32, di) === 0) Atomics.wait(I32, di, 0);
+      while (Atomics.load(I32, di) === RUNNING) Atomics.wait(I32, di, RUNNING);
     } finally {
       $waitEnd(); // a wait that throws leaves the thread running, not waiting
     }
@@ -1090,8 +1101,8 @@ export function threadJoin(a: number) {
 // the same without blocking, for a thread that must not (a page's main thread)
 export async function threadJoinAsync(a: number) {
   const di = (a + 8) >> 2;
-  while (Atomics.load(I32, di) === 0) {
-    const w = Atomics.waitAsync(I32, di, 0);
+  while (Atomics.load(I32, di) === RUNNING) {
+    const w = Atomics.waitAsync(I32, di, RUNNING);
     if (!w.async) continue;
     // node lets a worker exit on a bare waitAsync
     const alive = setTimeout(() => {}, 1 << 30);
@@ -1246,6 +1257,19 @@ export function threadEnd() {
   // worker, idle, will not look again until its next thread
   nudgePageForShared();
 }
+// after a thread's end, on a worker between threads: what was freed since (a
+// result dropped, what the registries finalized: own.ts) is counted, and what
+// was deferred (a string that died) is freed if it is safe, and else handed to
+// the shared list, as at the end. the worker would not look at its queue
+// again until its next thread, which may never come
+function settle() {
+  if (pend.length !== 0) {
+    reclaim();
+    handOffPending();
+    nudgePageForShared();
+  }
+  flushCounts();
+}
 // what a thread's function returns: its result's message address (own.ts), or
 // an async function's promise of one
 type Result = number | PromiseLike<number>;
@@ -1258,10 +1282,24 @@ export const setThreadEntry: (f: (t: number) => Result) => void = f => {
 };
 // whether a worker should give its event loop a turn after a thread (own.ts:
 // when V8 may have handles to finalize, which a FinalizationRegistry does only
-// between tasks)
-let afterTask = () => false;
-export const setAfterTask: (f: () => boolean) => void = f => {
+// between tasks), and how many it has finalized so far, by which an idle worker
+// tells whether a turn finalized anything (see poolLoop)
+let afterTask = () => false,
+  finalized = () => 0;
+export const setAfterTask: (f: () => boolean, n: () => number) => void = (
+  f,
+  n,
+) => {
   afterTask = f;
+  finalized = n;
+};
+// what frees a detached thread's block once its thread has ended, and its
+// result, with the counts the result holds (own.ts sets it)
+let dropThread: (t: number) => void = () => {
+  throw new Error('threads: no thread drop (own.ts sets it)');
+};
+export const setThreadDrop: (f: (t: number) => void) => void = f => {
+  dropThread = f;
 };
 // what a worker does before it runs a thread, if anything (own.ts: load the
 // thread's module)
@@ -1333,8 +1371,10 @@ function leave() {
   }
   freeTid();
 }
-// `begun`: the thread's entry is begun already (poolLoop, under its claim)
-function runThread(t: number, begun = false) {
+// `begun`: the thread's entry is begun already (poolLoop, under its claim).
+// exported for its test, which runs a thread on its own thread as a worker
+// would
+export function runThread(t: number, begun = false) {
   if (!hosting && !begun) threadBegin(workerTid());
   count(N_THREADS);
   let r: Result;
@@ -1365,13 +1405,14 @@ function endThread(
   threw = false,
   e?: unknown,
 ) {
-  // nothing joins a detached thread (chan.ts go): what it threw is printed.
-  // for a joiner it is an interned string (see Failure). a full heap is
-  // reported with a message interned when the worker attached, which needs no
-  // memory: whoever joins the thread must hear that it ended
-  const detached = I32[(t + 4) >> 2] === 1,
+  // nothing joins a goroutine (chan.ts go): what it threw is printed. for a
+  // joiner it is an interned string (see Failure), which a thread whose Thread
+  // was collected unjoined drops (own.ts dropThread). a full heap is reported
+  // with a message interned when the worker attached, which needs no memory:
+  // whoever joins the thread must hear that it ended
+  const goroutine = I32[(t + 4) >> 2] === 1,
     f = threw ? $failureOf(e) : null;
-  if (f !== null && !detached) {
+  if (f !== null && !goroutine) {
     try {
       r = $internRef(JSON.stringify(f));
     } catch {
@@ -1381,24 +1422,35 @@ function endThread(
   }
   I32[(t + 24) >> 2] = r;
   I32[(t + 12) >> 2] = threw ? 1 : 0;
+  const ended = !async && !hosting;
   try {
-    if (f !== null && detached) $log(`a detached thread threw: ${f[0]}`);
+    if (f !== null && goroutine) $log(`a detached thread threw: ${f[0]}`);
     if (async) {
       if (--live === 0 && kick !== null) kick();
-    } else if (!hosting) threadEnd();
+    } else if (ended) threadEnd();
   } finally {
-    Atomics.store(I32, (t + 8) >> 2, 1);
-    Atomics.notify(I32, (t + 8) >> 2);
-    if (detached) $freeBlock(t, 32);
-    // a thread of a pool that was stopped is not counted in the next pool
-    if (busy()) {
-      if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
-      done();
-    }
-    // the last async thread of a host that left its pool (see leave)
-    if (async && live === 0 && left) {
-      left = false;
-      leave();
+    // done last, once what the thread freed is counted (threadEnd): its
+    // joiner reads the counts after. a thread detached meanwhile, or from the
+    // start, is this side's to drop: nothing else will look at the block
+    const s = (t + 8) >> 2;
+    try {
+      if (Atomics.compareExchange(I32, s, RUNNING, DONE) === RUNNING)
+        Atomics.notify(I32, s);
+      else {
+        dropThread(t);
+        if (ended) settle();
+      }
+    } finally {
+      // a thread of a pool that was stopped is not counted in the next pool
+      if (busy()) {
+        if (Atomics.sub(I32, C_LIVE, 1) === 1) Atomics.notify(I32, C_LIVE);
+        done();
+      }
+      // the last async thread of a host that left its pool (see leave)
+      if (async && live === 0 && left) {
+        left = false;
+        leave();
+      }
     }
   }
 }
@@ -1414,7 +1466,9 @@ function endThread(
 // blocking threads, which would stop every async thread on it (a blocking call
 // there throws: $mustNotBlock), until it has had no async thread for LINGER ms
 const DRAFT = -1;
-// ms: how often an idle worker with handles to finalize lets V8 finalize them
+// ms: how often an idle worker with handles to finalize lets V8 finalize them,
+// at first: twice as long after each turn that finalized nothing, up to POLL
+// (see poolLoop)
 const FINALIZE = 50;
 // ms: how long an idle worker waits for work before it looks for itself. new
 // work wakes it at once; this is for a wake-up that went to a worker of a pool
@@ -1620,9 +1674,13 @@ async function hostTurn(): Promise<boolean> {
 }
 // whether this worker has been counted idle once (see poolLoop)
 let joined = false;
+// ms: how long an idle worker with handles to finalize waits before it gives
+// its event loop a turn (see poolLoop)
+let finalizeWait = FINALIZE;
 // a pool worker: take threads off the queue until shutdown; a host takes async
-// threads only while it has handles to finalize it waits asynchronously, so its
-// event loop runs the registry
+// threads only, and waits asynchronously, so its event loop runs the
+// registries. an idle worker with handles to finalize gives its event loop a
+// turn now and then
 export async function poolLoop() {
   for (;;) {
     if (hosting) {
@@ -1645,7 +1703,7 @@ export async function poolLoop() {
     done();
     if (afterTask()) {
       await eventLoopTurn();
-      flushCounts();
+      settle();
     }
     let p: number;
     for (;;) {
@@ -1663,11 +1721,21 @@ export async function poolLoop() {
         done();
         if (afterTask()) {
           // V8 finalizes handles only between tasks: block, so that new work
-          // wakes the worker at once, but give the event loop a turn every
-          // FINALIZE ms while idle
-          if (Atomics.wait(I32, C_PENDING, 0, FINALIZE) === 'timed-out') {
+          // wakes the worker at once, but give the event loop a turn now and
+          // then while idle. V8 collects in its own time, and an idle worker
+          // allocates nothing that would make it: a handle it has not
+          // collected, or one the program keeps, would wake the worker every
+          // FINALIZE ms for good. so a turn that finalizes nothing doubles the
+          // wait, up to POLL; one that finalizes something, or a thread, makes
+          // it FINALIZE again
+          if (Atomics.wait(I32, C_PENDING, 0, finalizeWait) === 'timed-out') {
+            const before = finalized();
             await eventLoopTurn();
-            flushCounts();
+            settle();
+            finalizeWait =
+              finalized() !== before
+                ? FINALIZE
+                : Math.min(POLL, finalizeWait * 2);
           }
         } else Atomics.wait(I32, C_PENDING, 0, POLL);
         continue;
@@ -1687,6 +1755,8 @@ export async function poolLoop() {
     while ((t = Atomics.load(I32, q)) === 0) Atomics.wait(PRIV, 0, 0, 0.01);
     Atomics.store(I32, q, 0);
     done();
+    // work: what it leaves to finalize is looked for soon
+    finalizeWait = FINALIZE;
     if (t === DRAFT) {
       if (!busy()) return leave();
       threadBegin(workerTid());
