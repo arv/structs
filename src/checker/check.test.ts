@@ -41,6 +41,25 @@ describe('threads-check', () => {
 // the two on test/cases alone): programs in test/diverging, each with what it
 // should report
 describe('threads-check, where it differs from the fork', () => {
+  it('knows consume() and struct() under other names', () => {
+    // the fork takes a call for consume() or struct() by the name it is called
+    // by: an import alias, or a const that holds it, defeats it there
+    const dir = join(checker, 'test/diverging/marker-aliases');
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api})
+        .map(d => formatDiagnostic(d, dir))
+        .sort(),
+    ).toEqual(
+      [
+        "alias.ts(11,7): error TS96005: 'xs' was consumed by 'send' on line 10.",
+        "alias.ts(16,7): error TS96005: 'xs' was consumed by 'send' on line 15.",
+        "alias.ts(22,11): error TS96021: A value of type 'Hidden' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.",
+        "alias.ts(28,7): error TS96005: 'xs' was consumed by 'send' on line 27.",
+        "alias.ts(33,7): error TS96005: 'xs' was consumed by 'send' on line 32.",
+      ].sort(),
+    );
+  });
+
   it("reports no blocking call on a Channel that is not the runtime's", () => {
     const dir = join(checker, 'test/diverging/ambient-channel');
     expect(
