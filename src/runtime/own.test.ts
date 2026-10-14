@@ -624,6 +624,8 @@ describe('strings are collected', () => {
   });
 });
 
+function noop() {}
+
 describe('the rest', () => {
   beforeAll(() => {
     logged.length = 0;
@@ -669,6 +671,38 @@ describe('the rest', () => {
     expect(ready).toBe(true);
     // the lock is free again
     using _ = lock.hold();
+  });
+
+  it('a pool starts again on the same heap after a shutdown', async () => {
+    const sab = globalThis.__escapeSab!;
+    own.fns({noop});
+    own.spawn(noop); // queued: no worker runs here
+    expect(runtime.counters(sab)).toMatchObject({
+      live: 1,
+      queued: 1,
+      shutdown: 0,
+    });
+    runtime.shutdown(sab);
+    expect(runtime.counters(sab).shutdown).toBe(1);
+    expect(await runtime.resetPool(sab)).toBe(true);
+    expect(runtime.counters(sab)).toMatchObject({
+      live: 0,
+      queued: 0,
+      idle: 0,
+      shutdown: 0,
+    });
+    runtime.waitAllThreads(); // returns: nothing lives
+    // this thread attached to the pool that was stopped: it may not spawn on
+    // the next (a terminated worker may run on), until it attaches again
+    expect(() => own.spawn(noop)).toThrow(/the pool was stopped/);
+    runtime.attach(
+      sab,
+      {},
+      () => {},
+      text => logged.push(text),
+    );
+    own.spawn(noop);
+    expect(runtime.counters(sab)).toMatchObject({live: 1, queued: 1});
   });
 
   it('log writes a line', () => {
