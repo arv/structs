@@ -88,6 +88,33 @@ const changed: (c: number) => void = c => {
 // when one fires: a watch on a channel that never changes waits for good, but
 // only one per channel
 const watches = new Map<number, Watch>(); // a channel's word index → its watch
+// a waiter woken by a change on its own thread resumes as a microtask: two
+// goroutines that pass messages on one thread (a host, or the page) would run
+// as one unbroken chain of microtasks, and the thread's tasks (other
+// goroutines' wakes from other threads, async threads to start, the page's
+// nudges and painting) would wait until they were done. every WAKES-th wake
+// goes through a task instead, which lets those run
+const WAKES = 32;
+let wakes = 0,
+  later: (() => void)[] | null = null;
+const deliver = (wake: () => void) => {
+  if (++wakes < WAKES) {
+    queueMicrotask(wake);
+    return;
+  }
+  if (later === null) {
+    const batch: (() => void)[] = (later = []);
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close(); // an open port would keep node's event loop alive
+      later = null;
+      wakes = 0;
+      for (const w of batch) w();
+    };
+    ch.port2.postMessage(0);
+  }
+  later.push(wake);
+};
 class Watch {
   declare c: number;
   declare seq: number;
@@ -104,13 +131,13 @@ class Watch {
     if (watches.get(this.c) === this) watches.delete(this.c);
     const waiters = this.waiters;
     this.waiters = new Set();
-    for (const wake of waiters) wake();
+    for (const wake of waiters) deliver(wake);
   }
 }
 // calls wake once channel c's seq is no longer seq; returns what stops that
 function onChange(c: number, seq: number, wake: () => void) {
   if (Atomics.load(I32, c + SEQ) !== seq) {
-    queueMicrotask(wake);
+    deliver(wake);
     return () => {};
   }
   let w = watches.get(c);

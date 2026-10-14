@@ -68,6 +68,32 @@ describe('channels', () => {
     expect(await T.selectAsync(x, later)).toEqual([1, 'late']);
   });
 
+  it('goroutines passing messages on one thread let its tasks run', async () => {
+    // two async goroutines on this thread, each waking the other: a timer due
+    // at once must run before they are done, as would any task of the thread
+    const N = 2000;
+    const x = new T.Channel(4),
+      y = new T.Channel(4);
+    let done = 0,
+      fired = -1;
+    setTimeout(() => (fired = done), 0);
+    const a = (async () => {
+      for (let i = 0; i < N; i++) {
+        await x.sendAsync(i);
+        await y.recvAsync();
+        done = i + 1;
+      }
+      x.close();
+    })();
+    const b = (async () => {
+      for await (const v of x) await y.sendAsync(v);
+    })();
+    await Promise.all([a, b]);
+    expect(done).toBe(N);
+    expect(fired).toBeGreaterThanOrEqual(0);
+    expect(fired).toBeLessThan(N);
+  });
+
   it('iterate with for await', async () => {
     const ch = new T.Channel(2);
     const sending = (async () => {
