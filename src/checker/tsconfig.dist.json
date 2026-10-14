@@ -1,0 +1,14 @@
+{
+  // threads-check as npm installs it, compiled into dist/ with its
+  // declarations (pnpm pack builds it first, as prepack): node strips no types
+  // under node_modules
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist"
+  },
+  "include": ["*.ts"],
+  "exclude": ["*.test.ts"]
+}

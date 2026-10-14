@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env node
 // threads-check -p <tsconfig.json> --runtime <module>: the ownership
 // diagnostics of a project, in tsc's format (`file(line,col): error TS96001:
 // ...`).

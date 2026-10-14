@@ -1,6 +1,6 @@
 # On every push to main and every pull request: vp check (formatting, lint and
 # types) and vp test (the unit tests), as they run locally, and the tsgo fork
-# (arv/threads-checker) on the programs
+# (arv/threads-checker) on the programs and on the packages
 name: CI
 
 on:
@@ -40,7 +40,9 @@ jobs:
 
   # the tsgo fork, built from arv/threads-checker's main: its ownership check
   # and its emit of the programs (tsconfig.programs.json), the emitted programs
-  # on node, and threads-check compared with it (vp run compare)
+  # on node, threads-check compared with it (vp run compare), and the packages
+  # as npm installs them, with a page the plugin compiles with it (vp run
+  # test-pack)
   fork:
     runs-on: ubuntu-latest
     steps:
@@ -82,3 +84,9 @@ jobs:
       - run: vp run --filter @arv/threads-check compare
         env:
           TSGO_FORK: ${{ github.workspace }}/threads-checker
+      # packed, installed in a project of their own, and loaded by node; the
+      # page runs in Chrome (the runner's), from Vite's dev server and its
+      # build
+      - run: vp run test-pack
+        env:
+          TSGO: ${{ github.workspace }}/threads-checker/built/local/tsgo

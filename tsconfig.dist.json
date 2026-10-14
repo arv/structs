@@ -1,0 +1,20 @@
+{
+  // what node runs from an installed @arv/threads, compiled into dist/ with
+  // its declarations (build-dist.ts runs this): the Vite plugin, and
+  // compiled.ts, which the plugin imports. node strips no types under
+  // node_modules, so these go as JavaScript; the runtime goes as it is
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "rootDir": "src/runtime",
+    "outDir": "dist",
+    "lib": ["es2024"],
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "files": ["src/runtime/vite-plugin-threads.ts", "src/runtime/compiled.ts"]
+}

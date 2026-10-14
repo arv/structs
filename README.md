@@ -129,12 +129,27 @@ npm install @arv/threads
 npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
 ```
 
-Neither is on npm yet; until they are, use this repository.
+Neither is on npm yet. Until they are, pack them from this repository
+(`pnpm pack` builds each package first) and install the tarballs; what you
+import is the same:
+
+```sh
+git clone https://github.com/arv/threads.git && cd threads
+pnpm install
+pnpm pack --pack-destination ~/threads-packages
+pnpm -C src/checker pack --pack-destination ~/threads-packages
+cd /path/to/your/app
+npm install ~/threads-packages/arv-threads-0.1.0.tgz
+npm install --save-dev vite ~/threads-packages/arv-threads-check-0.1.0.tgz
+```
 
 @arv/threads needs [Vite](https://vite.dev) 8, or [Vite+](https://viteplus.dev),
 which is built on it (with `vite` aliased to Vite+'s core, as this repository's
 pnpm-workspace.yaml does), Node 22.13 or later (Vite+ needs 22.18), and a
-browser with `SharedArrayBuffer`.
+browser with `SharedArrayBuffer`. The runtime that the page and its workers run
+(`@arv/threads`, `@arv/threads/heap` and `@arv/threads/browser`) is TypeScript,
+which Vite compiles as it bundles the page; what Node runs (the Vite plugin, and
+@arv/threads-check) is JavaScript.
 
 ## Set up
 
@@ -150,6 +165,32 @@ export default {
   plugins: [threads({tsgo: '/path/to/threads-checker/built/local/tsgo'})],
 };
 ```
+
+| Option       | Default           |                                                                                                                                   |
+| ------------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `tsgo`       | (required)        | The tsgo fork's binary (see [Status](#status)).                                                                                   |
+| `tsconfig`   | `'tsconfig.json'` | The project the fork compiles, relative to Vite's root.                                                                           |
+| `args`       | `[]`              | More arguments for tsgo, after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir` and `--sourceMap`.                 |
+| `runtime`    | `'@arv/threads'`  | The module programs import the runtime from (tsgo's `--ownRuntime`).                                                              |
+| `playground` | `false`           | The dev server compiles programs the page sends it (`POST /__threads/compile`), as the playground's does.                         |
+| `checker`    | `null`            | With `playground`, the path of threads-check's entry module, which then reports the ownership errors instead of `tsgo own check`. |
+
+The plugin serves what the fork emits for each module of that project, and
+leaves any other module to Vite, which erases its types and registers none of
+its functions: no thread can run them. The project:
+
+- includes the page's modules and those its threads run, all under the
+  tsconfig's directory (the plugin's `--rootDir`);
+- resolves imports as a bundler does (`"module": "esnext"`,
+  `"moduleResolution": "bundler"`), so that `@arv/threads` is the API's
+  declarations;
+- emits: a project with `"noEmit": true`, as Vite's templates have, takes
+  `args: ['--noEmit', 'false']`, and a tsconfig.json of references alone (also
+  theirs) compiles nothing, so name the project itself
+  (`tsconfig: 'tsconfig.app.json'`).
+
+Type errors do not stop the build: tsc reports them, and the checker the
+ownership errors.
 
 **2. The page** imports the shared memory first, then runs functions on the pool
 of workers. `main` runs on a worker too, so it may block (join a thread, wait on
@@ -406,6 +447,8 @@ vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # formatting, lint and types, as CI would
 vp test                     # the unit tests, as CI would
+vp run -r build-dist        # each package's dist/, as pnpm pack builds it
+vp run test-pack            # the packages packed and installed in a project; with TSGO, a page on them in Chrome
 vp run -r typecheck         # tsc in every package
 ```
 

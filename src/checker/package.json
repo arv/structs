@@ -3,17 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "description": "The ownership checker of threads for JavaScript (plain TypeScript), on TypeScript 7.1's API: what `tsgo own check` reports, without the fork.",
+  "homepage": "https://github.com/arv/threads#readme",
+  "bugs": {
+    "url": "https://github.com/arv/threads/issues"
+  },
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
-  "bin": {
-    "threads-check": "./cli.ts"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arv/threads.git",
+    "directory": "src/checker"
   },
+  "bin": {
+    "threads-check": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
+    "build-dist": "node -e \"fs.rmSync('dist', {recursive: true, force: true})\" && tsc -p tsconfig.dist.json",
     "compare": "node test/compare.ts",
+    "prepack": "pnpm run build-dist",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

@@ -1,11 +1,49 @@
 {
   "name": "@arv/threads",
+  "version": "0.1.0",
   "private": true,
   "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
+  "homepage": "https://github.com/arv/threads#readme",
+  "bugs": {
+    "url": "https://github.com/arv/threads/issues"
+  },
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arv/threads.git"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/threads.d.ts",
+      "default": "./dist/threads.ts"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.ts"
+    },
+    "./compiled": {
+      "types": "./dist/compiled.d.ts",
+      "default": "./dist/compiled.js"
+    },
+    "./heap": {
+      "types": "./dist/heap.d.ts",
+      "default": "./dist/heap.ts"
+    },
+    "./vite": {
+      "types": "./dist/vite-plugin-threads.d.ts",
+      "default": "./dist/vite-plugin-threads.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
+    "build-dist": "node build-dist.ts",
+    "prepack": "pnpm run build-dist",
+    "test-pack": "node src/pack.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
@@ -14,6 +52,17 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "vite": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.13"
   },
   "packageManager": "pnpm@12.11.2"
 }

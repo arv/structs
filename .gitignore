@@ -6,3 +6,6 @@
 /playground/public/compiler
 node_modules/
 .DS_Store
+# the packages as pnpm pack builds them (vp run build-dist)
+/dist
+/src/checker/dist

@@ -1,10 +1,11 @@
 {
-  // src/ (but the checker, which has its own) and the playground's Vite
-  // config, type-checked by stock tsc (vp run typecheck): the runtime, the
-  // prototype's scripts and programs, and the tests. Node runs them as they
-  // are, their types stripped. The playground's page has its own
-  // (playground/tsconfig.json), and tsconfig.programs.json is what the tsgo
-  // fork compiles
+  // src/ (but the checker, which has its own), the playground's Vite config
+  // and the package's build (build-dist.ts), type-checked by stock tsc (vp run
+  // typecheck): the runtime, the prototype's scripts and programs, and the
+  // tests. Node runs them as they are, their types stripped. The playground's
+  // page has its own (playground/tsconfig.json), tsconfig.programs.json is what
+  // the tsgo fork compiles, and tsconfig.dist.json what the package ships
+  // compiled
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -25,6 +26,7 @@
     }
   },
   "include": [
+    "build-dist.ts",
     "src/**/*.ts",
     "playground/vite.config.ts",
     "playground/build-wasm.ts"
