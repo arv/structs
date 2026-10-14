@@ -51,6 +51,7 @@ export class Host {
   private readonly aliases = new Map<TsSymbol, TsSymbol | undefined>();
   private readonly typeArgs = new Map<Type, readonly Type[]>();
   private readonly awaited = new Map<Type, Type>();
+  private readonly wellKnown = new Map<string, string | undefined>();
   private readonly typeStrings = new Map<Type, string>();
   private readonly libraryPaths = new Map<string, boolean>();
   private readonly symbolIds = new Map<TsSymbol, number>();
@@ -261,6 +262,88 @@ export class Host {
       this.awaited.set(t, awaited);
     }
     return awaited;
+  }
+
+  // The types an iteration of t may give (for...of, a spread, yield*): the
+  // `value` of what next() returns, on the iterator t's [Symbol.iterator]()
+  // returns (or, async, its [Symbol.asyncIterator]()'s, else its iterator's,
+  // awaited), but for a result that is done (a generator's return value),
+  // which an iteration does not give. Not the iterator's type arguments: an
+  // iterator need not name what it yields first. Empty for a type that is not
+  // iterable.
+  iteratedTypes(t: Type, async = false): readonly Type[] {
+    // a union's members each as it is: they need have no iterator method in
+    // common (an AsyncIterable or an Iterable)
+    if (t.flags & TypeFlags.Union)
+      return this.memberTypes(t).flatMap(m => this.iteratedTypes(m, async));
+    const properties = this.checker.getPropertiesOfType(
+      this.checker.getApparentType(t as any) as any,
+    );
+    // the return types of the method of that name
+    const returns = (of: Type, name: string): Type[] => {
+      const result: Type[] = [];
+      const p = this.checker
+        .getPropertiesOfType(this.checker.getApparentType(of as any) as any)
+        .find(p => p.name === name);
+      if (!p) return result;
+      for (const signature of this.checker.getSignaturesOfType(
+        this.typeOfSymbol(p) as any,
+        SignatureKind.Call,
+      ))
+        result.push(this.checker.getReturnTypeOfSignature(signature) as Type);
+      return result;
+    };
+    const sync = this.wellKnownName('Iterable', '__@iterator@');
+    for (const name of async
+      ? [this.wellKnownName('AsyncIterable', '__@asyncIterator@'), sync]
+      : [sync]) {
+      if (name === undefined || !properties.some(p => p.name === name))
+        continue;
+      const awaited = async && name === sync;
+      const result: Type[] = [];
+      for (const iterator of returns(t, name)) {
+        for (let next of returns(iterator, 'next')) {
+          if (async) next = this.awaitedType(next);
+          const members =
+            next.flags & TypeFlags.Union ? this.memberTypes(next) : [next];
+          for (const member of members) {
+            const apparent = this.checker.getApparentType(member as any) as any;
+            const done = this.checker.getPropertyOfType(apparent, 'done');
+            if (done && this.isTrue(this.typeOfSymbol(done))) continue;
+            const value = this.checker.getPropertyOfType(apparent, 'value');
+            if (value) {
+              const v = this.typeOfSymbol(value);
+              result.push(awaited ? this.awaitedType(v) : v);
+            }
+          }
+        }
+      }
+      return result;
+    }
+    return [];
+  }
+
+  // The name of the property that a well-known symbol (Symbol.iterator,
+  // Symbol.asyncIterator) keys, as the lib's interface of it has it: only
+  // that one, not every name of the prefix, which a unique symbol of the
+  // program's of the same name has too. Undefined if the lib has none.
+  private wellKnownName(iface: string, prefix: string): string | undefined {
+    if (this.wellKnown.has(iface)) return this.wellKnown.get(iface);
+    const symbol = this.checker.resolveName(iface, SymbolFlags.Interface);
+    const name = symbol
+      ? this.checker
+          .getPropertiesOfType(this.checker.getDeclaredTypeOfSymbol(symbol))
+          .find(p => p.name.startsWith(prefix))?.name
+      : undefined;
+    this.wellKnown.set(iface, name);
+    return name;
+  }
+
+  // Whether t is the literal type true.
+  isTrue(t: Type): boolean {
+    return (
+      !!(t.flags & TypeFlags.BooleanLiteral) && this.typeToString(t) === 'true'
+    );
   }
 
   typeArguments(t: Type): readonly Type[] {

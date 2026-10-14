@@ -16,7 +16,7 @@
 import type {SourceFile} from 'typescript/ast';
 import {Conversion} from './context.ts';
 import type {CaptureInfo, Own} from './context.ts';
-import {ObjectFlags, TypeFlags} from './host.ts';
+import {IndexKind, ObjectFlags, TypeFlags} from './host.ts';
 import type {NodeHandle, TsSymbol, Type} from './host.ts';
 import {
   getAssignmentTargetType,
@@ -325,6 +325,189 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
     }
     c.error(expr, Messages.Yielded, host.typeToString(t));
   };
+  // A counted value, or a tuple or array holding one (a SharedMap's entries),
+  // as an iteration gives it.
+  const countedIn = (ts: readonly Type[]): Type | undefined => {
+    for (const t of ts) {
+      const found = counted(t, new Set());
+      if (found) return found;
+    }
+    return undefined;
+  };
+  // t if it is counted, or holds a counted value in a tuple's or an array's
+  // elements, or the member of a union that is or does
+  const counted = (t: Type, seen: Set<Type>): Type | undefined => {
+    if (seen.has(t)) return undefined;
+    seen.add(t);
+    if (t.flags & TypeFlags.Union) {
+      for (const m of host.memberTypes(t)) {
+        const found = counted(m, seen);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    if (isCellType(c, t) || getCountedElementType(c, t)) return t;
+    if (
+      host.checker.isTupleType(t as any) ||
+      host.checker.isArrayType(t as any)
+    )
+      for (const e of host.typeArguments(t)) if (counted(e, seen)) return t;
+    return undefined;
+  };
+  // a call of a generator of this program, whose body is checked: its yields
+  // and its result are reported where they are. Not one in the scope of type
+  // parameters (its own, an enclosing function's or class's): its body sees
+  // those, while what a call yields is of the types the call gives them
+  const programGenerator = (e: Node): boolean => {
+    const target = skipParentheses(e);
+    if (target.kind !== K.CallExpression) return false;
+    const handle = host.signatureOf(target).declaration;
+    const decl =
+      handle && !isAmbientHandle(c, handle)
+        ? host.declarationOf(handle)
+        : undefined;
+    if (
+      !decl ||
+      !(getFunctionFlags(decl) & FunctionFlags.Generator) ||
+      getFunctionFlags(decl) & FunctionFlags.Invalid
+    )
+      return false;
+    for (let n: Node | undefined = decl; n; n = n.parent)
+      if ((n.typeParameters?.length ?? 0) > 0) return false;
+    return true;
+  };
+  // `yield* e`: e's own yields are reported where they are when e is a call of
+  // a generator of this program (its body is checked); otherwise what e's
+  // iteration gives lands in this generator's IteratorResults (a channel's
+  // values, a map's, an ambient generator's)
+  const delegate = (e: Node, async: boolean): void => {
+    if (programGenerator(e)) return;
+    const t = countedIn(host.iteratedTypes(host.typeOf(e), async));
+    if (t) c.error(e, Messages.Yielded, host.typeToString(t));
+  };
+  // The types of what flows into a destructuring pattern, or into a pattern
+  // nested in one: its source's (`p = x`, `const p = x`), or what the
+  // enclosing pattern's source has at the place it takes (`[a, p] = x`,
+  // `{k: p} = x`), with a default's (`[p = d] = x`).
+  const flowsInto = (pattern: Node): Type[] => {
+    const parent = pattern.parent as Node | undefined;
+    switch (parent?.kind) {
+      case K.VariableDeclaration:
+        return parent.name === pattern && parent.initializer
+          ? [host.typeOf(parent.initializer)]
+          : [];
+      case K.BinaryExpression:
+        if (
+          parent.operatorToken.kind !== K.EqualsToken ||
+          parent.left !== pattern
+        )
+          return [];
+        // a default in an enclosing pattern, or the assignment itself
+        return isAssignmentTarget(parent)
+          ? [...placeOf(parent), host.typeOf(parent.right)]
+          : [host.typeOf(parent.right)];
+      case K.ArrayLiteralExpression:
+      case K.PropertyAssignment:
+        return isAssignmentTarget(parent) ||
+          parent.kind === K.PropertyAssignment
+          ? placeOf(pattern)
+          : [];
+      case K.BindingElement:
+        return parent.name === pattern
+          ? [
+              ...placeOf(parent),
+              ...(parent.initializer ? [host.typeOf(parent.initializer)] : []),
+            ]
+          : [];
+    }
+    return [];
+  };
+  // the keys a property in a pattern may have: its name, a computed key's
+  // literal value or values (of a union of them), or undefined for one known
+  // only as it runs
+  const keyOf = (name: Node | undefined): string[] | undefined => {
+    if (!name) return [];
+    if (name.kind !== K.ComputedPropertyName) return [name.text];
+    const t = host.typeOf(name.expression);
+    const keys: string[] = [];
+    for (const m of t.flags & TypeFlags.Union ? host.memberTypes(t) : [t]) {
+      if (!(m.flags & (TypeFlags.StringLiteral | TypeFlags.NumberLiteral)))
+        return undefined;
+      keys.push(String((m as {value?: unknown}).value));
+    }
+    return keys;
+  };
+  // what an element of a pattern takes from the pattern's source: a tuple's
+  // element at its place, or what the source's iteration gives; a property's,
+  // or the index's, or for a key known only as it runs, any property's
+  const placeOf = (element: Node): Type[] => {
+    let holder = element.parent as Node;
+    let keys: string[] | undefined,
+      at = -1;
+    if (holder.kind === K.PropertyAssignment) {
+      // `{k: p}`: p is the property's initializer
+      keys = keyOf(holder.name);
+      holder = holder.parent as Node;
+    } else if (holder.kind === K.ObjectBindingPattern) {
+      keys = keyOf(element.propertyName ?? element.name);
+    } else if (
+      holder.kind === K.ArrayLiteralExpression ||
+      holder.kind === K.ArrayBindingPattern
+    ) {
+      at = (holder.elements as Node[]).indexOf(element);
+      keys = [String(at)];
+    } else {
+      return [];
+    }
+    const result: Type[] = [];
+    for (const t of flowsInto(holder)) {
+      const apparent = host.checker.getApparentType(t as any) as any;
+      const indexes = () =>
+        [IndexKind.String, IndexKind.Number]
+          .map(k => host.checker.getIndexTypeOfType(apparent, k) as Type)
+          .filter(Boolean);
+      if (keys === undefined) {
+        for (const property of host.checker.getPropertiesOfType(apparent))
+          result.push(host.typeOfSymbol(property));
+        result.push(...indexes());
+        continue;
+      }
+      for (const key of keys) {
+        const property = host.checker.getPropertyOfType(apparent, key);
+        if (property) result.push(host.typeOfSymbol(property));
+        else if (at >= 0) result.push(...host.iteratedTypes(t));
+        else result.push(...indexes());
+      }
+    }
+    return result;
+  };
+  // what an iteration of t gives from place `at` on: a tuple's elements from
+  // there, or all an iteration gives
+  const from = (t: Type, at: number): readonly Type[] =>
+    (t.flags & TypeFlags.Union ? host.memberTypes(t) : [t]).flatMap(m =>
+      host.checker.isTupleType(m as any)
+        ? host.typeArguments(m).slice(at)
+        : host.iteratedTypes(m),
+    );
+  // what the rest of an array pattern holds: what the iteration of what flows
+  // into the pattern gives from the rest's place on, whatever the rest's own
+  // type says (an array of a wider type), or its own elements
+  const rest = (
+    pattern: Node,
+    element: Node,
+    target: Type,
+  ): Type | undefined => {
+    const at = (pattern.elements as Node[]).indexOf(element);
+    return (
+      getCountedElementType(c, target) ??
+      countedIn(flowsInto(pattern).flatMap(t => from(t, at)))
+    );
+  };
+  const spread = (node: Node): void => {
+    const t = countedIn(host.iteratedTypes(host.typeOf(node.expression)));
+    if (t)
+      c.error(node.expression, Messages.StoredInOrdinary, host.typeToString(t));
+  };
   const destructured = (name: Node, t: Type): void => {
     if (isCellType(c, t))
       c.error(name, Messages.BoundByDestructuring, name.text);
@@ -390,21 +573,49 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
         return false;
       case K.YieldExpression:
       case K.ReturnStatement: {
-        // a delegated yield (`yield* inner()`, or `return yield* inner()`) is
-        // the inner generator's to report
         const flags = getFunctionFlags(getContainingFunction(node));
+        const async = !!(flags & FunctionFlags.Async);
         const delegated = (e: Node | undefined) =>
           e !== undefined &&
           skipParentheses(e).kind === K.YieldExpression &&
           !!skipParentheses(e).asteriskToken;
-        if (
-          flags & FunctionFlags.Generator &&
-          !delegated(node) &&
-          !(node.kind === K.ReturnStatement && delegated(node.expression))
-        )
-          yielded(node.expression, !!(flags & FunctionFlags.Async));
+        if (!(flags & FunctionFlags.Generator)) break;
+        if (node.kind === K.YieldExpression && node.asteriskToken)
+          delegate(node.expression, async);
+        else if (
+          node.kind === K.ReturnStatement &&
+          delegated(node.expression)
+        ) {
+          // `return yield* e`: e's result is this generator's, in its last
+          // IteratorResult; a generator of this program reports its own
+          const star = skipParentheses(node.expression);
+          if (!programGenerator(star.expression)) {
+            const t = countedIn([host.typeOf(star)]);
+            if (t)
+              c.error(node.expression, Messages.Yielded, host.typeToString(t));
+          }
+        } else if (!delegated(node)) yielded(node.expression, async);
         break;
       }
+      case K.SpreadElement:
+        // [...x] and f(...x): what x's iteration gives goes into an ordinary
+        // array, or an arguments list; [...xs] = x, the rest of a destructuring
+        // assignment, into the array xs is
+        if (
+          node.parent?.kind === K.ArrayLiteralExpression &&
+          isAssignmentTarget(node.parent)
+        ) {
+          const e = rest(node.parent, node, host.typeOf(node.expression));
+          if (e)
+            c.error(
+              node.expression,
+              Messages.StoredInOrdinary,
+              host.typeToString(e),
+            );
+          break;
+        }
+        spread(node);
+        break;
       case K.ArrayLiteralExpression:
         if (isAssignmentTarget(node)) {
           checkPattern(node);
@@ -498,7 +709,20 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
       case K.BindingElement:
         if (node.name?.kind === K.Identifier) {
           const symbol = host.symbolOfDeclaration(node);
-          if (symbol) destructured(node.name, host.typeOfSymbol(symbol));
+          if (symbol) {
+            const t = host.typeOfSymbol(symbol);
+            destructured(node.name, t);
+            // const [...xs] = x: what x's iteration gives, in the array xs is
+            const e = node.dotDotDotToken
+              ? rest(node.parent, node, t)
+              : undefined;
+            if (e)
+              c.error(
+                node.name,
+                Messages.StoredInOrdinary,
+                host.typeToString(e),
+              );
+          }
         }
         break;
       case K.ForOfStatement:
