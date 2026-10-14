@@ -1,8 +1,11 @@
 // a Web Worker of a page's pool (browser.ts starts them): attaches to the
 // page's shared memory and runs threads. a thread names its function by module
 // and name; the worker loads that module the first time a thread needs it, from
-// the list the bundler plugin makes (virtual:threads/modules), so the page's
-// own entry module never runs here. a module the page compiled itself (the
+// the list the bundler plugin makes (virtual:threads/modules), and with it
+// whatever that module imports, which runs here too though it defines no
+// function a thread runs. the page's entry is in the list only if it defines
+// one, and then the page's API refuses to run in a worker (browser.ts
+// forThePage). a module the page compiled itself (the
 // playground's, compiled in WebAssembly) is a blob: URL, and its imports of the
 // runtime read globalThis.__threads, the threads API, as they do on the page
 declare global {

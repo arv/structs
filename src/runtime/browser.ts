@@ -28,6 +28,22 @@ let started: Promise<void> | null = null,
 // the runs waiting for a thread, to fail should the pool stop meanwhile
 const waiting = new Set<(e: Error) => void>();
 
+// a pool worker loads every module that defines a function a thread runs, to
+// find the function: the page's entry module too, should it define one, and
+// with it whatever the entry runs as it loads. on a worker, start() would make
+// a pool of workers there, and take the page's thread for the worker's own:
+// the page's API refuses, naming the rule
+const WorkerScope = (
+  globalThis as {WorkerGlobalScope?: abstract new () => unknown}
+).WorkerGlobalScope;
+const onWorker = WorkerScope !== undefined && globalThis instanceof WorkerScope;
+const forThePage = (what: string) => {
+  if (onWorker)
+    throw new Error(
+      `threads: ${what} is for the page, and runs here on a worker, which loaded this module for a function a thread runs: keep the functions threads run out of the page's entry module, in modules that do not call ${what} as they load`,
+    );
+};
+
 // how start() makes the pool
 type Options = {
   workers?: number;
@@ -40,6 +56,7 @@ export function start({
   check = false,
   onLog = text => console.log(text.replace(/\n$/, '')),
 }: Options = {}) {
+  forThePage('start()');
   if (started) return started;
   if (!sab)
     throw new Error(
@@ -128,12 +145,13 @@ export function start({
   return started;
 }
 
-// f must be a top-level function of a module the plugin compiled (other than
-// the page's entry, which workers do not load)
+// f must be a top-level function of a module the plugin compiled, other than
+// the page's entry: a worker loads the module to find f (see forThePage)
 export async function run<A extends unknown[], R>(
   f: (...args: A) => R,
   ...args: SpawnArgs<A>
 ) {
+  forThePage('run()');
   const g = generation;
   await start();
   if (generation !== g) throw new Error(STOPPED);
@@ -160,6 +178,7 @@ export async function run<A extends unknown[], R>(
 // worker that ran async functions dies at work, as its threads wait on its
 // event loop: stopped mid-way through them, the next start takes the second
 export function stop() {
+  forThePage('stop()');
   shutdown(sab!);
   for (const w of workers.splice(0)) w.terminate();
   for (const fail of waiting) fail(new Error(STOPPED));

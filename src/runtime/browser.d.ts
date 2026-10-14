@@ -21,3 +21,6 @@ export declare function run<A extends unknown[], R>(
 ): Promise<Sending<R>>;
 /** Stops the pool. */
 export declare function stop(): void;
+// start(), run() and stop() are for the page: on a worker (which loads every
+// module that defines a function a thread runs, the page's entry too should it
+// define one) they throw

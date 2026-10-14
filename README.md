@@ -149,7 +149,9 @@ export default {
 
 **2. The page** imports the shared memory first, then runs functions on the pool
 of workers. `main` runs on a worker too, so it may block (join a thread, wait on
-a condition, receive from a channel); the page only awaits its result.
+a condition, receive from a channel); the page only awaits its result. Keep the
+functions threads run out of the page's entry module: a worker loads a
+function's module to find it, and `start()`, `run()` and `stop()` throw there.
 
 ```ts
 // main.ts, the page's entry module
