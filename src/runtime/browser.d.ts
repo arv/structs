@@ -4,7 +4,8 @@ import type {Sending} from '@arv/threads';
 
 /**
  * Starts the pool of workers (by default one per core); run() starts it if
- * needed.
+ * needed, with the defaults. The options are the first start()'s: a later
+ * start() with other options throws, until stop().
  */
 export declare function start(options?: {
   workers?: number;
@@ -19,7 +20,11 @@ export declare function run<A extends unknown[], R>(
   f: (...args: A) => Sending<R>,
   ...args: Sending<A>
 ): Promise<Sending<R>>;
-/** Stops the pool. */
+/**
+ * Stops the pool: its workers are terminated, with the threads they ran, and
+ * the runs waiting fail. A spawn throws until start() starts a new pool on the
+ * same heap, which is also how a stuck pool is recovered.
+ */
 export declare function stop(): void;
 // start(), run() and stop() are for the page: on a worker (which loads every
 // module that defines a function a thread runs, the page's entry too should it

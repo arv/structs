@@ -45,6 +45,8 @@ import {
   $stringDying,
   K_STR,
   $releaseString,
+  $poolRunning,
+  STOPPED,
 } from './runtime.ts';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -1583,6 +1585,15 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
     throw new TypeError(
       'own: spawn a top-level function of a module that registers it: the compiler adds `register(import.meta.url, {...})`, and a module run uncompiled calls it',
     );
+  // a pool that was stopped takes no thread: refused before the block is
+  // allocated, the arguments moved or a quiescent point passed (a page whose
+  // pool was stopped stays idle until start()). a counted argument came
+  // retained for the thread (countedRef): its count is given back, as the
+  // message would have carried it
+  if (!$poolRunning()) {
+    for (const v of args) if (v instanceof CountedArg) release(v.a);
+    throw new Error(STOPPED);
+  }
   const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 4) >> 2] = detached ? 1 : 0;

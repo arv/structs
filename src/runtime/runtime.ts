@@ -149,6 +149,22 @@ const busy = () => {
 const done = () => {
   Atomics.sub(I32, C_BUSY, 1);
 };
+// a spawn's pool operation begun, on a pool that runs: not one shut down
+// either, as a page's stop() leaves it until the next start() resets it. a
+// thread queued there would be lost: the page drops the worker it asks for,
+// the reset clears the queue, and its join would wait for good
+function spawning() {
+  if (!busy()) throw new Error(STOPPED);
+  if (Atomics.load(I32, C_SHUTDOWN) !== 0) {
+    done();
+    throw new Error(STOPPED);
+  }
+}
+// whether a spawn may begin: this thread's pool runs, neither reset since it
+// attached nor shut down (own.ts __start checks before it allocates the
+// thread's block, or passes a quiescent point: a page stopped stays idle)
+export const $poolRunning = () =>
+  !stale() && Atomics.load(I32, C_SHUTDOWN) === 0;
 
 // ---- allocation: bump, per-thread chunks. only blocks own.ts counts are freed
 // ($freeBlock) ----
@@ -1001,7 +1017,7 @@ function retire(p: number) {
 // ---- the pool's threads ----
 // queue a thread block for the pool (own.ts __start makes them)
 export function spawnThread(t: number) {
-  if (!busy()) throw new Error(STOPPED);
+  spawning();
   try {
     Atomics.add(I32, C_LIVE, 1);
     try {
@@ -1119,6 +1135,13 @@ export function attach(
   postMessage: (message: Message) => void,
   writeOut: (text: string) => void,
 ) {
+  // the runtime loaded before the heap was made: its views of shared memory,
+  // module constants, are of none. on a page, a module that imports the
+  // threads API was evaluated before "@arv/threads/heap"
+  if (SAB === null)
+    throw new Error(
+      'threads: import "@arv/threads/heap" first in the page\'s entry module, before any module that imports "@arv/threads": the runtime loaded before the shared memory was made',
+    );
   if (sab !== SAB)
     throw new Error('threads: attach to the heap the worker was started with');
   post = postMessage;
@@ -1359,7 +1382,7 @@ export const $resumed = () => {
 };
 // queue an async thread for a host
 export function spawnAsync(t: number) {
-  if (!busy()) throw new Error(STOPPED);
+  spawning();
   try {
     spawnAsyncBusy(t);
   } finally {

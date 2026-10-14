@@ -296,8 +296,14 @@ function count(counts: SharedMap<string, Count>, words: Shared<string[]>) {
 ```
 
 **The page** (`"@arv/threads/browser"`): `start({ workers, check, onLog })`
-starts the pool (one worker per core by default; `run` starts it if needed),
-`run(f, ...args)` runs `f` on a thread and resolves with its result, `stop()`.
+starts the pool (one worker per core by default), `run(f, ...args)` runs `f` on
+a thread and resolves with its result, and `stop()` stops the pool. The options
+are the first `start()`'s: `run` starts the pool with the defaults if it has not
+started, so a page that wants others calls `start` before its first `run`, and a
+later `start` with other options throws. `stop()` terminates the workers, with
+the threads they ran, and fails the runs waiting; a spawn then throws until
+`start()` starts a new pool on the same heap. That is also how a stuck pool (a
+thread that never ends, say) is recovered: `stop()`, then `start()` again.
 
 **Odds and ends**: `log(...args)` prints a line from any thread; `heapStats()`
 reports shared memory in use and blocks allocated and freed.
