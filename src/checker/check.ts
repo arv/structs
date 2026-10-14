@@ -1,10 +1,12 @@
 // check(tsconfigPath, { runtime }): the diagnostics that
 // `tsgo own check -p <tsconfig> --ownRuntime <runtime>` reports, computed with
-// TypeScript 7.1's API instead of a fork of the compiler.
+// TypeScript 7.1's API instead of a fork of the compiler; or the tsconfig's
+// errors, as tsc reports them, if it has any.
 
 import {isAbsolute, resolve} from 'node:path';
 import type {SourceFile} from 'typescript/ast';
 import {API} from 'typescript/sync';
+import type {Diagnostic as TsDiagnostic} from 'typescript/sync';
 import {Own} from './context.ts';
 import {createHost, ModuleKind} from './host.ts';
 import type {Host} from './host.ts';
@@ -47,6 +49,13 @@ export function check(
       );
     }
     try {
+      // the tsconfig's own errors, as tsc reports them, and nothing checked
+      // past them: a tsconfig that names no files, or does not parse (the
+      // parse is lenient, and drops what it cannot read: `paths`, say, and with
+      // them the runtime)
+      const configErrors = host.program.getConfigFileParsingDiagnostics();
+      if (configErrors.length > 0)
+        return sortAndDeduplicate(configErrors.map(fromApi));
       return checkProgram(host, tsconfig, options.runtime);
     } finally {
       host.snapshot.dispose();
@@ -175,6 +184,25 @@ function optionDiagnostic(
     col: character + 1,
     code,
     message,
+  };
+}
+
+// A diagnostic of the API as the checker's, as tsc prints it plain: the message
+// and its chain, each link on a line of its own, indented, and no related
+// information.
+function fromApi(d: TsDiagnostic): Diagnostic {
+  const flatten = (d: TsDiagnostic, indent: number): string =>
+    (indent ? '\n' + '  '.repeat(indent) : '') +
+    d.text +
+    (d.messageChain ?? []).map(next => flatten(next, indent + 1)).join('');
+  const at = d.fileName !== undefined ? d.startPosition : undefined;
+  return {
+    file: at ? d.fileName : undefined,
+    start: at ? d.pos : 0,
+    line: at ? at.line + 1 : 0,
+    col: at ? at.character + 1 : 0,
+    code: d.code,
+    message: flatten(d, 0),
   };
 }
 

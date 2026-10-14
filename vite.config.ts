@@ -17,10 +17,11 @@ export default defineConfig({
     sortPackageJson: true,
     ignorePatterns: [
       // the checker's cases, whose diagnostics are expected at fixed lines and
-      // columns
+      // columns, and its tsconfigs with errors (one does not parse)
       'src/checker/test/cases/**',
       'src/checker/test/diverging/**',
       'src/checker/test/expected/**',
+      'src/checker/test/config-errors/**',
     ],
   },
   test: {
@@ -32,10 +33,11 @@ export default defineConfig({
     rules: {'vite-plus/prefer-vite-plus-imports': 'error'},
     options: {typeAware: true, typeCheck: true},
     ignorePatterns: [
-      // programs wrong on purpose: the checker's cases, and the mistakes it
-      // catches
+      // programs wrong on purpose: the checker's cases, its projects whose
+      // tsconfigs have errors, and the mistakes it catches
       'src/checker/test/cases/**',
       'src/checker/test/diverging/**',
+      'src/checker/test/config-errors/**',
       'playground/programs/mistakes.ts',
     ],
   },

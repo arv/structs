@@ -24,6 +24,29 @@ describe('threads-check', () => {
     ).toThrow(/no file of the project imports the runtime as 'thread'/);
   });
 
+  it('reports a tsconfig that names no files, as tsc does', () => {
+    const tsconfig = join(
+      checker,
+      'test/config-errors/no-inputs/tsconfig.json',
+    );
+    expect(
+      check(tsconfig, {runtime: 'threads', api}).map(d => formatDiagnostic(d)),
+    ).toEqual([
+      `error TS18003: No inputs were found in config file '${tsconfig}'. Specified 'include' paths were '["src/**/*.ts"]' and 'exclude' paths were '[]'.`,
+    ]);
+  });
+
+  it('reports a tsconfig that does not parse where it does not, and checks nothing', () => {
+    // the lenient parse reads the program and its paths past the missing
+    // comma: send.ts uses what it sent, which a valid tsconfig reports
+    const dir = join(checker, 'test/config-errors/malformed');
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api}).map(d =>
+        formatDiagnostic(d, dir),
+      ),
+    ).toEqual(["tsconfig.json(9,5): error TS1005: ',' expected."]);
+  });
+
   for (const name of readdirSync(cases).sort()) {
     it(`reports what the fork does on ${name}`, () => {
       const dir = join(cases, name);
