@@ -99,10 +99,8 @@ const STR_HI = BOX | (T_STR << 11),
 let lo = 0,
   hi = 0,
   held = 0,
-  // a key string to add: the map takes a count of it only if it adds the key
-  // (see counted), and none at all if no string table has it (absent)
-  pending: string | null = null,
-  absent = false;
+  // a key string to add: interned under the map's lock (see keyed)
+  pending: string | null = null;
 const RETAIN = 1,
   ADOPT = 2;
 const scratch = new Float64Array(1),
@@ -114,7 +112,6 @@ const scratch = new Float64Array(1),
 function encode(v: unknown, key: boolean, adding: boolean): boolean {
   held = 0;
   pending = null;
-  absent = false;
   switch (typeof v) {
     case 'number':
       if (v !== v) {
@@ -127,13 +124,12 @@ function encode(v: unknown, key: boolean, adding: boolean): boolean {
       }
       return true;
     case 'string': {
-      const a = !adding || key ? $internFind(v) : $internRef(v);
+      // a key that is added is looked up under the map's lock (see keyed):
+      // what a lookup here finds, or finds absent, may not hold by then
+      const a = adding ? (key ? 0 : $internRef(v)) : $internFind(v);
       hi = STR_HI;
       lo = a;
-      if (a === 0 && v !== '') {
-        if (!adding) return false;
-        absent = true;
-      }
+      if (a === 0 && v !== '' && !adding) return false;
       if (adding && v !== '') {
         if (key) pending = v;
         else held = ADOPT;
@@ -201,11 +197,28 @@ function encodeKeyOrGiveBack(
     throw e;
   }
 }
-// the key word l, h as the map adds it: a pending string, counted now (its
-// address is the one encode found, if it found one: the string cannot have gone
-// since, with no quiescent point between)
-function counted(l: number, how: number, s: string | null): [number, number] {
-  return s === null ? [l, how] : [$internRef(s), ADOPT];
+// the key's word under the map's lock: a pending string (see encode) is
+// interned here, with a count for the map, which keeps its address while the
+// key is looked up and added. outside the lock, another thread may have added
+// the same string meanwhile, or dropped it and added it again at another
+// address: a lookup there would miss the entry, and the map would hold the key
+// twice. the heap may be full: nothing is taken then, and the value's count
+// (vl, vh, vhow), if any, goes back
+function keyed(
+  l: number,
+  how: number,
+  s: string | null,
+  vl = 0,
+  vh = 0,
+  vhow = 0,
+): [number, number] {
+  if (s === null) return [l, how];
+  try {
+    return [$internRef(s), ADOPT];
+  } catch (e) {
+    unheld(vl, vh, vhow);
+    throw e;
+  }
 }
 // gives back the count a word encode made came with, which the map does not
 // keep (its key was there already)
@@ -354,28 +367,24 @@ function append(m: number, w: number, h: number, l: number, how: number) {
   I32[(m >> 2) + SIZE] = size + 1;
   return e;
 }
-// append, for the key l, h held as how says (or a pending string s, counted
-// now), when the heap may be full: a bigger table, or the key's string, may
-// not fit, and then nothing holds the counts the key, and a map's value (vl,
-// vh, vhow), came with. they are given back, and the error goes on
+// append, for the key l, h held as how says, when the heap may be full: a
+// bigger table may not fit, and then nothing holds the counts the key, and a
+// map's value (vl, vh, vhow), came with. they are given back, and the error
+// goes on
 function appendOrGiveBack(
   m: number,
   w: number,
   h: number,
   l: number,
   how: number,
-  s: string | null,
   vl = 0,
   vh = 0,
   vhow = 0,
 ) {
-  let kl = l,
-    khow = how;
   try {
-    [kl, khow] = counted(l, how, s);
-    return append(m, w, h, kl, khow);
+    return append(m, w, h, l, how);
   } catch (e) {
-    unheld(kl, h, khow);
+    unheld(l, h, how);
     unheld(vl, vh, vhow);
     throw e;
   }
@@ -563,24 +572,22 @@ export class SharedMap<K = unknown, V = unknown> {
       vhow = held;
     encodeKeyOrGiveBack(key, vl, vh, vhow);
     const m = this.$cell,
-      l = lo,
       h = hi,
-      how = held,
-      s = pending,
-      no = absent;
+      s = pending;
     // under the lock, what allocates (a bigger table, a key's string) throws
     // when the heap is full: the lock is released either way, here and below
     $lock((m >> 2) + LOCK);
     try {
+      const [l, how] = keyed(lo, held, s, vl, vh, vhow);
       const t = I32[(m >> 2) + TABLE],
-        i = no ? -1 : find(t, MAP_ENTRY, l, h);
+        i = find(t, MAP_ENTRY, l, h);
       let e: number;
       if (i >= 0) {
         // a new value, in the key's place
         e = entriesAt(t) + i * MAP_ENTRY;
         drop(e, MAP_ENTRY, 8, VALUE_HELD);
         unheld(l, h, how);
-      } else e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, s, vl, vh, vhow);
+      } else e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, vl, vh, vhow);
       store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
     } finally {
       $unlock((m >> 2) + LOCK);
@@ -595,25 +602,23 @@ export class SharedMap<K = unknown, V = unknown> {
       vhow = held;
     encodeKeyOrGiveBack(key, vl, vh, vhow);
     const m = this.$cell,
-      l = lo,
       h = hi,
-      how = held,
-      s = pending,
-      no = absent;
+      s = pending;
     let wf = 0,
       wh = 0,
       wp = 0;
     $lock((m >> 2) + LOCK);
     try {
+      const [l, how] = keyed(lo, held, s, vl, vh, vhow);
       const t = I32[(m >> 2) + TABLE],
-        i = no ? -1 : find(t, MAP_ENTRY, l, h);
+        i = find(t, MAP_ENTRY, l, h);
       let e: number;
       if (i >= 0) {
         e = entriesAt(t) + i * MAP_ENTRY;
         unheld(l, h, how);
         unheld(vl, vh, vhow);
       } else {
-        e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, s, vl, vh, vhow);
+        e = appendOrGiveBack(m, MAP_ENTRY, h, l, how, vl, vh, vhow);
         store(e, MAP_ENTRY, 8, vl, vh, vhow, VALUE_HELD);
       }
       wf = F64[(e + 8) >> 3];
@@ -721,14 +726,13 @@ export class SharedSet<T = unknown> {
   add(value: T): this {
     encode(value, true, true);
     const m = this.$cell,
-      l = lo,
       h = hi,
-      how = held,
       s = pending;
     $lock((m >> 2) + LOCK);
     try {
-      if (absent || find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
-        appendOrGiveBack(m, SET_ENTRY, h, l, how, s);
+      const [l, how] = keyed(lo, held, s);
+      if (find(I32[(m >> 2) + TABLE], SET_ENTRY, l, h) < 0)
+        appendOrGiveBack(m, SET_ENTRY, h, l, how);
       else unheld(l, h, how);
     } finally {
       $unlock((m >> 2) + LOCK);

@@ -379,6 +379,68 @@ describe('SharedSet', () => {
   });
 });
 
+describe('a new string key, added by two threads at once', () => {
+  // the second thread's add runs as the first takes the map's lock, after the
+  // first looked the key up: the first must find the entry the second added,
+  // not add a second one. this test is both threads in turn: the other
+  // thread's add runs inside the compare-exchange that takes the lock
+  type Cas = (arr: Int32Array, i: number, a: number, b: number) => number;
+  const atomics = Atomics as unknown as {compareExchange: Cas};
+  const racing = (lockIndex: number, other: () => void, mine: () => void) => {
+    const cas = atomics.compareExchange;
+    let armed = true;
+    atomics.compareExchange = (arr, i, a, b) => {
+      if (armed && arr === runtime.I32 && i === lockIndex && a === 0) {
+        armed = false;
+        other();
+      }
+      return cas(arr, i, a, b);
+    };
+    try {
+      mine();
+    } finally {
+      atomics.compareExchange = cas;
+    }
+  };
+  const lockOf = (cell: {$cell: number}) => (cell.$cell >> 2) + 2;
+
+  it('set: one entry, the later value', () => {
+    const m = new T.SharedMap<string, number>();
+    racing(
+      lockOf(m),
+      () => m.set('new word', 2),
+      () => m.set('new word', 1),
+    );
+    expect(m.size).toBe(1);
+    expect([...m]).toEqual([['new word', 1]]);
+    expect(m.delete('new word')).toBe(true);
+    expect(m.get('new word')).toBeUndefined();
+  });
+
+  it('getOrInsertComputed: both threads get the one value', () => {
+    const counts = new T.SharedMap<string, number>();
+    let mine = 0;
+    racing(
+      lockOf(counts),
+      () => counts.getOrInsertComputed('w7', () => 200),
+      () => (mine = counts.getOrInsertComputed('w7', () => 100)),
+    );
+    expect(mine).toBe(200);
+    expect([...counts]).toEqual([['w7', 200]]);
+  });
+
+  it('SharedSet.add: one member', () => {
+    const s = new T.SharedSet<string>();
+    racing(
+      lockOf(s),
+      () => s.add('once'),
+      () => s.add('once'),
+    );
+    expect(s.size).toBe(1);
+    expect([...s]).toEqual(['once']);
+  });
+});
+
 describe('freeing a map', () => {
   it('holds a count on each cell in it, and gives it back', () => {
     const N = own.sharedStruct('MapN', ['v'], []);
