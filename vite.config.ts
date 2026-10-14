@@ -1,7 +1,11 @@
 // Vite+ for the whole workspace: `vp dev` and `vp build` here run the
 // playground, `vp fmt` formats everything with Oxfmt, `vp lint` lints it all
 // type-aware, and `vp check` does both and checks types
+import {fileURLToPath} from 'node:url';
 import {defineConfig} from 'vite-plus';
+
+const here: (file: string) => string = file =>
+  fileURLToPath(new URL(file, import.meta.url));
 
 export default defineConfig({
   defaultPackage: './playground',
@@ -26,7 +30,16 @@ export default defineConfig({
   },
   test: {
     // tests sit next to what they test
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'playground/*.test.ts'],
+    // the playground's imports of the runtime, as its Vite config resolves
+    // them
+    alias: [
+      {find: /^@arv\/threads$/, replacement: here('src/runtime/threads.ts')},
+      {
+        find: /^@arv\/threads\/(heap|browser|compiled)$/,
+        replacement: here('src/runtime/$1.ts'),
+      },
+    ],
   },
   lint: {
     jsPlugins: [{name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin'}],

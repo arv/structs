@@ -295,6 +295,13 @@
       <button id="run" title="Starts main(threadCounts) on a worker" disabled>
         Run
       </button>
+      <button
+        id="stop"
+        title="Stops the run: its workers end, with every thread on them, and new ones start"
+        disabled
+      >
+        Stop
+      </button>
       <span id="status">Starting the workers…</span>
       <a id="repo" href="https://github.com/arv/threads"
         >arv/threads on GitHub</a
@@ -328,7 +335,7 @@
         Output
         <span class="hint"
           >Run starts main on a worker, like any thread, so it may block; the
-          page only awaits it</span
+          page only awaits it, and Stop ends it</span
         >
         <button id="clear" class="quiet">Clear</button>
       </h2>

@@ -36,7 +36,9 @@ TypeScript's hover types, completions and errors from the threads API, and see:
   own check in the browser), as squiggles in the editor and in a list;
 - its output, run on a pool of Web Workers (Run). `main` runs on a worker too,
   started like any other thread, so it may block (`join`, `recv`, a barrier);
-  the page itself never blocks, it only awaits `main`'s result.
+  the page itself never blocks, it only awaits `main`'s result. Stop ends a run
+  that does not end: the pool stops, with every thread on it, and another
+  starts.
 
 `vp run typecheck` checks the programs' types, and `vp run own-check` runs the
 ownership checker on them, as CI would.

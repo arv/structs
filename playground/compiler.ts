@@ -66,16 +66,20 @@ async function load() {
     }),
   );
   const go = new Go();
-  const ready = new Promise<void>(resolve => {
-    globalThis.threadsCompilerReady = resolve;
-  });
   // compiled as it arrives
   const {instance} = await WebAssembly.instantiateStreaming(
     new Response(counted, {headers: {'Content-Type': 'application/wasm'}}),
     go.importObject,
   );
-  void go.run(instance);
-  await ready;
+  // the compiler says when it is ready, and then runs for good: one that
+  // exits before never will be
+  await new Promise<void>((resolve, reject) => {
+    globalThis.threadsCompilerReady = resolve;
+    go.run(instance).then(
+      () => reject(new Error('the compiler exited before it was ready')),
+      reject,
+    );
+  });
   post({type: 'ready', ms: Math.round(performance.now() - t0)});
 }
 

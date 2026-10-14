@@ -7,7 +7,7 @@
 // itself, with the fork in WebAssembly (wasm.ts).
 // first: the shared memory, before anything that uses it loads
 import '@arv/threads/heap';
-import {run, start} from '@arv/threads/browser';
+import {run, start, stop} from '@arv/threads/browser';
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
@@ -126,16 +126,31 @@ const diagnostics = $('diagnostics'),
   output = $('output');
 const status = $('status'),
   runButton = $<HTMLButtonElement>('run'),
+  stopButton = $<HTMLButtonElement>('stop'),
   preset = $<HTMLSelectElement>('preset');
 const threadsInput = $<HTMLInputElement>('threads');
 
 let result: Result | null = null,
   compiling = 0,
   compilingNow = false,
-  running = false,
+  compileFailed = false,
+  // the run under way: Stop ends it, and how it would have ended is not shown
+  running: {t0: number} | null = null,
   timer = 0,
-  workers = 0;
-const ready = () => (workers ? `Ready · ${workers} workers` : 'Ready');
+  // the pool: its workers once it started, or why it did not
+  workers = 0,
+  failed = '';
+const ready = () =>
+  failed
+    ? `The workers did not start: ${failed}`
+    : workers
+      ? `Ready · ${workers} workers`
+      : 'Ready';
+// the pool's state, in the status unless it shows a compile, under way or
+// failed
+const showReady = () => {
+  if (!compilingNow && !compileFailed) status.textContent = ready();
+};
 const mode = () =>
   (document.querySelector('input[name="mode"]:checked') as HTMLInputElement)
     .value as 'compiled' | 'erased';
@@ -327,10 +342,12 @@ async function compile() {
       : await compileOnServer(sourceModel.getValue());
     if (id !== compiling) return;
     result = compiled;
+    compileFailed = false;
     status.textContent = ready();
     showJs();
   } catch (e) {
     if (id !== compiling) return;
+    compileFailed = true;
     status.textContent = inBrowser
       ? 'The compiler failed.'
       : "The playground compiles on Vite's dev server, which this page could not reach.";
@@ -374,7 +391,8 @@ function showDownload(p: Parameters<Parameters<typeof startCompiler>[0]>[0]) {
 function updateRun() {
   const code =
     result && (mode() === 'compiled' ? result.compiled.js : result.erased.js);
-  runButton.disabled = running || !code || compilingNow;
+  runButton.disabled = running !== null || !code || compilingNow;
+  stopButton.disabled = running === null;
 }
 
 // ---- running: the program's lines, with the 256-color backgrounds Mandelbrot
@@ -433,6 +451,33 @@ function print(html: string) {
   output.scrollTop = output.scrollHeight;
 }
 
+// the pool, printing what its threads print here (run() alone would start one
+// that prints to the console): started as the page loads, after Stop, and by
+// a run after one that did not start. the status says how it went
+let pool: Promise<void> | null = null;
+function startPool() {
+  if (pool) return pool;
+  // start() throws, or rejects, when the pool does not start
+  const p = (pool = new Promise<void>(resolve =>
+    resolve(start({onLog: text => print(ansiToHtml(text))})),
+  ));
+  p.then(
+    () => {
+      if (pool !== p) return;
+      workers = navigator.hardwareConcurrency;
+      failed = '';
+      showReady();
+    },
+    (e: unknown) => {
+      if (pool !== p) return;
+      pool = null;
+      failed = e instanceof Error ? e.message : String(e);
+      showReady();
+    },
+  );
+  return p;
+}
+
 runButton.addEventListener('click', async () => {
   if (!result) return;
   const counts = threadsInput.value
@@ -442,12 +487,11 @@ runButton.addEventListener('click', async () => {
   const erased = mode() === 'erased',
     name = erased ? `${result.key}.erased` : result.key,
     code = erased ? result.erased.js : result.compiled.js;
-  running = true;
+  const current = (running = {t0: performance.now()});
   updateRun();
   print(
     `<div class="run">${erased ? 'Types erased' : 'Compiled'} · ${preset.selectedOptions[0]?.text ?? 'program'} · main(${JSON.stringify(counts)}) on a worker</div>`,
   );
-  const t0 = performance.now();
   try {
     const program = await import(
       /* @vite-ignore */ inBrowser
@@ -456,17 +500,40 @@ runButton.addEventListener('click', async () => {
     );
     if (typeof program.main !== 'function')
       throw new Error('the program exports no main(threadCounts)');
+    await startPool();
+    // stopped meanwhile: it does not start
+    if (running !== current) return;
     // main runs on a worker, like any thread; the page awaits it
     await run(program.main, counts);
-    print(
-      `<div class="done">done in ${(performance.now() - t0).toFixed(0)} ms</div>`,
-    );
+    if (running === current)
+      print(
+        `<div class="done">done in ${(performance.now() - current.t0).toFixed(0)} ms</div>`,
+      );
   } catch (e) {
-    print(`<div class="error">${escapeHtml(String(e))}</div>`);
+    if (running === current)
+      print(`<div class="error">${escapeHtml(String(e))}</div>`);
   } finally {
-    running = false;
-    updateRun();
+    if (running === current) {
+      running = null;
+      updateRun();
+    }
   }
+});
+
+// a run that does not end (main waits for good, say) ends here: the pool stops,
+// with every thread on it, and another starts
+stopButton.addEventListener('click', () => {
+  if (!running) return;
+  print(
+    `<div class="done">stopped after ${(performance.now() - running.t0).toFixed(0)} ms</div>`,
+  );
+  running = null;
+  pool = null;
+  workers = 0;
+  stop();
+  showReady();
+  void startPool();
+  updateRun();
 });
 
 // ---- the rest of the page ----
@@ -518,10 +585,7 @@ $('clear').addEventListener('click', () => {
 
 if (inBrowser) startCompiler(showDownload);
 compile();
-start({onLog: text => print(ansiToHtml(text))}).then(() => {
-  workers = navigator.hardwareConcurrency;
-  if (!compilingNow) status.textContent = ready();
-});
+void startPool();
 (window as unknown as {__playground: unknown}).__playground = {
   get result() {
     return result;

@@ -30,7 +30,10 @@ export type Progress =
   | {error: string};
 
 let worker: Worker | null = null,
-  next = 0;
+  next = 0,
+  // why the compiler is gone, once it is: what is asked of it then fails at
+  // once
+  failure: Error | null = null;
 const waiting = new Map<
   number,
   {resolve: (c: Compiled) => void; reject: (e: Error) => void}
@@ -41,26 +44,36 @@ export function startCompiler(onProgress: (p: Progress) => void) {
   worker = new Worker(new URL('./compiler.ts', import.meta.url), {
     type: 'module',
   });
+  // the compiler is gone: nothing answers what waits for it
+  const gone = (message: string) => {
+    onProgress({error: message});
+    failure = new Error(message);
+    for (const w of waiting.values()) w.reject(failure);
+    waiting.clear();
+  };
   worker.onmessage = ({data: m}: MessageEvent<CompilerMessage>) => {
     if (m.type === 'progress') onProgress(m);
     else if (m.type === 'ready') onProgress({ready: m.ms});
     else if (m.type === 'result') {
       waiting.get(m.id)?.resolve(JSON.parse(m.json) as Compiled);
       waiting.delete(m.id);
-    } else if (m.id === null) {
-      onProgress({error: m.message});
-      for (const w of waiting.values()) w.reject(new Error(m.message));
-      waiting.clear();
-    } else {
+    } else if (m.id === null) gone(m.message);
+    else {
       waiting.get(m.id)?.reject(new Error(m.message));
       waiting.delete(m.id);
     }
   };
+  // its script did not load, or threw (a script that does not load has no
+  // message)
+  worker.onerror = e => gone(e.message || "the compiler's worker did not load");
+  worker.onmessageerror = () =>
+    gone("the compiler's worker sent what this page could not read");
 }
 
 // source compiled as the dev server compiles it (vite-plugin-threads.ts), but
 // with `tsgo own check`'s ownership errors, and tsgo erasing the types
 export async function compileInBrowser(source: string, types: string) {
+  if (failure) throw failure;
   const id = ++next;
   const c = await new Promise<Compiled>((resolve, reject) => {
     waiting.set(id, {resolve, reject});
