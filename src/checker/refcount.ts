@@ -7,7 +7,10 @@
 //   - a captured counted variable that is reassigned (96020), and a counted
 //     local captured by a method or a class (96023);
 //   - a generator's counted parameter (96025), and a `struct(...)` field that
-//     is not a number, a boolean, a string or a reference (96015).
+//     is not a number, a boolean, a string or a reference (96015);
+//   - and, no rule of counting but checked at the same calls, a Thread or a
+//     Scope sent to another thread or shared (96037), which the runtime
+//     refuses.
 //
 // Only the part of the counting rules that these errors depend on is here:
 // whether the value of an expression is counted at all (getCount), not how
@@ -27,6 +30,7 @@ import {
   nonNullishMembers,
 } from './layout.ts';
 import {
+  checkStaysHere,
   checkStructCall,
   getBlockingCall,
   getCallMarker,
@@ -755,8 +759,12 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
         }
         break;
       }
+      case K.NewExpression:
+        checkStaysHere(c, node);
+        break;
       case K.CallExpression: {
         if (getCallMarker(c, node) === 'struct') checkStructCall(c, node);
+        checkStaysHere(c, node);
         if (isAtomicCallValid(c, node) === false)
           c.error(node, Messages.AtomicTarget);
         const blocking = getBlockingCall(c, node);

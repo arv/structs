@@ -220,6 +220,66 @@ describe('threads-check, where it differs from the fork', () => {
     );
   });
 
+  it('refuses a Thread or a Scope sent to another thread or shared', () => {
+    // neither is a cell: the runtime refuses to send or share one, and the
+    // fork, for which both were cells, says nothing. no field holds one, which
+    // the fork reports too
+    const dir = join(checker, 'test/diverging/threads-stay');
+    const thread =
+      "error TS96037: A value of type 'Thread<number>' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.";
+    const scope =
+      "error TS96037: A value of type 'Scope' cannot be sent to another thread or shared: it stays on the thread that made it, which spawns on it in its body.";
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api})
+        .map(d => formatDiagnostic(d, dir))
+        .sort(),
+    ).toEqual(
+      [
+        `threads.ts(13,17): ${thread}`,
+        `threads.ts(14,18): ${scope}`,
+        `threads.ts(15,14): ${thread}`,
+        `threads.ts(16,11): ${thread}`,
+        `threads.ts(17,14): ${thread}`,
+        `threads.ts(18,9): ${thread}`,
+        `threads.ts(19,9): ${thread}`,
+        `threads.ts(20,9): ${thread}`,
+        'threads.ts(24,33): error TS96015: A shared struct field must be a number, a boolean, a string, a shared struct, a SharedArray or a Channel.',
+        // from the review: a constraint, an intersection, a map's or a set's
+        // entries, a map's computed value, and spread tuples
+        `threads.ts(36,9): ${thread}`,
+        `threads.ts(37,9): ${scope}`,
+        `threads.ts(40,9): ${thread}`,
+        `threads.ts(41,9): ${scope}`,
+        `threads.ts(44,17): ${thread}`,
+        `threads.ts(45,17): ${thread}`,
+        `threads.ts(46,30): ${thread}`,
+        `threads.ts(53,12): ${thread}`,
+        `threads.ts(54,9): ${thread}`,
+        `threads.ts(55,14): ${scope}`,
+        `threads.ts(56,20): ${thread}`,
+        // from the second review: interfaces that extend a Thread or a Scope
+        // (and not an iterable's own properties, line 69)
+        "threads.ts(64,9): error TS96037: A value of type 'LocalThread' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+        "threads.ts(65,9): error TS96037: A value of type 'LocalScope' cannot be sent to another thread or shared: it stays on the thread that made it, which spawns on it in its body.",
+        // from the third review: mapped views, the overload a callback is
+        // called by (not line 83's), and a union of tuples spread
+        "threads.ts(76,9): error TS96037: A value of type 'Readonly<Thread<number>>' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+        "threads.ts(77,9): error TS96037: A value of type 'Readonly<Scope>' cannot be sent to another thread or shared: it stays on the thread that made it, which spawns on it in its body.",
+        "threads.ts(78,9): error TS96037: A value of type 'Partial<Thread<number>>' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+        `threads.ts(84,30): ${thread}`,
+        `threads.ts(88,18): ${thread}`,
+        // from the fourth review: views of a constrained type parameter, of an
+        // intersection and Shared<T>'s (and not line 105's, which makes
+        // booleans of a Thread's properties)
+        "threads.ts(96,9): error TS96037: A value of type 'Readonly<T>' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+        "threads.ts(97,9): error TS96037: A value of type 'Readonly<S>' cannot be sent to another thread or shared: it stays on the thread that made it, which spawns on it in its body.",
+        "threads.ts(100,9): error TS96037: A value of type 'Readonly<Thread<number> & { tag: number; }>' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+        "threads.ts(101,9): error TS96037: A value of type 'Partial<Scope & { tag: number; }>' cannot be sent to another thread or shared: it stays on the thread that made it, which spawns on it in its body.",
+        "threads.ts(102,9): error TS96037: A value of type '{ readonly join: () => number; readonly joinAsync: () => Promise<number>; }' cannot be sent to another thread or shared: it stays on the thread that made it, which joins it.",
+      ].sort(),
+    );
+  });
+
   it('refuses recvOk in an async function, as it does recv', () => {
     // the fork's table of blocking calls has no recvOk: an async function
     // waits with recvOkAsync, and a plain one may block

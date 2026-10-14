@@ -60,6 +60,12 @@ export function main() {
     s.spawn(worse);
     s.spawn(ok, 1);
   });
+  // an async body, which awaits an async join of its thread: refused when it
+  // returns its promise, and the thread joined all the same, the async join
+  // refused too (else the scope would pass it by, and leave it running)
+  attempt(async s => {
+    await s.spawn(ok, 1).joinAsync();
+  });
   // in an async function, whose worker must not block: refused before a
   // thread is spawned, which could not be joined
   const done = new Channel<string>();

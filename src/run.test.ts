@@ -82,6 +82,7 @@ describe('programs on threads', () => {
       'scope threw: Error: boom; blocks left behind: 0',
       'scope threw: the body; blocks left behind: 0',
       'scope threw: threads: more than one thread threw: [Error: boom, Error: worse]; blocks left behind: 0',
+      'scope threw: own: the body of scope() must not be async, nor return a promise: what it spawns after an await would outlive the scope. in an async function, spawn the threads and await joinAsync() on each; blocks left behind: 0',
       'scope in an async function: throws; blocks left behind: 0',
     ]);
   });

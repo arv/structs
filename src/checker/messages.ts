@@ -125,6 +125,10 @@ export const Messages = {
     code: 96033,
     text: "A value of type '{0}' cannot be used as '{1}': {2}. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
   },
+  StaysHere: {
+    code: 96037,
+    text: "A value of type '{0}' cannot be sent to another thread or shared: it stays on the thread that made it, which {1}.",
+  },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];
