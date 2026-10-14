@@ -313,9 +313,12 @@ export function select(...chans: Channel[]): [number, unknown] {
     }
     Atomics.add(I32, C_SELECTING, 1);
     $waitBegin();
-    Atomics.wait(I32, C_ACTIVITY, seen);
-    $waitEnd();
-    Atomics.sub(I32, C_SELECTING, 1);
+    try {
+      Atomics.wait(I32, C_ACTIVITY, seen);
+    } finally {
+      $waitEnd();
+      Atomics.sub(I32, C_SELECTING, 1);
+    }
   }
 }
 // the same in an async function: waits without blocking its worker, on the

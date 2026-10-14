@@ -975,8 +975,11 @@ export function threadJoin(a: number) {
   const di = (a + 8) >> 2;
   if (Atomics.load(I32, di) === 0) {
     $waitBegin();
-    while (Atomics.load(I32, di) === 0) Atomics.wait(I32, di, 0);
-    $waitEnd();
+    try {
+      while (Atomics.load(I32, di) === 0) Atomics.wait(I32, di, 0);
+    } finally {
+      $waitEnd(); // a wait that throws leaves the thread running, not waiting
+    }
   }
   return threadResult(a);
 }
@@ -1235,11 +1238,18 @@ let hosting = false,
   cursor = 0,
   started = 0;
 // a blocking call on a host would stop every async thread on it, the one that
-// would wake it perhaps
+// would wake it perhaps; and a page's main thread cannot block at all
+// (Atomics.wait throws there, after the call has marked the thread waiting,
+// and in join() after it has committed to the join). either way the call
+// throws first, before anything changes
 export function $mustNotBlock(what: string, instead?: string) {
   if (hosting)
     throw new TypeError(
       `threads: ${what} would block a worker that runs async functions, and every one waiting on it: ${instead ? `use ${instead}` : 'an async function must not block'}`,
+    );
+  if (!CAN_BLOCK)
+    throw new TypeError(
+      `threads: ${what} would block the page's main thread, which cannot block: ${instead ? `use ${instead}` : 'run it on a thread'}`,
     );
 }
 // after an async function's wait: with every other async thread of this worker

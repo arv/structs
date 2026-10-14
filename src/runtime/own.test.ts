@@ -626,6 +626,43 @@ describe('strings are collected', () => {
 
 function noop() {}
 
+describe('a wait that throws', () => {
+  // Atomics.wait throws where a thread may not block (a page's main thread);
+  // the runtime refuses such calls first ($mustNotBlock), but should a wait
+  // throw regardless, the thread is left running, not waiting, and select's
+  // count of waiters balanced. the wait is made to throw here
+  const QS_1 = 2048 + 8 + 5, // thread 1's quiescent state (T_QS of its entry)
+    SELECTING = 24, // C_SELECTING
+    IDLE = 0x7fffffff;
+  const atomics = Atomics as unknown as {wait: typeof Atomics.wait};
+  const throwing = (f: () => void) => {
+    const wait = atomics.wait;
+    atomics.wait = () => {
+      throw new TypeError('cannot block here');
+    };
+    try {
+      f();
+    } finally {
+      atomics.wait = wait;
+    }
+  };
+  it('a join leaves the thread running', () => {
+    // a thread block whose done word is 0: the join waits on it
+    const t = runtime.$allocBlock(32);
+    throwing(() => expect(() => runtime.threadJoin(t)).toThrow(TypeError));
+    expect(runtime.I32[QS_1]).not.toBe(IDLE);
+    runtime.$freeBlock(t, 32);
+  });
+
+  it('a select leaves the thread running, and no waiter counted', () => {
+    const ch = new T.Channel();
+    const selecting = runtime.I32[SELECTING];
+    throwing(() => expect(() => T.select(ch)).toThrow(TypeError));
+    expect(runtime.I32[QS_1]).not.toBe(IDLE);
+    expect(runtime.I32[SELECTING]).toBe(selecting);
+  });
+});
+
 describe('the rest', () => {
   beforeAll(() => {
     logged.length = 0;
