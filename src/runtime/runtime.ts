@@ -32,6 +32,10 @@ const C_AQ_LOCK = 25,
   C_AQ_LEN = 28; // async threads waiting for a host (see spawnAsync)
 const C_HOSTS = 29,
   C_DRAFTS = 30; // workers that host async threads, and idle workers asked to
+const C_PEND_MIN = 31; // the oldest epoch on the C_PEND list (see reclaim)
+// a nudge is on its way to the page (see nudgePage). word 3, after the bump
+// cursor, is free (32 up to the ring is the counters')
+const C_NUDGED = 3;
 // free list heads: C_FREE + n for blocks of n * 8 bytes (n <= 256), C_FREE for
 // larger
 const C_FREE = 1100;
@@ -101,14 +105,17 @@ export const CAN_BLOCK = (() => {
   }
 })();
 
-// what a pool worker posts to the page (browser.ts)
+// what a pool worker posts to the page (browser.ts). a nudge: the page, thread
+// 1, holds up freeing, and passes a quiescent point when it gets the message
 export type Message =
   | {type: 'out'; text: string}
   | {type: 'grow'}
   | {type: 'ready'}
-  | {type: 'crash'; message: string};
+  | {type: 'crash'; message: string}
+  | {type: 'nudge'};
 
-let CHECK = false;
+let CHECK = false,
+  NUDGE = false;
 // the runtime's check option: slower, stricter (poisons freed blocks)
 export const $checking = () => CHECK;
 
@@ -307,17 +314,24 @@ const IDLE = 0x7fffffff;
 // address -p is a block to free, see retire)
 let pend: number[] = [];
 let deferHandler: ((p: number) => void) | null = null,
-  qsTick = 0;
+  qsTick = 0,
+  // the queue's length at which a quiescent point reclaims: 4096, or twice
+  // what a reclaim found held up (see reclaim)
+  pendLimit = 4096,
+  // the queue's length at the last reclaim that freed nothing; -1 after one
+  // that freed something (see reclaim)
+  stuckLen = -1;
 export const setDeferHandler: (f: (p: number) => void) => void = f => {
   deferHandler = f;
 };
 export function $defer(p: number) {
   pend.push(Atomics.load(I32, C_EPOCH), p);
   count(N_DEFER);
+  if (!CAN_BLOCK) pageLater();
 }
 export function $quiescent() {
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
-  if ((++qsTick & 63) === 0 || pend.length >= 4096) reclaim();
+  if ((++qsTick & 63) === 0 || pend.length >= pendLimit) reclaim();
 }
 // around a blocking wait: quiescent throughout
 export function $waitBegin() {
@@ -328,12 +342,13 @@ export const $waitEnd = () => {
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
 };
 // the oldest epoch a running thread may still hold an uncounted address from
-function oldestEpoch() {
+// (`but`: an entry left out)
+function oldestEpoch(but = 0) {
   let min = IDLE;
   const n = Atomics.load(I32, C_NEXT_TID);
   for (let t = 1; t < n; t++) {
     const e = C_THREADS + t * T_ENTRY;
-    if (Atomics.load(I32, e + T_ALIVE) === 1) {
+    if (e !== but && Atomics.load(I32, e + T_ALIVE) === 1) {
       const q = Atomics.load(I32, e + T_QS);
       if (q < min) min = q;
     }
@@ -342,11 +357,51 @@ function oldestEpoch() {
 }
 // apply the queued decrements that are safe now (at a quiescent point)
 function reclaim() {
-  if (pend.length === 0 && Atomics.load(I32, C_PEND_LEN) === 0) return;
+  if (pend.length === 0 && Atomics.load(I32, C_PEND_LEN) === 0) {
+    stuckLen = -1;
+    pendLimit = 4096;
+    return;
+  }
   // so what is queued now is older than every later quiescent point
   Atomics.add(I32, C_EPOCH, 1);
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   const min = oldestEpoch();
+  // this thread's queue is in epoch order, and the shared list's oldest epoch
+  // is kept: when neither has a decrement that is safe yet, a thread that has
+  // yet to pass a quiescent point holds them all up (a page between tasks, a
+  // host computing). looking at each one again at every quiescent point, which
+  // a loop that stores references reaches at every iteration, would cost that
+  // loop a walk of the queue per iteration: nudge the thread instead, and look
+  // again once the queue has doubled
+  if (
+    (pend.length === 0 || pend[0] >= min) &&
+    (Atomics.load(I32, C_PEND_LEN) === 0 ||
+      Atomics.load(I32, C_PEND_MIN) >= min)
+  ) {
+    // at the reclaim the queue's growth brought on, not at every 64th point:
+    // a loop that defers at every iteration would else nudge at every 64th,
+    // and the page would do little but take nudges. and at a reclaim that
+    // finds the queue as the last one left it, held up by the page alone: a
+    // thread that defers no more would else hold what it deferred until its
+    // end. a thread's end, and a drain, nudge on their own; and the shared
+    // list, once the page alone holds it up, is nudged for from any reclaim
+    if (pend.length >= pendLimit) {
+      nudgeHosts();
+      if (NUDGE) nudgePage();
+    } else if (
+      NUDGE &&
+      pend.length !== 0 &&
+      pend.length === stuckLen &&
+      pend[0] < oldestEpoch(C_THREADS + T_ENTRY)
+    )
+      nudgePage(true);
+    nudgePageForShared();
+    stuckLen = pend.length;
+    pendLimit = Math.max(4096, pend.length * 2);
+    return;
+  }
+  stuckLen = -1;
+  pendLimit = 4096;
   const list = pend;
   pend = [];
   if (Atomics.load(I32, C_PEND_LEN) !== 0) {
@@ -354,7 +409,8 @@ function reclaim() {
     mlock(C_PEND_LOCK);
     const b = I32[C_PEND] >> 2,
       n = I32[C_PEND_LEN];
-    let kept = 0;
+    let kept = 0,
+      keptMin = IDLE;
     for (let k = 0; k < n; k++) {
       const g = I32[b + 2 * k],
         p = I32[b + 2 * k + 1];
@@ -363,9 +419,11 @@ function reclaim() {
         I32[b + 2 * kept] = g;
         I32[b + 2 * kept + 1] = p;
         kept++;
+        if (g < keptMin) keptMin = g;
       }
     }
     Atomics.store(I32, C_PEND_LEN, kept);
+    Atomics.store(I32, C_PEND_MIN, keptMin);
     munlock(C_PEND_LOCK);
   }
   for (let k = 0; k < list.length; k += 2) {
@@ -373,7 +431,12 @@ function reclaim() {
     else if (list[k + 1] < 0) retire(-list[k + 1]);
     else deferHandler!(list[k + 1]); // may queue more, in pend
   }
-  if (pend.length >= 4096) nudgeHosts();
+  // many are held up still, by the page perhaps
+  if (pend.length >= 4096) {
+    nudgeHosts();
+    if (NUDGE) nudgePage();
+  }
+  nudgePageForShared();
 }
 // a host whose async threads all wait passes no quiescent point until one
 // resumes: ring the bells of those behind, so that each passes one (see
@@ -390,6 +453,87 @@ function nudgeHosts() {
     )
       ring(e);
   }
+}
+// a page (browser.ts) is thread 1, and passes no quiescent point of its own
+// between the tasks it runs: when it is the thread that holds up freeing, a
+// worker posts it a nudge, and it passes one as it gets the message, and
+// frees what that makes safe (a message, unlike a timer, is not throttled on
+// a hidden page). one nudge at a time, between all workers: until the page
+// has handled it, it will see what is queued meanwhile, as its reclaim comes
+// after it takes the nudge, so none is lost, and none sent twice. a page that
+// waits (stop(), browser.ts) is not nudged, nor one that is not behind, unless
+// `anyway`: the shared list holds decrements only the page may hold up, safe
+// already perhaps, which no thread but the page is about to free (threadEnd)
+function nudgePage(anyway = false) {
+  const e = C_THREADS + T_ENTRY;
+  if (e === ME || Atomics.load(I32, e + T_ALIVE) !== 1) return;
+  const q = Atomics.load(I32, e + T_QS);
+  if (q === IDLE || (!anyway && q >= Atomics.load(I32, C_EPOCH))) return;
+  if (Atomics.compareExchange(I32, C_NUDGED, 0, 1) !== 0) return;
+  try {
+    post({type: 'nudge'});
+  } catch (err) {
+    // the next one is to go: as it stands, none would (see enqueue)
+    Atomics.store(I32, C_NUDGED, 0);
+    console.warn(`threads: could not nudge the page: ${String(err)}`);
+  }
+}
+// what the shared list holds that every running thread but the page is past
+// is the page's to free: held up by the page alone, or safe already (the
+// page's point passed between a thread's reclaim and its hand-off, say), and
+// no thread but the page is about to look at it, as the thread that handed
+// it off is gone, and another's reclaim takes only what is safe for all.
+// not when another thread holds the list up: the page's point would free
+// nothing, and that thread's reclaim comes here once it is past
+function nudgePageForShared() {
+  if (
+    NUDGE &&
+    Atomics.load(I32, C_PEND_LEN) !== 0 &&
+    Atomics.load(I32, C_PEND_MIN) < oldestEpoch(C_THREADS + T_ENTRY)
+  )
+    nudgePage(true);
+}
+// what a page does with a nudge (browser.ts): it passes a quiescent point,
+// and works off what is safe now of the shared list, where a worker put its
+// queue as its thread ended, before it went idle. a page that stopped (stop(),
+// browser.ts: it waits, for good or until start()) gets one that a worker
+// posted before it stopped: it works the list off, and waits on
+export function $nudged() {
+  Atomics.store(I32, C_NUDGED, 0); // first: the next nudge is for what comes
+  pagePoint();
+}
+function pagePoint() {
+  if (Atomics.load(I32, ME + T_QS) === IDLE) {
+    $waitBegin();
+    return;
+  }
+  $quiescent();
+  reclaim();
+}
+// a page's own queue (a reference it overwrote, say): no worker sees it, to
+// nudge for it, and the page passes no point of its own between tasks. so it
+// looks again at the next task, and then at longer intervals while anything
+// is left, up to a second: a timer, which a hidden page throttles, does for
+// the page's own queue, small as it is (workers' queues are nudged for). not
+// before the page's thread began (ME is 0 until start()'s threadBegin: a
+// point would write to the control words), and not on a page that stopped:
+// start() reclaims, in both cases
+let pageTimer: ReturnType<typeof setTimeout> | null = null,
+  pageDelay = 0;
+function pageLater() {
+  if (ME === 0 || pageTimer !== null || Atomics.load(I32, ME + T_QS) === IDLE)
+    return;
+  pageTimer = setTimeout(pageReclaim, pageDelay);
+}
+function pageReclaim() {
+  pageTimer = null;
+  pagePoint();
+  if (pend.length === 0) {
+    pageDelay = 0;
+    return;
+  }
+  pageDelay = Math.min(1000, Math.max(50, pageDelay * 2));
+  pageLater();
 }
 // at a thread's end: hand the queued decrements to the shared list
 function handOffPending() {
@@ -408,8 +552,16 @@ function handOffPending() {
     }
     const b = I32[C_PEND] >> 2;
     for (let k = 0; k < pend.length; k++) I32[b + 2 * n + k] = pend[k];
+    // the queue is in epoch order: its first epoch is its oldest. atomic, as
+    // reclaim reads it outside the lock
+    if (n === 0 || pend[0] < Atomics.load(I32, C_PEND_MIN))
+      Atomics.store(I32, C_PEND_MIN, pend[0]);
     Atomics.store(I32, C_PEND_LEN, want);
     pend = [];
+    // the queue is another thread's from here (a pool worker runs more): what
+    // a reclaim learnt of this one's growth is not that one's
+    pendLimit = 4096;
+    stuckLen = -1;
   } catch (e) {
     // a full heap: the queue stays this worker's, to work off at its next
     // quiescent point (a pool worker runs more threads). the thread's end
@@ -419,22 +571,38 @@ function handOffPending() {
     munlock(C_PEND_LOCK);
   }
 }
-// work off every queued decrement this thread can: when no other thread is
-// running, all of them
+// work off every queued decrement this thread can: all of them, once every
+// other running thread has passed a quiescent point, which a host does on its
+// own every WAKE ms at most, and a page when nudged: when a round frees
+// nothing, it waits a millisecond for them, up to a second in all, waiting as
+// a thread that holds nothing (so as to hold up no other's). a host does not
+// wait, as its other async threads need its event loop: one round, then. a
+// page cannot: it tries again at once
+const pendingCount = () => pend.length / 2 + Atomics.load(I32, C_PEND_LEN);
 export function $drain() {
-  for (
-    let round = 0;
-    round < 1000 && (pend.length !== 0 || Atomics.load(I32, C_PEND_LEN) !== 0);
-    round++
-  )
+  for (let round = 0; round < 1000; round++) {
+    const before = pendingCount();
+    if (before === 0) return;
     reclaim();
+    if (pendingCount() === before) {
+      // held up: by hosts, or the page, which are to pass a point
+      nudgeHosts();
+      if (NUDGE) nudgePage();
+      if (hosting) return;
+      if (CAN_BLOCK) {
+        Atomics.store(I32, ME + T_QS, IDLE);
+        Atomics.wait(PRIV, 0, 0, 1);
+        $waitEnd();
+      }
+    }
+  }
 }
 export function $heapStats() {
   return {
     heapBytes: Atomics.load(I32, C_ALLOC) - CTRL_BYTES,
     allocated: Atomics.load(I32, C_CNT + N_BALLOC) + LC[N_BALLOC],
     freed: Atomics.load(I32, C_CNT + N_BFREE) + LC[N_BFREE],
-    pending: pend.length / 2 + Atomics.load(I32, C_PEND_LEN),
+    pending: pendingCount(),
   };
 }
 // ---- text in shared memory: a string is stored a byte per char when it is
@@ -800,9 +968,11 @@ export function initShared(sab: SharedArrayBuffer) {
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
   i32[C_EPOCH] = 1;
 }
+// opts: check, the runtime's check option; nudge, in a page's pool worker:
+// post the page a nudge when it holds up freeing (see nudgePage)
 export function attach(
   sab: SharedArrayBuffer,
-  opts: {check?: boolean},
+  opts: {check?: boolean; nudge?: boolean},
   postMessage: (message: Message) => void,
   writeOut: (text: string) => void,
 ) {
@@ -811,6 +981,7 @@ export function attach(
   post = postMessage;
   write = writeOut;
   CHECK = !!opts.check;
+  NUDGE = !!opts.nudge;
   // so that a thread can report a full heap without allocating
   $intern(HEAP_FULL());
 }
@@ -819,6 +990,8 @@ const HEAP_FULL = () => `RangeError: ${heapFullMessage()}`;
 export function threadBegin(tid: number) {
   if (tid >= MAX_THREADS) throw new RangeError('threads: out of thread ids');
   ME = C_THREADS + tid * T_ENTRY;
+  // thread 1, a page's: no nudge is on its way to it as it begins
+  if (tid === 1) Atomics.store(I32, C_NUDGED, 0);
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   Atomics.store(I32, ME + T_ALIVE, 1);
 }
@@ -826,7 +999,11 @@ export function threadEnd() {
   reclaim();
   handOffPending();
   flushCounts();
+  // dead first: the page, nudged below, is to see a thread that holds nothing
   Atomics.store(I32, ME + T_ALIVE, 0);
+  // what the shared list holds now is the page's to free, perhaps: this
+  // worker, idle, will not look again until its next thread
+  nudgePageForShared();
 }
 // what a thread's function returns: its result's message address (own.ts), or
 // an async function's promise of one

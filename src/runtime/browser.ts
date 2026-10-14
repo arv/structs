@@ -4,7 +4,7 @@ import type {SpawnArgs} from './own.ts';
 // threads/heap made, and run(f, ...args) runs f on a thread and resolves with
 // its result. the page's own thread never blocks (it cannot: Atomics.wait is
 // not allowed there), so it waits for threads asynchronously
-import {attach, threadBegin, shutdown, $waitBegin} from './runtime.ts';
+import {attach, threadBegin, shutdown, $nudged, $waitBegin} from './runtime.ts';
 import type {Message} from './runtime.ts';
 
 const sab = globalThis.__escapeSab;
@@ -32,6 +32,10 @@ export function start({
     if (m.type === 'out') onLog(m.text);
     // every pool thread is busy: one more worker
     else if (m.type === 'grow') add();
+    // the page holds up freeing: between tasks, as now, it holds no uncounted
+    // address (REFCOUNT.md), so it passes a quiescent point, and frees what
+    // that makes safe
+    else if (m.type === 'nudge') $nudged();
     else if (m.type === 'crash')
       console.error(`threads: a worker crashed: ${m.message}`);
   };
@@ -46,13 +50,19 @@ export function start({
         m.type === 'ready' ? resolve() : onMessage(m);
       w.onerror = e =>
         reject(new Error(`threads: a worker failed to start: ${e.message}`));
-      w.postMessage({sab, opts: {check}});
+      w.postMessage({sab, opts: {check, nudge: true}});
     });
   // the runtime set the heap up when it loaded
   attach(sab, {check}, onMessage, onLog);
   threadBegin(1);
-  // between tasks the page holds no uncounted address (REFCOUNT.md): quiescent
-  $waitBegin();
+  // the page is a running thread: it reads cells between quiescent points as
+  // any thread does (a handle's reference field, a map's value, a result's
+  // struct), so what it may have read uncounted is not freed until it passes
+  // the next one (REFCOUNT.md). it passes one when it spawns or joins, and
+  // whenever a worker nudges it (above): between tasks, with nothing uncounted.
+  // as it starts, as if nudged: a worker of a pool stopped before may have
+  // handed its queue to the shared list while the page was waiting
+  $nudged();
   started = Promise.all(Array.from({length: count}, add)).then(() => {});
   return started;
 }
@@ -64,13 +74,13 @@ export async function run<A extends unknown[], R>(
   ...args: SpawnArgs<A>
 ) {
   await start();
-  const result = spawn(f, ...args).joinAsync();
-  $waitBegin();
-  return result;
+  return spawn(f, ...args).joinAsync();
 }
 
 export function stop() {
   shutdown(sab!);
   for (const w of workers.splice(0)) w.terminate();
+  // the page's thread, if start() began it: quiescent until start() again
+  if (started !== null) $waitBegin();
   started = null;
 }
