@@ -347,8 +347,17 @@ export function $freeBlock(p: number, bytes: number) {
 // without counting it. each thread's T_QS word is the epoch it saw at its last
 // one, IDLE while it waits; a decrement queued in epoch g is safe once every
 // running thread's word is past g. a thread that ends, or waits, hands what it
-// still has to the shared list (C_PEND), which any thread works off
-const IDLE = 0x7fffffff;
+// still has to the shared list (C_PEND), which any thread works off. the epoch
+// is an i32 that wraps: epochs are even, two are compared by their difference
+// (before), and IDLE, odd, is never one. two epochs compare while they are
+// less than half the i32 range apart; a thread that falls a quarter of it
+// behind (2^29 reclaims without a quiescent point of its own) stalls the
+// epoch (see reclaim), so that no running thread's word is ever taken for a
+// newer one, with the other quarter left for the reclaims of other threads
+// that race the check
+const IDLE = 1;
+const before = (a: number, b: number) => ((a - b) | 0) < 0;
+const STALL = 1 << 30;
 // this thread's queued decrements: epoch, address, epoch, address, ... (an
 // address -p is a block to free, see retire)
 let pend: number[] = [];
@@ -399,15 +408,15 @@ export const $waitEnd = () => {
   if (ME !== 0) Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
 };
 // the oldest epoch a running thread may still hold an uncounted address from
-// (`but`: an entry left out)
+// (`but`: an entry left out); the epoch itself, with none behind it
 function oldestEpoch(but = 0) {
-  let min = IDLE;
+  let min = Atomics.load(I32, C_EPOCH);
   const n = Atomics.load(I32, C_NEXT_TID);
   for (let t = 1; t < n; t++) {
     const e = C_THREADS + t * T_ENTRY;
     if (e !== but && Atomics.load(I32, e + T_ALIVE) === 1) {
       const q = Atomics.load(I32, e + T_QS);
-      if (q < min) min = q;
+      if (q !== IDLE && before(q, min)) min = q;
     }
   }
   return min;
@@ -419,10 +428,16 @@ function reclaim() {
     pendLimit = 4096;
     return;
   }
-  // so what is queued now is older than every later quiescent point
-  Atomics.add(I32, C_EPOCH, 1);
+  // the oldest epoch another running thread may hold an address from (this
+  // thread is at a point, so its own word is not the bound), then a new epoch,
+  // so that what is queued now is older than every later quiescent point;
+  // unless a thread is a quarter of the range behind (STALL): it would be
+  // taken for a newer one once passed, so the epoch waits for it, and memory
+  // grows meanwhile
+  const e = Atomics.load(I32, C_EPOCH),
+    min = oldestEpoch(ME);
+  if (((e - min) | 0) < STALL) Atomics.add(I32, C_EPOCH, 2);
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
-  const min = oldestEpoch();
   // this thread's queue is in epoch order, and the shared list's oldest epoch
   // is kept: when neither has a decrement that is safe yet, a thread that has
   // yet to pass a quiescent point holds them all up (a page between tasks, a
@@ -431,9 +446,9 @@ function reclaim() {
   // loop a walk of the queue per iteration: nudge the thread instead, and look
   // again once the queue has doubled
   if (
-    (pend.length === 0 || pend[0] >= min) &&
+    (pend.length === 0 || !before(pend[0], min)) &&
     (Atomics.load(I32, C_PEND_LEN) === 0 ||
-      Atomics.load(I32, C_PEND_MIN) >= min)
+      !before(Atomics.load(I32, C_PEND_MIN), min))
   ) {
     // at the reclaim the queue's growth brought on, not at every 64th point:
     // a loop that defers at every iteration would else nudge at every 64th,
@@ -449,7 +464,7 @@ function reclaim() {
       NUDGE &&
       pend.length !== 0 &&
       pend.length === stuckLen &&
-      pend[0] < oldestEpoch(C_THREADS + T_ENTRY)
+      before(pend[0], oldestEpoch(C_THREADS + T_ENTRY))
     )
       nudgePage(true);
     nudgePageForShared();
@@ -467,16 +482,16 @@ function reclaim() {
     const b = I32[C_PEND] >> 2,
       n = I32[C_PEND_LEN];
     let kept = 0,
-      keptMin = IDLE;
+      keptMin = Atomics.load(I32, C_EPOCH);
     for (let k = 0; k < n; k++) {
       const g = I32[b + 2 * k],
         p = I32[b + 2 * k + 1];
-      if (g < min) list.push(g, p);
+      if (before(g, min)) list.push(g, p);
       else {
         I32[b + 2 * kept] = g;
         I32[b + 2 * kept + 1] = p;
         kept++;
-        if (g < keptMin) keptMin = g;
+        if (before(g, keptMin)) keptMin = g;
       }
     }
     Atomics.store(I32, C_PEND_LEN, kept);
@@ -484,7 +499,7 @@ function reclaim() {
     munlock(C_PEND_LOCK);
   }
   for (let k = 0; k < list.length; k += 2) {
-    if (list[k] >= min) pend.push(list[k], list[k + 1]);
+    if (!before(list[k], min)) pend.push(list[k], list[k + 1]);
     else if (list[k + 1] < 0) retire(-list[k + 1]);
     else deferHandler!(list[k + 1]); // may queue more, in pend
   }
@@ -506,7 +521,7 @@ function nudgeHosts() {
     if (
       e !== ME &&
       Atomics.load(I32, e + T_HOST) === 1 &&
-      Atomics.load(I32, e + T_QS) < epoch
+      before(Atomics.load(I32, e + T_QS), epoch)
     )
       ring(e);
   }
@@ -526,7 +541,7 @@ function nudgePage(anyway = false) {
   const e = C_THREADS + T_ENTRY;
   if (e === ME || Atomics.load(I32, e + T_ALIVE) !== 1) return;
   const q = Atomics.load(I32, e + T_QS);
-  if (q === IDLE || (!anyway && q >= Atomics.load(I32, C_EPOCH))) return;
+  if (q === IDLE || (!anyway && !before(q, Atomics.load(I32, C_EPOCH)))) return;
   if (Atomics.compareExchange(I32, C_NUDGED, 0, 1) !== 0) return;
   try {
     post({type: 'nudge'});
@@ -548,7 +563,7 @@ function nudgePageForShared() {
   if (
     NUDGE &&
     Atomics.load(I32, C_PEND_LEN) !== 0 &&
-    Atomics.load(I32, C_PEND_MIN) < oldestEpoch(C_THREADS + T_ENTRY)
+    before(Atomics.load(I32, C_PEND_MIN), oldestEpoch(C_THREADS + T_ENTRY))
   )
     nudgePage(true);
 }
@@ -614,7 +629,7 @@ function handOffPending() {
     for (let k = 0; k < pend.length; k++) I32[b + 2 * n + k] = pend[k];
     // the queue is in epoch order: its first epoch is its oldest. atomic, as
     // reclaim reads it outside the lock
-    if (n === 0 || pend[0] < Atomics.load(I32, C_PEND_MIN))
+    if (n === 0 || before(pend[0], Atomics.load(I32, C_PEND_MIN)))
       Atomics.store(I32, C_PEND_MIN, pend[0]);
     Atomics.store(I32, C_PEND_LEN, want);
     pend = [];
@@ -1037,7 +1052,7 @@ export function initShared(sab: SharedArrayBuffer) {
   i32[C_ALLOC] = table + 16 + cap * 4;
   i32[C_HEAP_END] = sab.byteLength;
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
-  i32[C_EPOCH] = 1;
+  i32[C_EPOCH] = 2; // even: IDLE, 1, is never an epoch
 }
 // opts: check, the runtime's check option; nudge, in a page's pool worker:
 // post the page a nudge when it holds up freeing (see nudgePage)

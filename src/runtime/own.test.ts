@@ -302,7 +302,7 @@ describe('reference counts', () => {
       QS_3 = 2048 + 3 * 8 + 5,
       EPOCH = 17, // C_EPOCH
       NEXT_TID = 4, // C_NEXT_TID
-      IDLE = 0x7fffffff;
+      IDLE = 1;
     // threads 2 and 3 are to count as running: the tests' threadBegin(n) does
     // not claim n as a worker does, from the counter the scan goes up to
     if (Atomics.load(runtime.I32, NEXT_TID) < 4)
@@ -439,7 +439,7 @@ describe('reference counts', () => {
     // waits on
     const QS_2 = 2048 + 2 * 8 + 5, // thread 2's quiescent state (T_QS)
       PEND_LEN = 20, // C_PEND_LEN
-      IDLE = 0x7fffffff;
+      IDLE = 1;
     const posted: unknown[] = [];
     const nudges = () =>
       posted.filter(m => (m as {type: string}).type === 'nudge').length;
@@ -474,6 +474,103 @@ describe('reference counts', () => {
     expect(runtime.I32[QS_2]).toBe(IDLE);
     expect(nudges()).toBe(1);
     runtime.$waitEnd();
+    runtime.threadEnd();
+    runtime.threadBegin(1);
+    own.release(a);
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {},
+      () => {},
+      text => logged.push(text),
+    );
+  });
+
+  it('the epoch wraps, and reclamation goes on', () => {
+    // the epoch is an i32: at the last even value before the wrap, a worker
+    // defers, the page passes points, and the decrements are applied though
+    // every comparison now crosses the wrap
+    const EPOCH = 17; // C_EPOCH
+    const posted: unknown[] = [];
+    const nudges = () =>
+      posted.filter(m => (m as {type: string}).type === 'nudge').length;
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {nudge: true},
+      m => posted.push(m),
+      text => logged.push(text),
+    );
+    Atomics.store(runtime.I32, EPOCH, 0x7ffffffe);
+    runtime.$nudged(); // the page is at a point of its own, the last before
+    runtime.threadBegin(2);
+    const a = own.newStruct(N),
+      b = own.newStruct(N);
+    own.store(next(a), b);
+    own.store(next(a), 0);
+    runtime.threadEnd(); // its reclaim wraps the epoch; b to the shared list
+    expect(Atomics.load(runtime.I32, EPOCH)).toBeLessThan(0);
+    expect(nudges()).toBe(1);
+    expect(runtime.I32[b >> 2]).toBe(N.kind);
+    runtime.threadBegin(1);
+    runtime.$nudged(); // past the wrap: b is older than the page's point
+    expect(runtime.I32[b >> 2]).toBe(runtime.K_FREE);
+    // and on, after the wrap
+    runtime.threadBegin(2);
+    const c = own.newStruct(N);
+    own.store(next(a), c);
+    own.store(next(a), 0);
+    runtime.threadEnd();
+    expect(nudges()).toBe(2);
+    runtime.threadBegin(1);
+    runtime.$nudged();
+    expect(runtime.I32[c >> 2]).toBe(runtime.K_FREE);
+    own.release(a);
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {},
+      () => {},
+      text => logged.push(text),
+    );
+  });
+
+  it('a thread a quarter of the range behind stalls the epoch until it passes a point', () => {
+    // a thread that passed no point while the epoch moved a quarter of its
+    // range (as by hours of other threads' reclaims): a reclaim makes no new
+    // epoch, which would soon take the thread's old word for a newer one, and
+    // frees nothing of what the thread may hold; once the thread passes a
+    // point, the epoch moves on and the old decrements are freed
+    const EPOCH = 17, // C_EPOCH
+      NEXT_TID = 4; // C_NEXT_TID
+    if (Atomics.load(runtime.I32, NEXT_TID) < 4)
+      Atomics.store(runtime.I32, NEXT_TID, 4);
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {nudge: true},
+      () => {},
+      text => logged.push(text),
+    );
+    runtime.$nudged();
+    runtime.threadBegin(3); // a thread at this point, which it keeps
+    const far = (Atomics.load(runtime.I32, EPOCH) + (1 << 30)) | 0;
+    Atomics.store(runtime.I32, EPOCH, far);
+    runtime.threadBegin(1);
+    runtime.$nudged(); // the page, at the new epoch
+    runtime.threadBegin(2);
+    const a = own.newStruct(N),
+      b = own.newStruct(N);
+    own.store(next(a), b);
+    own.store(next(a), 0); // deferred at the far epoch
+    runtime.threadEnd(); // its reclaim: thread 3 is a quarter behind: no new epoch
+    expect(Atomics.load(runtime.I32, EPOCH)).toBe(far);
+    expect(runtime.I32[b >> 2]).toBe(N.kind);
+    runtime.threadBegin(3); // thread 3 passes a point
+    runtime.threadBegin(1);
+    runtime.$nudged(); // the page's reclaim makes a new epoch again
+    expect(Atomics.load(runtime.I32, EPOCH)).toBe((far + 2) | 0);
+    runtime.threadBegin(3); // and another point, past the new epoch
+    runtime.threadBegin(1);
+    runtime.$nudged(); // b is older than every thread's point now
+    expect(runtime.I32[b >> 2]).toBe(runtime.K_FREE);
+    runtime.threadBegin(3);
     runtime.threadEnd();
     runtime.threadBegin(1);
     own.release(a);
