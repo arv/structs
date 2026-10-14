@@ -113,6 +113,10 @@ export const Messages = {
     code: 96031,
     text: "'{0}' blocks its thread, and with it every async function waiting on the same worker, which an async function must not do.",
   },
+  Yielded: {
+    code: 96032,
+    text: "A value of type '{0}' cannot be yielded, or returned by a generator: it would be stored in an IteratorResult, an ordinary object, which the caller keeps past the generator's count of it.",
+  },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

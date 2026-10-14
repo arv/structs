@@ -306,6 +306,25 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
       host.typeToString(host.typeOf(expr)),
     );
   };
+  // A yielded value, or a generator's result, goes into an IteratorResult, an
+  // ordinary object, which the caller keeps after the generator's own count of
+  // it ended (REFCOUNT.md: an owned local is released when its block ends).
+  // An async generator awaits what it yields or returns before the result holds
+  // it: a promise of a counted value counts too.
+  const yielded = (expr: Node | undefined, async: boolean): void => {
+    if (!expr) return;
+    const count = getCount(c, expr);
+    let t = host.typeOf(expr);
+    if (count === Count.None || count === Count.Null) {
+      // uncounted and of a cell type already: a handle (an unknown narrowed to
+      // a struct, boxed), with a count of its own, which is safe to yield.
+      // uncounted and of a promise's type: what the promise resolves to counts
+      if (!async || isCellType(c, t)) return;
+      t = host.awaitedType(t);
+      if (!isCellType(c, t)) return;
+    }
+    c.error(expr, Messages.Yielded, host.typeToString(t));
+  };
   const destructured = (name: Node, t: Type): void => {
     if (isCellType(c, t))
       c.error(name, Messages.BoundByDestructuring, name.text);
@@ -369,6 +388,23 @@ export function checkRefCounts(c: Own, file: SourceFile): void {
           }
         }
         return false;
+      case K.YieldExpression:
+      case K.ReturnStatement: {
+        // a delegated yield (`yield* inner()`, or `return yield* inner()`) is
+        // the inner generator's to report
+        const flags = getFunctionFlags(getContainingFunction(node));
+        const delegated = (e: Node | undefined) =>
+          e !== undefined &&
+          skipParentheses(e).kind === K.YieldExpression &&
+          !!skipParentheses(e).asteriskToken;
+        if (
+          flags & FunctionFlags.Generator &&
+          !delegated(node) &&
+          !(node.kind === K.ReturnStatement && delegated(node.expression))
+        )
+          yielded(node.expression, !!(flags & FunctionFlags.Async));
+        break;
+      }
       case K.ArrayLiteralExpression:
         if (isAssignmentTarget(node)) {
           checkPattern(node);
