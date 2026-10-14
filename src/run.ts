@@ -6,7 +6,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 //   or the path of a module, such as one the tsgo fork emitted
 //   (build/ts/nbody-ts.js)
 //   --threads=1,2,4,8   the thread counts the program runs its work with
-//   --stats             print the runtime's counters (to stderr) at exit
+//   --stats             print the runtime's counters and the number of workers
+//                       started (to stderr) at exit
 //   --heap=MiB          shared heap size (default 512)
 //   --pool=N            workers started up front (default 8; more start on
 //                       demand)
@@ -16,7 +17,12 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 // while it does
 import {Worker} from 'node:worker_threads';
 import {findProgram} from './program.ts';
-import {initShared, shutdown, counters} from './runtime/runtime.ts';
+import {
+  initShared,
+  shutdown,
+  counters,
+  workersComing,
+} from './runtime/runtime.ts';
 import type {WorkerData} from './worker.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +53,8 @@ const finish: (code: number) => void = code => {
   if (finished) return;
   finished = true;
   shutdown(sab);
-  if (flag('stats')) console.error(JSON.stringify(counters(sab)));
+  if (flag('stats'))
+    console.error(JSON.stringify({...counters(sab), workers: workers.length}));
   for (const w of workers) void w.terminate();
   process.exitCode = code;
 };
@@ -70,5 +77,7 @@ const start: (role: WorkerData['role']) => void = role => {
     finish(1);
   });
 };
-for (let i = 0; i < Number(opt('pool', 8)); i++) start('pool');
+const pool = Number(opt('pool', 8));
+workersComing(sab, pool);
+for (let i = 0; i < pool; i++) start('pool');
 start('main');

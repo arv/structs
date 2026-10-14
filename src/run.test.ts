@@ -1,18 +1,32 @@
 // The hand-written programs on node worker threads (run.ts): every thread
 // count computes the same thing.
-import {execFileSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {stripVTControlCharacters} from 'node:util';
 import {describe, expect, it} from 'vite-plus/test';
 
-const run = (...args: string[]) =>
-  stripVTControlCharacters(
-    execFileSync(
-      process.execPath,
-      [fileURLToPath(new URL('./run.ts', import.meta.url)), ...args],
-      {encoding: 'utf8', timeout: 60_000},
-    ),
+// runs a program (run.ts): what it printed, to stdout and to stderr
+const exec = (args: string[]) => {
+  const r = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('./run.ts', import.meta.url)), ...args],
+    {encoding: 'utf8', timeout: 60_000},
   );
+  if (r.error) throw r.error;
+  if (r.status !== 0)
+    throw new Error(`run.ts exited with ${r.status ?? r.signal}: ${r.stderr}`);
+  return {out: stripVTControlCharacters(r.stdout), err: r.stderr};
+};
+const run = (...args: string[]) => exec(args).out;
+// the same with --stats: what the program printed, and the runtime's counters
+// and the workers started, which run.ts prints to stderr as it exits (a line
+// of JSON, among whatever the workers wrote there)
+const runStats = (...args: string[]) => {
+  const {out, err} = exec([...args, '--stats']);
+  const line = err.split('\n').findLast(l => l.startsWith('{'));
+  if (line === undefined) throw new Error(`no stats on stderr: ${err}`);
+  return {out, stats: JSON.parse(line) as Record<string, number>};
+};
 
 // N-body's kinetic energy, after the same steps, on each thread count
 const ENERGY = 'kinetic energy 59093.195871';
@@ -61,9 +75,15 @@ describe('programs on threads', () => {
   });
 
   it('the ring is recycled under threads that spawn at once', () => {
-    expect(run('ring-recycle', '--threads=1').trim()).toMatch(
+    const {out, stats} = runStats('ring-recycle', '--threads=1');
+    expect(out.trim()).toMatch(
       /^1280 threads through the ring: sum (\d+), expected \1$/,
     );
+    // the pool grows by the workers its threads wait for (the 4 spawners and
+    // their 32 threads, at most, besides the 8 it starts with and main's), not
+    // by one for every thread spawned before the workers asked for have
+    // started: that started hundreds, and exiting waited for them all
+    expect(stats.workers).toBeLessThan(100);
   }, 60_000);
 
   it('reference counting under a race reads no freed memory', () => {

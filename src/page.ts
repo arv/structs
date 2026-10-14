@@ -4,7 +4,12 @@
 // thread). index.html?program=src/nbody-own.ts&threads=1,2,4,8 loads the
 // program by its path in the repository (chrome.ts's server points its imports
 // of the runtime at src/runtime/)
-import {initShared, shutdown, counters} from './runtime/runtime.ts';
+import {
+  initShared,
+  shutdown,
+  counters,
+  workersComing,
+} from './runtime/runtime.ts';
 import type {WorkerData, WorkerMessage} from './worker.ts';
 
 // what a page leaves for chrome.ts once its program has finished
@@ -69,6 +74,7 @@ const start: (role: WorkerData['role']) => void = role => {
 if (!crossOriginIsolated)
   finish(false, 'not cross-origin isolated: SharedArrayBuffer needs COOP/COEP');
 else {
+  workersComing(sab, pool);
   for (let i = 0; i < pool; i++) start('pool');
   start('main');
 }

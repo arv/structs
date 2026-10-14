@@ -13,6 +13,7 @@ import {
   threadBegin,
   shutdown,
   resetPool,
+  workersComing,
   STOPPED,
   $nudged,
   $waitBegin,
@@ -73,9 +74,13 @@ export function start({
     if (m.type === 'out') onLog(m.text);
     // every pool thread is busy: one more worker
     else if (m.type === 'grow') {
-      // one that fails to load is reported; the thread that asked waits for a
-      // worker that is there
-      if (generation === g) add().catch(e => console.error(String(e)));
+      // one that fails to load is reported, and no longer counted as coming;
+      // the thread that asked waits for a worker that is there
+      if (generation === g)
+        add().catch(e => {
+          if (generation === g) workersComing(sab, -1);
+          console.error(String(e));
+        });
     }
     // the page holds up freeing: between tasks, as now, it holds no uncounted
     // address (REFCOUNT.md), so it passes a quiescent point, and frees what
@@ -123,6 +128,7 @@ export function start({
     // before may have handed its queue to the shared list while the page was
     // waiting
     $nudged();
+    workersComing(sab, count);
     return Promise.all(Array.from({length: count}, add)).then(() => {});
   };
   started = Promise.race([
