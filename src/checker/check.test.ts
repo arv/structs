@@ -131,6 +131,33 @@ describe('threads-check, where it differs from the fork', () => {
     );
   });
 
+  it('sees a send in a try block that leaves early, in its catch and finally', () => {
+    // the fork starts a catch or a finally from the try block's entry when the
+    // block ends in a return, a throw or a break, forgetting a send in it, and
+    // takes a break or continue to its target before the finally it crosses
+    const dir = join(checker, 'test/diverging/try-exits');
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api})
+        .map(d => formatDiagnostic(d, dir))
+        .sort(),
+    ).toEqual(
+      [
+        "try-exits.ts(9,46): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 9.",
+        "try-exits.ts(87,69): error TS96006: 'xs' may have been consumed by 'consume' on line 87.",
+        "try-exits.ts(91,70): error TS96006: 'xs' may have been consumed by 'consume' on line 91.",
+        "try-exits.ts(100,65): error TS96006: 'xs' may have been consumed by 'consume' on line 100.",
+        "try-exits.ts(13,58): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 13.",
+        "try-exits.ts(17,56): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 17.",
+        "try-exits.ts(22,7): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 21.",
+        "try-exits.ts(39,19): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 38.",
+        "try-exits.ts(44,7): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 43.",
+        "try-exits.ts(61,7): error TS96001: 'xs' cannot be used here: it was sent to 'send' on line 59.",
+        "try-exits.ts(65,54): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 65.",
+        "try-exits.ts(66,7): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 65.",
+      ].sort(),
+    );
+  });
+
   it("reports no blocking call on a Channel that is not the runtime's", () => {
     const dir = join(checker, 'test/diverging/ambient-channel');
     expect(
