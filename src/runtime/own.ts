@@ -1456,14 +1456,33 @@ setAfterTask(() => finalizable > 0);
 // loader maps a module to its import
 type ModuleLoader = (module: string) => Promise<unknown> | undefined;
 let moduleLoader: ModuleLoader | null = null;
+// the modules this worker loaded through the loader, whole: a module that
+// registers its functions and then throws as it loads has its keys in byKey
+// all the same, and is not to run. one that another module imported is loaded
+// once more by its id, which the module system has cached
+const loaded = new Set<string>();
 export function setModuleLoader(load: ModuleLoader) {
   moduleLoader = load;
   setBeforeTask(async t => {
     // the blob's [key, ...args]
     const base = I32[(t + 16) >> 2],
-      key = get(base, I32[base >> 2] + 1, false) as string;
-    if (!byKey.has(key))
-      await moduleLoader!(key.slice(0, key.lastIndexOf('#')));
+      key = get(base, I32[base >> 2] + 1, false) as string,
+      id = key.slice(0, key.lastIndexOf('#'));
+    if (loaded.has(id)) return;
+    try {
+      await moduleLoader!(id);
+    } catch (e) {
+      // the thread's error (runtime.ts prepare): a module that throws as it
+      // loads, is not found, or is blocked. the thread's arguments, which its
+      // entry would have read and freed, are dropped here, with their counts
+      try {
+        dropArguments(t);
+      } catch {}
+      throw new Error(
+        `own: the module of thread function '${key.slice(key.lastIndexOf('#') + 1)}' could not be loaded here (${id}): ${String((e as {message?: unknown})?.message ?? e)}`,
+      );
+    }
+    loaded.add(id);
   });
 }
 // R: what fn returns, or what its promise resolves to
@@ -1554,6 +1573,12 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
 // freed, with the counts it carried (as a thread's entry frees them), and the
 // block is freed
 function discardThread(t: number) {
+  dropArguments(t);
+  $freeBlock(t, 32);
+}
+// a thread's arguments read back and dropped, with the counts they carried (as
+// the thread's entry frees them once it has read them)
+function dropArguments(t: number) {
   const outer = countedInto,
     mine = (countedInto = []);
   try {
@@ -1562,7 +1587,6 @@ function discardThread(t: number) {
     countedInto = outer;
     for (const p of mine) release(p);
   }
-  $freeBlock(t, 32);
 }
 
 // structured threads: scope(s => ...) joins every thread s spawned before it

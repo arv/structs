@@ -1123,6 +1123,19 @@ let beforeTask: ((t: number) => Promise<void>) | null = null;
 export const setBeforeTask: (f: (t: number) => Promise<void>) => void = f => {
   beforeTask = f;
 };
+// what a worker does before a thread, done; or what it threw (a module that
+// does not load, say), which is the thread's error then: were it the worker's,
+// the worker would be gone with a thread taken from the queue, which would
+// never end, and its joiner would wait for good. exported for its test
+export async function $prepare(t: number): Promise<unknown> {
+  if (beforeTask === null) return null;
+  try {
+    await beforeTask(t);
+    return null;
+  } catch (e) {
+    return e ?? new Error('threads: a thread could not be prepared');
+  }
+}
 const eventLoopTurn = () =>
   new Promise<void>(resolve => {
     const ch = new MessageChannel();
@@ -1415,12 +1428,13 @@ async function hostTurn(): Promise<boolean> {
     b = Atomics.load(I32, bell);
   const t = takeAsync();
   if (t !== 0) {
-    if (beforeTask !== null) await beforeTask(t);
+    const failed = await $prepare(t);
     // the pool may have been stopped during the wait: its thread is lost. a
     // pool operation from the check to the start: no reset falls between
     if (!busy()) return false;
     try {
-      runThread(t);
+      if (failed !== null) endThread(t, 0, false, true, failed);
+      else runThread(t);
     } finally {
       done();
     }
@@ -1524,12 +1538,17 @@ export async function poolLoop() {
       done();
       continue;
     }
-    if (beforeTask !== null) await beforeTask(t);
+    const failed = await $prepare(t);
     // the pool may have been stopped during the wait: its thread is lost. a
     // pool operation from the check to the thread's end: no reset falls in
     if (!busy()) return leave();
     try {
-      runThread(t);
+      if (failed !== null) {
+        // the thread ends as one that threw, the joiner told why: the loop
+        // goes on, with the worker
+        threadBegin(workerTid());
+        endThread(t, 0, false, true, failed);
+      } else runThread(t);
     } finally {
       done();
     }
