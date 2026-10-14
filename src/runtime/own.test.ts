@@ -406,16 +406,74 @@ describe('reference counts', () => {
       b = own.newStruct(N);
     own.store(next(a), b);
     own.store(next(a), 0); // b's decrement waits for every thread's next point
-    runtime.$waitBegin(); // a reclaim: held up, the queue as new; no nudge
+    // the points of a loop that computes: one in every 64 reclaims
+    const computes = () => {
+      for (let k = 0; k < 64; k++) runtime.$quiescent();
+    };
+    computes(); // a reclaim: held up, the queue as new; no nudge
     expect(nudges()).toBe(0);
-    runtime.$waitEnd();
-    runtime.$waitBegin(); // the queue as it was: a nudge
+    computes(); // a reclaim: the queue as it was; a nudge
     expect(nudges()).toBe(1);
     expect(runtime.I32[b >> 2]).toBe(N.kind);
     runtime.threadBegin(1);
     runtime.$nudged();
     expect(runtime.I32[b >> 2]).toBe(runtime.K_FREE);
     runtime.threadBegin(2);
+    runtime.threadEnd();
+    runtime.threadBegin(1);
+    own.release(a);
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {},
+      () => {},
+      text => logged.push(text),
+    );
+  });
+
+  it('a thread that waits hands what is held up to the shared list, and nudges', () => {
+    // a thread about to block (a join, a receive, a lock) passes no point of
+    // its own until it wakes, which may be never: what its reclaim could not
+    // free, held up by the page here, would stay in its queue, which no other
+    // thread works off. it hands the queue to the shared list, as a thread
+    // that ends does, and nudges the page, which frees it while the thread
+    // waits on
+    const QS_2 = 2048 + 2 * 8 + 5, // thread 2's quiescent state (T_QS)
+      PEND_LEN = 20, // C_PEND_LEN
+      IDLE = 0x7fffffff;
+    const posted: unknown[] = [];
+    const nudges = () =>
+      posted.filter(m => (m as {type: string}).type === 'nudge').length;
+    runtime.attach(
+      globalThis.__escapeSab!,
+      {nudge: true},
+      m => posted.push(m),
+      text => logged.push(text),
+    );
+    runtime.$nudged(); // the page is at a point of its own
+    runtime.threadBegin(2);
+    const a = own.newStruct(N),
+      b = own.newStruct(N);
+    own.store(next(a), b);
+    own.store(next(a), 0); // b's decrement waits for every thread's next point
+    const shared = Atomics.load(runtime.I32, PEND_LEN);
+    runtime.$waitBegin(); // held up by the page: to the shared list, a nudge
+    expect(runtime.I32[QS_2]).toBe(IDLE);
+    expect(Atomics.load(runtime.I32, PEND_LEN)).toBe(shared + 1);
+    expect(T.heapStats().pending).toBe(shared + 1); // none left in its own
+    expect(nudges()).toBe(1);
+    expect(runtime.I32[b >> 2]).toBe(N.kind); // not freed yet
+    // the page gets the nudge: a point, and b is freed from the shared list
+    runtime.threadBegin(1);
+    runtime.$nudged();
+    expect(runtime.I32[b >> 2]).toBe(runtime.K_FREE);
+    expect(Atomics.load(runtime.I32, PEND_LEN)).toBe(shared);
+    // the thread wakes, and waits again with nothing queued: no nudge
+    runtime.threadBegin(2);
+    runtime.$waitEnd();
+    runtime.$waitBegin();
+    expect(runtime.I32[QS_2]).toBe(IDLE);
+    expect(nudges()).toBe(1);
+    runtime.$waitEnd();
     runtime.threadEnd();
     runtime.threadBegin(1);
     own.release(a);

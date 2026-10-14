@@ -49,8 +49,11 @@ Quiescent points are `Condition.wait` (and a `Lock.hold` that has to wait),
 `spawn`, `join`, the end of a `scope`, a thread's start and end, and
 `__quiescent()`, which the compiler puts at the end of each iteration of a loop
 that reads or stores a reference field (an atomic load and store; numeric loops
-get none). A thread blocked in a wait counts as quiescent throughout. A thread
-that runs long without one delays reclaiming (memory grows), never correctness.
+get none). A thread blocked in a wait counts as quiescent throughout, and the
+decrements it could not apply yet go to a shared list before it blocks, as they
+do when a thread ends, since the wait may last for good and no other thread
+works a thread's own queue off. A thread that runs long without one delays
+reclaiming (memory grows), never correctness.
 
 Async functions share a thread: a worker that hosts async goroutines runs one at
 a time, each until its next `await`. The compiler holds no uncounted address

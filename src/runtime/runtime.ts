@@ -307,8 +307,8 @@ export function $freeBlock(p: number, bytes: number) {
 // quiescent point since: a point where it holds no address it read from a field
 // without counting it. each thread's T_QS word is the epoch it saw at its last
 // one, IDLE while it waits; a decrement queued in epoch g is safe once every
-// running thread's word is past g. a thread that ends hands what it still has
-// to the shared list (C_PEND), which any thread works off
+// running thread's word is past g. a thread that ends, or waits, hands what it
+// still has to the shared list (C_PEND), which any thread works off
 const IDLE = 0x7fffffff;
 // this thread's queued decrements: epoch, address, epoch, address, ... (an
 // address -p is a block to free, see retire)
@@ -333,10 +333,24 @@ export function $quiescent() {
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   if ((++qsTick & 63) === 0 || pend.length >= pendLimit) reclaim();
 }
-// around a blocking wait: quiescent throughout
+// around a blocking wait: quiescent throughout. what the reclaim could not free
+// yet, a thread behind holds up (the page between tasks, say): it goes to the
+// shared list before the wait, as at a thread's end, since the wait may last
+// for good (a join on a long thread, a receive no one sends for), and no other
+// thread works a worker's own queue off; then a nudge, if the page alone holds
+// the list up. a full heap leaves the queue here (handOffPending), for the
+// reclaim after the wait. a contended lock, a channel's sleep, come here often:
+// nothing but the reclaim when the queue is empty
 export function $waitBegin() {
   reclaim();
+  if (pend.length === 0) {
+    Atomics.store(I32, ME + T_QS, IDLE);
+    return;
+  }
+  handOffPending();
+  // idle first: the page, nudged below, is to see a thread that holds nothing
   Atomics.store(I32, ME + T_QS, IDLE);
+  nudgePageForShared();
 }
 export const $waitEnd = () => {
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
@@ -463,7 +477,8 @@ function nudgeHosts() {
 // after it takes the nudge, so none is lost, and none sent twice. a page that
 // waits (stop(), browser.ts) is not nudged, nor one that is not behind, unless
 // `anyway`: the shared list holds decrements only the page may hold up, safe
-// already perhaps, which no thread but the page is about to free (threadEnd)
+// already perhaps, which no thread but the page is about to free (threadEnd,
+// $waitBegin)
 function nudgePage(anyway = false) {
   const e = C_THREADS + T_ENTRY;
   if (e === ME || Atomics.load(I32, e + T_ALIVE) !== 1) return;
@@ -482,7 +497,8 @@ function nudgePage(anyway = false) {
 // is the page's to free: held up by the page alone, or safe already (the
 // page's point passed between a thread's reclaim and its hand-off, say), and
 // no thread but the page is about to look at it, as the thread that handed
-// it off is gone, and another's reclaim takes only what is safe for all.
+// it off is gone or waits, and another's reclaim takes only what is safe for
+// all.
 // not when another thread holds the list up: the page's point would free
 // nothing, and that thread's reclaim comes here once it is past
 function nudgePageForShared() {
@@ -495,9 +511,9 @@ function nudgePageForShared() {
 }
 // what a page does with a nudge (browser.ts): it passes a quiescent point,
 // and works off what is safe now of the shared list, where a worker put its
-// queue as its thread ended, before it went idle. a page that stopped (stop(),
-// browser.ts: it waits, for good or until start()) gets one that a worker
-// posted before it stopped: it works the list off, and waits on
+// queue as its thread ended or waited, before it went idle. a page that
+// stopped (stop(), browser.ts: it waits, for good or until start()) gets one
+// that a worker posted before it stopped: it works the list off, and waits on
 export function $nudged() {
   Atomics.store(I32, C_NUDGED, 0); // first: the next nudge is for what comes
   pagePoint();
@@ -535,7 +551,8 @@ function pageReclaim() {
   pageDelay = Math.min(1000, Math.max(50, pageDelay * 2));
   pageLater();
 }
-// at a thread's end: hand the queued decrements to the shared list
+// at a thread's end, or before it waits: hand the queued decrements to the
+// shared list
 function handOffPending() {
   if (pend.length === 0) return;
   mlock(C_PEND_LOCK);
@@ -558,14 +575,16 @@ function handOffPending() {
       Atomics.store(I32, C_PEND_MIN, pend[0]);
     Atomics.store(I32, C_PEND_LEN, want);
     pend = [];
-    // the queue is another thread's from here (a pool worker runs more): what
-    // a reclaim learnt of this one's growth is not that one's
+    // the queue is a new one from here (another thread's, as a pool worker
+    // runs more; or this one's, after its wait): what a reclaim learnt of the
+    // old one's growth is not the new one's
     pendLimit = 4096;
     stuckLen = -1;
   } catch (e) {
     // a full heap: the queue stays this worker's, to work off at its next
-    // quiescent point (a pool worker runs more threads). the thread's end
-    // goes on: one recorded alive for good would hold up freeing for good
+    // quiescent point (after its wait; a pool worker runs more threads). the
+    // thread's end goes on: one recorded alive for good would hold up freeing
+    // for good
     if (!(e instanceof RangeError)) throw e;
   } finally {
     munlock(C_PEND_LOCK);
