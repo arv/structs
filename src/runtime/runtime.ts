@@ -718,9 +718,10 @@ export function $decodeUtf16(u: number, n: number) {
 // leaves the table at once, its count DEAD so that nothing counts it again, and
 // its block goes a grace period later, once every thread has passed a
 // quiescent point (see $defer): a lookup that found it before it left may be
-// reading it still. no two strings have one serial, so this thread's caches
-// (address -> string, string -> address) tell by it whether a block is still
-// the string they knew ----
+// reading it still. a string's serial tells this thread's caches (address ->
+// string, string -> address) whether its block was reused while they read it;
+// serials come round after 2^32 strings, which an entry may outlive, so the
+// caches also compare the text ----
 const STR_HEAD = 24,
   PIN = 1 << 30,
   DEAD = 1 << 31,
@@ -745,11 +746,19 @@ function known(s: string) {
   const k = strAddr.get(s);
   if (k === undefined) return 0;
   const a = k[0];
-  // the kind first, atomically: written last by strAdd, so the serial and the
-  // count read after it are the string's that the block is
+  // the block is read a word at a time, and may be retired and reused as
+  // another string meanwhile (the thread may have passed a quiescent point
+  // since the string died): the serial is read again after the count and the
+  // text. a retired block's serial is cleared (retire), and a new string's is
+  // the next one, so the serial the same both times means the count and the
+  // text read between are of one string. that serial may have come round
+  // since the entry was made (2^32 strings later), so the text is compared:
+  // no other string has it, not even one of that length and hash
   return Atomics.load(I32, a >> 2) === K_STR &&
     Atomics.load(I32, (a >> 2) + 5) === k[1] &&
-    Atomics.load(I32, (a >> 2) + 1) > 0
+    Atomics.load(I32, (a >> 2) + 1) > 0 &&
+    strIsNow(a, s) &&
+    Atomics.load(I32, (a >> 2) + 5) === k[1]
     ? a
     : 0;
 }
@@ -770,6 +779,20 @@ const strIs = (a: number, s: string) => {
     const u = (a + STR_HEAD) >> 1;
     for (let i = 0; i < s.length; i++)
       if (U16[u + i] !== s.charCodeAt(i)) return false;
+  }
+  return true;
+};
+// strIs for a block that may be reused while it is read (known): each read is
+// atomic, so none comes after the serial is read again
+const strIsNow = (a: number, s: string) => {
+  if (Atomics.load(I32, (a >> 2) + 2) !== s.length) return false;
+  if (Atomics.load(I32, (a >> 2) + 4) !== 0) {
+    for (let i = 0; i < s.length; i++)
+      if (Atomics.load(U8, a + STR_HEAD + i) !== s.charCodeAt(i)) return false;
+  } else {
+    const u = (a + STR_HEAD) >> 1;
+    for (let i = 0; i < s.length; i++)
+      if (Atomics.load(U16, u + i) !== s.charCodeAt(i)) return false;
   }
   return true;
 };
@@ -838,7 +861,10 @@ function strAdd(t: number, at: number, s: string, h: number, count: number) {
   I32[(a >> 2) + 2] = s.length;
   I32[(a >> 2) + 3] = h;
   I32[(a >> 2) + 4] = ascii ? 1 : 0;
-  Atomics.store(I32, (a >> 2) + 5, Atomics.add(I32, C_STR_SERIAL, 1) + 1);
+  // a serial is never 0, a retired block's (retire): the i32 counter wraps
+  let serial = Atomics.add(I32, C_STR_SERIAL, 1) + 1;
+  if ((serial | 0) === 0) serial = Atomics.add(I32, C_STR_SERIAL, 1) + 1;
+  Atomics.store(I32, (a >> 2) + 5, serial);
   if (ascii)
     for (let k = 0; k < s.length; k++) U8[a + STR_HEAD + k] = s.charCodeAt(k);
   else
@@ -908,8 +934,12 @@ export function $internFind(s: string) {
 // alive, else 0: a lookup, no hashing
 export const $internedHere: (s: string) => number = known;
 export function $str(a: number) {
+  // the caller holds string a, so its block stays the one string while this
+  // reads it; the cached text is compared, as the serial may have come round
+  // since the entry was made (see known)
   const k = addrStr.get(a);
-  if (k !== undefined && k[1] === I32[(a >> 2) + 5]) return k[0];
+  if (k !== undefined && k[1] === I32[(a >> 2) + 5] && strIs(a, k[0]))
+    return k[0];
   const n = I32[(a >> 2) + 2],
     s =
       I32[(a >> 2) + 4] !== 0
@@ -951,6 +981,9 @@ export function $stringDying(a: number) {
 // a block whose grace period is over: a string that left, or a string table
 // that was replaced
 function retire(p: number) {
+  // a string's serial cleared first: a thread whose cache has the string checks
+  // it (known), and the block is reused as a string of another serial
+  if (I32[p >> 2] === K_STR) Atomics.store(I32, (p >> 2) + 5, 0);
   $freeBlock(
     p,
     I32[p >> 2] === K_STR ? strBytes(p) : 16 + I32[(p >> 2) + 1] * 4,
