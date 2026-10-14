@@ -265,7 +265,12 @@ export declare const atomic: Atomic;
 
 // ---- threads ----
 
-/** A thread; joining it moves the thread's result back. */
+/**
+ * A thread; joining it moves the thread's result back. If the thread threw,
+ * joining it throws an Error that says what it threw (`TypeError: x is not a
+ * function`), whose `cause` has the stack where the thread threw: an Error is
+ * not shared, so what a thread threw crosses as text.
+ */
 export interface Thread<R> extends Cell {
   /**
    * Waits for the thread, from a thread that may block (not a page's main

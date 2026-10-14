@@ -9,7 +9,8 @@ import {
 } from '@arv/threads';
 // a scope whose thread throws (run.test.ts): the scope joins its other threads
 // all the same, and frees each thread's block and result; the body's error is
-// the one thrown, else the first thread's, or all of them
+// the one thrown, else the first thread's, or all of them. a thread's is an
+// Error that says what the thread threw
 import {__collect} from '@arv/threads/own';
 
 function ok(n: number) {
@@ -21,6 +22,9 @@ function bad(): number {
 function worse(): number {
   throw new Error('worse');
 }
+// what an error says, or what was thrown if it is not one
+const said = (e: unknown) =>
+  e instanceof Error ? e.message : `not an Error: ${String(e)}`;
 // runs body in a scope: what the scope threw, and the blocks it left behind
 function attempt(body: (s: Scope) => void) {
   const before = heapStats();
@@ -30,8 +34,8 @@ function attempt(body: (s: Scope) => void) {
   } catch (e) {
     caught =
       e instanceof AggregateError
-        ? `${e}: [${e.errors.map(String).join(', ')}]`
-        : String(e);
+        ? `${e.message}: [${e.errors.map(said).join(', ')}]`
+        : said(e);
   }
   __collect(); // the errors' strings go a grace period later
   const after = heapStats();

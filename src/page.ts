@@ -75,7 +75,7 @@ const start: (role: WorkerData['role']) => void = role => {
     } else if (m.type === 'grow') {
       if (!finished) start('pool');
     } else if (m.type === 'done') finish(true);
-    else if (m.type === 'crash') finish(false, m.message);
+    else if (m.type === 'crash') finish(false, m.stack ?? m.message);
   };
   w.onerror = e => finish(false, e.message);
   w.postMessage({

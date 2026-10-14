@@ -14,7 +14,8 @@ export declare function start(options?: {
 }): Promise<void>;
 /**
  * Runs `f` on a thread and resolves with its result, which moves to the page.
- * Every argument is sent.
+ * Every argument is sent. If `f` throws, rejects with an Error that says what
+ * it threw, as joining its thread would.
  */
 export declare function run<A extends unknown[], R>(
   f: (...args: A) => Sending<R>,

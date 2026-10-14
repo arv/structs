@@ -7,8 +7,10 @@ onmessage = async ({data}) => {
   // the runtime's heap views are module constants: the heap must be known
   // before it loads
   globalThis.__escapeSab = sab;
+  // the runtime, once it has loaded
+  let R: typeof import('./runtime/runtime.ts') | undefined;
   try {
-    const R = await import('./runtime/runtime.ts');
+    R = await import('./runtime/runtime.ts');
     R.attach(
       sab,
       opts,
@@ -28,6 +30,12 @@ onmessage = async ({data}) => {
       await R.poolLoop();
     }
   } catch (e: any) {
-    postMessage({type: 'crash', message: String(e?.stack ?? e)});
+    // a join's error that main threw on is the failure it tells of, with the
+    // stack of the thread where it began
+    const [message, stack] = R?.$failureOf(e) ?? [
+      String(e),
+      typeof e?.stack === 'string' ? e.stack : undefined,
+    ];
+    postMessage({type: 'crash', message, stack});
   }
 };

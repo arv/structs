@@ -68,7 +68,7 @@ const start: (role: WorkerData['role']) => void = role => {
       if (!finished) start('pool');
     } else if (m.type === 'done') finish(0);
     else if (m.type === 'crash') {
-      process.stderr.write(`${m.message}\n`);
+      process.stderr.write(`${m.stack ?? m.message}\n`);
       finish(1);
     }
   });

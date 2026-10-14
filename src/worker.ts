@@ -33,8 +33,10 @@ registerHooks({
       : {url: new URL(m, runtime).href, shortCircuit: true};
   },
 });
+// the runtime, once it has loaded
+let R: typeof import('./runtime/runtime.ts') | undefined;
 try {
-  const R = await import('./runtime/runtime.ts');
+  R = await import('./runtime/runtime.ts');
   R.attach(
     sab,
     opts,
@@ -51,5 +53,11 @@ try {
     parentPort!.postMessage({type: 'done'});
   } else await R.poolLoop();
 } catch (e: any) {
-  parentPort!.postMessage({type: 'crash', message: String(e?.stack ?? e)});
+  // a join's error that main threw on is the failure it tells of, with the
+  // stack of the thread where it began
+  const [message, stack] = R?.$failureOf(e) ?? [
+    String(e),
+    typeof e?.stack === 'string' ? e.stack : undefined,
+  ];
+  parentPort!.postMessage({type: 'crash', message, stack});
 }

@@ -5,19 +5,31 @@ import {fileURLToPath} from 'node:url';
 import {stripVTControlCharacters} from 'node:util';
 import {describe, expect, it} from 'vite-plus/test';
 
-// runs a program (run.ts): what it printed, to stdout and to stderr
-const exec = (args: string[]) => {
+// runs a program (run.ts)
+const spawnRun = (args: string[]) => {
   const r = spawnSync(
     process.execPath,
     [fileURLToPath(new URL('./run.ts', import.meta.url)), ...args],
     {encoding: 'utf8', timeout: 60_000},
   );
   if (r.error) throw r.error;
+  return r;
+};
+// what a program printed, to stdout and to stderr
+const exec = (args: string[]) => {
+  const r = spawnRun(args);
   if (r.status !== 0)
     throw new Error(`run.ts exited with ${r.status ?? r.signal}: ${r.stderr}`);
   return {out: stripVTControlCharacters(r.stdout), err: r.stderr};
 };
 const run = (...args: string[]) => exec(args).out;
+// what a program that fails printed to stderr
+const fails = (...args: string[]) => {
+  const r = spawnRun(args);
+  if (r.status !== 1)
+    throw new Error(`run.ts exited with ${r.status ?? r.signal}: ${r.stderr}`);
+  return r.stderr;
+};
 // the same with --stats: what the program printed, and the runtime's counters
 // and the workers started, which run.ts prints to stderr as it exits (a line
 // of JSON, among whatever the workers wrote there)
@@ -68,10 +80,15 @@ describe('programs on threads', () => {
   it('a scope joins every thread when one of them throws', () => {
     expect(run('scope-throw', '--threads=1').trim().split('\n')).toEqual([
       'scope threw: Error: boom; blocks left behind: 0',
-      'scope threw: Error: the body; blocks left behind: 0',
-      'scope threw: AggregateError: threads: more than one thread threw: [Error: boom, Error: worse]; blocks left behind: 0',
+      'scope threw: the body; blocks left behind: 0',
+      'scope threw: threads: more than one thread threw: [Error: boom, Error: worse]; blocks left behind: 0',
       'scope in an async function: throws; blocks left behind: 0',
     ]);
+  });
+
+  it("a main that throws a join's error prints the thread's failure", () => {
+    const err = fails('main-throws', '--threads=1');
+    expect(err).toMatch(/^Error: boom\n\s+at bad \(.*main-throws\.ts/);
   });
 
   it('the ring is recycled under threads that spawn at once', () => {

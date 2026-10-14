@@ -245,7 +245,7 @@ All from `"@arv/threads"`, unless noted.
 |                                             |                                                                                                                                                          |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `spawn(f, ...args)`                         | Starts `f` on a thread. Owned arguments move; shared values and cells are shared.                                                                        |
-| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back.                                                                                                             |
+| `thread.join()`, `thread.joinAsync()`       | Waits for the thread; its result moves back. If the thread threw, throws an Error that says what it threw, whose `cause` has the thread's stack.         |
 | `scope(s => ...)`                           | Structured threads: joins every thread `s.spawn` started before it returns.                                                                              |
 | `partition(items, parts)`, `take(items, i)` | Splits an owned array into owned parts; takes one element out.                                                                                           |
 | `register(import.meta.url, {f, ...})`       | Registers a module's top-level functions, so a thread finds the one it runs. The compiler adds it; a program run uncompiled calls it.                    |
