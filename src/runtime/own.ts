@@ -1390,7 +1390,23 @@ export const atomic: {
   exchange: (t, k, v) => Atomics.exchange(I32, atomicIndex(t, k), v),
   compareExchange: (t, k, expected, replacement) =>
     Atomics.compareExchange(I32, atomicIndex(t, k), expected, replacement),
-  wait: (t, k, v, timeout) => Atomics.wait(I32, atomicIndex(t, k), v, timeout),
+  // a wait as the runtime's waits are: refused where it would block a host or
+  // the page, and quiescent throughout (the thread holds nothing it read
+  // uncounted, so it holds up no other thread's frees, and its own queue goes
+  // to the shared list first), the thread marked running again after
+  wait: (t, k, v, timeout) => {
+    $mustNotBlock(
+      'atomic.wait()',
+      'await condition.waitAsync(lock), on a Condition',
+    );
+    const i = atomicIndex(t, k);
+    $waitBegin();
+    try {
+      return Atomics.wait(I32, i, v, timeout);
+    } finally {
+      $waitEnd();
+    }
+  },
   notify: (t, k, count) => Atomics.notify(I32, atomicIndex(t, k), count),
 });
 

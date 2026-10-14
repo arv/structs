@@ -1,0 +1,42 @@
+// The runtime on a thread that cannot block, as a page's main thread cannot:
+// Atomics.wait throws as the runtime loads, so it takes the thread for one.
+// atomic.wait there refuses before it waits, naming the alternative, and the
+// thread is left as it was
+import {afterAll, expect, it} from 'vite-plus/test';
+
+const atomics = Atomics as unknown as {wait: typeof Atomics.wait};
+const wait = atomics.wait;
+let waits = 0;
+atomics.wait = (() => {
+  waits++;
+  throw new TypeError('Atomics.wait cannot be called in this context');
+}) as typeof Atomics.wait;
+afterAll(() => {
+  atomics.wait = wait;
+});
+
+const g = globalThis as {__escapeSab?: SharedArrayBuffer};
+g.__escapeSab = new SharedArrayBuffer(16 << 20);
+const runtime = await import('./runtime.ts');
+runtime.attach(
+  g.__escapeSab,
+  {},
+  () => {},
+  () => {},
+);
+runtime.threadBegin(1);
+const T = await import('./threads.ts');
+
+it('atomic.wait refuses on a thread that cannot block, before it waits', () => {
+  expect(runtime.CAN_BLOCK).toBe(false);
+  const QS_1 = 2048 + 8 + 5, // thread 1's quiescent state (T_QS of its entry)
+    IDLE = 1;
+  const W = T.struct({n: T.i32}, 'Waited');
+  const w = new W();
+  const before = waits;
+  expect(() => T.atomic.wait(w, 'n', 0, 0)).toThrow(
+    /atomic\.wait\(\) would block the page's main thread/,
+  );
+  expect(waits).toBe(before); // refused before Atomics.wait
+  expect(runtime.I32[QS_1]).not.toBe(IDLE); // left running
+});
