@@ -23,11 +23,11 @@ import type {ThreadFn} from './own.ts';
 // it is heavy, and a goroutine blocked on a channel holds its worker (the pool
 // grows to run the others). an async function's goroutine is light: it runs on
 // a host among others (runtime.ts spawnAsync), and waits with sendAsync,
-// recvAsync, selectAsync and for await, without blocking the host. its blocking
-// calls throw instead: they would stop every goroutine on the host. a shared
-// struct or SharedArray is sent as its address, with no copy: the compiler
-// passes it as __countedRef(p), so the message carries a count, and the receiver owns
-// what recv() returns
+// recvAsync, recvOkAsync, selectAsync and for await, without blocking the
+// host. its blocking calls throw instead: they would stop every goroutine on
+// the host. a shared struct or SharedArray is sent as its address, with no
+// copy: the compiler passes it as __countedRef(p), so the message carries a
+// count, and the receiver owns what recv() returns
 import {
   I32,
   $waitBegin,
@@ -201,9 +201,15 @@ async function receiveAsync(c: number) {
     return v;
   }
 }
-// the next value, waiting while the channel is empty, or DONE
-function receive(c: number) {
-  $mustNotBlock("a channel's recv()", 'await recvAsync() (or for await)');
+// the next value, waiting while the channel is empty, or DONE. where it would
+// block (the page, an async function) it throws, naming what was called and
+// what to call instead
+function receive(
+  c: number,
+  what = "a channel's recv()",
+  instead = 'await recvAsync() (or for await)',
+) {
+  $mustNotBlock(what, instead);
   lock(c + LOCK);
   for (;;) {
     const v = take(c);
@@ -290,7 +296,8 @@ export class Channel {
     }
   }
   // the next value, which the caller now owns; waits while the channel is
-  // empty. undefined once it is closed and empty
+  // empty. undefined once it is closed and empty, as for a sent undefined:
+  // recvOk tells the two apart
   recv() {
     const v = receive(this.$cell >> 2);
     return v === DONE ? undefined : v;
@@ -300,6 +307,21 @@ export class Channel {
     const v = await receiveAsync(this.$cell >> 2);
     return v === DONE ? undefined : v;
   }
+  // Go's `v, ok := <-ch`: [the next value, true], or [undefined, false] once
+  // the channel is closed and empty
+  recvOk(): [unknown, boolean] {
+    const v = receive(
+      this.$cell >> 2,
+      "a channel's recvOk()",
+      'await recvOkAsync()',
+    );
+    return v === DONE ? [undefined, false] : [v, true];
+  }
+  // the same in an async function: waits without blocking its worker
+  async recvOkAsync(): Promise<[unknown, boolean]> {
+    const v = await receiveAsync(this.$cell >> 2);
+    return v === DONE ? [undefined, false] : [v, true];
+  }
   // without waiting: the next value, EMPTY, or DONE
   poll() {
     const c = this.$cell >> 2;
@@ -308,8 +330,8 @@ export class Channel {
     if (v === EMPTY || v === DONE) unlock(c + LOCK);
     return v;
   }
-  // no more sends; receivers drain what is left, then get undefined (and loops
-  // over it end)
+  // no more sends; receivers drain what is left, then get undefined (recvOk's
+  // ok false, and loops over it end)
   close() {
     const c = this.$cell >> 2;
     lock(c + LOCK);
@@ -336,18 +358,18 @@ export function go(f: ThreadFn, ...args: unknown[]) {
 }
 
 // waits until one of the channels has a value or is closed: [its index, the
-// value], the value undefined for a closed channel. the first ready channel
-// wins, from a rotating start for fairness
+// value, true], or [its index, undefined, false] for a closed one (recvOk's
+// ok). the first ready channel wins, from a rotating start for fairness
 let turn = 0;
-// the first ready channel's [index, value], or null
-const ready = (chans: Channel[]): [number, unknown] | null => {
+// the first ready channel's [index, value, ok], or null
+const ready = (chans: Channel[]): [number, unknown, boolean] | null => {
   const n = chans.length;
   for (let k = 0; k < n; k++) {
     const i = (turn + k) % n,
       v = chans[i].poll();
     if (v === EMPTY) continue;
     turn = (i + 1) % n;
-    return [i, v === DONE ? undefined : v];
+    return v === DONE ? [i, undefined, false] : [i, v, true];
   }
   return null;
 };
@@ -356,7 +378,7 @@ const ready = (chans: Channel[]): [number, unknown] | null => {
 // under the channel's lock), [next][the wake word's index], and takes them out
 // once it is done. a change elsewhere in the heap does not wake it, and a
 // change of a channel no select waits on costs nothing more
-export function select(...chans: Channel[]): [number, unknown] {
+export function select(...chans: Channel[]): [number, unknown, boolean] {
   $mustNotBlock('select()', 'await selectAsync()');
   const first = ready(chans);
   if (first !== null) return first;
@@ -392,7 +414,7 @@ export function select(...chans: Channel[]): [number, unknown] {
       }
       // a change before the records were in is seen here; one after wakes the
       // wait (the word is no longer seen)
-      let got: [number, unknown] | null;
+      let got: [number, unknown, boolean] | null;
       try {
         got = ready(chans);
         if (got === null) {
@@ -416,19 +438,13 @@ export function select(...chans: Channel[]): [number, unknown] {
 // given channels only
 export async function selectAsync(
   ...chans: Channel[]
-): Promise<[number, unknown]> {
-  const n = chans.length,
-    cs = chans.map(ch => ch.$cell >> 2);
+): Promise<[number, unknown, boolean]> {
+  const cs = chans.map(ch => ch.$cell >> 2);
   for (;;) {
     // before polling: a change after it wakes the wait
     const seqs = cs.map(c => Atomics.load(I32, c + SEQ));
-    for (let k = 0; k < n; k++) {
-      const i = (turn + k) % n,
-        v = chans[i].poll();
-      if (v === EMPTY) continue;
-      turn = (i + 1) % n;
-      return [i, v === DONE ? undefined : v];
-    }
+    const got = ready(chans);
+    if (got !== null) return got;
     let stops!: (() => void)[];
     await new Promise<void>(wake => {
       stops = cs.map((c, i) => onChange(c, seqs[i], wake));

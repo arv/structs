@@ -1,6 +1,6 @@
 // chan.ts on one thread: channels, blocking and async.
 import {describe, expect, it} from 'vite-plus/test';
-import {runtime, threads as T} from './test-heap.ts';
+import {own, runtime, threads as T} from './test-heap.ts';
 
 describe('channels', () => {
   it('move values in order', () => {
@@ -21,11 +21,73 @@ describe('channels', () => {
     expect(() => ch.send('c')).toThrow(/closed channel/);
   });
 
+  it('tell a sent undefined from a close with recvOk', () => {
+    // recv gives undefined for both
+    const ch = new T.Channel(4);
+    ch.send(undefined);
+    ch.close();
+    expect(ch.recv()).toBeUndefined();
+    expect(ch.recv()).toBeUndefined();
+
+    const ok = new T.Channel(4);
+    ok.send(1);
+    ok.send(undefined);
+    ok.close();
+    expect(ok.recvOk()).toStrictEqual([1, true]);
+    expect(ok.recvOk()).toStrictEqual([undefined, true]);
+    expect(ok.recvOk()).toStrictEqual([undefined, false]);
+    expect(ok.recvOk()).toStrictEqual([undefined, false]);
+  });
+
+  it('tell them apart with recvOkAsync', async () => {
+    const ch = new T.Channel();
+    const received = ch.recvOkAsync();
+    await ch.sendAsync(undefined); // waits until the receiver takes it
+    expect(await received).toStrictEqual([undefined, true]);
+    const closed = ch.recvOkAsync();
+    ch.close();
+    expect(await closed).toStrictEqual([undefined, false]);
+  });
+
+  it('hand the receiver the count a counted value carries', () => {
+    // as compiled code sends a struct: its address, as __countedRef(p), so the
+    // message carries a count, which the receiver owns and releases
+    const N = own.sharedStruct('Received', ['v']);
+    const ch = new T.Channel(1);
+    for (const receive of [() => ch.recv(), () => ch.recvOk()[0]]) {
+      const a = own.newStruct(N);
+      ch.send(own.countedRef(a));
+      own.release(a); // the sender's count
+      const b = receive();
+      expect(b).toBe(a);
+      expect(runtime.I32[(a >> 2) + 1]).toBe(1); // the message's, the receiver's
+      const freed = T.heapStats().freed;
+      own.release(b as number);
+      expect(T.heapStats().freed - freed).toBe(1);
+      expect(runtime.I32[a >> 2]).toBe(runtime.K_FREE);
+    }
+  });
+
   it('select the channel with a value', () => {
     const x = new T.Channel(1),
       y = new T.Channel(1);
     y.send(9);
-    expect(T.select(x, y)).toEqual([1, 9]);
+    expect(T.select(x, y)).toStrictEqual([1, 9, true]);
+  });
+
+  it("select's third element tells a sent undefined from a close", async () => {
+    const x = new T.Channel(1),
+      y = new T.Channel(1);
+    y.send(undefined);
+    expect(T.select(x, y)).toStrictEqual([1, undefined, true]);
+    y.close();
+    expect(T.select(x, y)).toStrictEqual([1, undefined, false]);
+
+    const later = new T.Channel(1);
+    setTimeout(() => later.sendAsync(undefined), 10);
+    expect(await T.selectAsync(x, later)).toStrictEqual([1, undefined, true]);
+    setTimeout(() => later.close(), 10);
+    expect(await T.selectAsync(x, later)).toStrictEqual([1, undefined, false]);
   });
 
   it('a blocking select is woken by its own channels, not by others', () => {
@@ -45,7 +107,7 @@ describe('channels', () => {
       return 'not-equal';
     }) as typeof Atomics.wait;
     try {
-      expect(T.select(x, y)).toEqual([1, 'mine']);
+      expect(T.select(x, y)).toStrictEqual([1, 'mine', true]);
     } finally {
       atomics.wait = wait;
     }
@@ -65,7 +127,7 @@ describe('channels', () => {
     const x = new T.Channel(1),
       later = new T.Channel(1);
     setTimeout(() => later.sendAsync('late'), 10);
-    expect(await T.selectAsync(x, later)).toEqual([1, 'late']);
+    expect(await T.selectAsync(x, later)).toStrictEqual([1, 'late', true]);
   });
 
   it('goroutines passing messages on one thread let its tasks run', async () => {

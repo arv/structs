@@ -220,6 +220,19 @@ describe('threads-check, where it differs from the fork', () => {
     );
   });
 
+  it('refuses recvOk in an async function, as it does recv', () => {
+    // the fork's table of blocking calls has no recvOk: an async function
+    // waits with recvOkAsync, and a plain one may block
+    const dir = join(checker, 'test/diverging/recv-ok');
+    expect(
+      check(join(dir, 'tsconfig.json'), {runtime: 'threads', api}).map(d =>
+        formatDiagnostic(d, dir),
+      ),
+    ).toEqual([
+      "recv-ok.ts(6,20): error TS96030: 'recvOk' blocks its thread, and with it every async function waiting on the same worker: in an async function, use 'recvOkAsync'.",
+    ]);
+  });
+
   it("reports no blocking call on a Channel that is not the runtime's", () => {
     const dir = join(checker, 'test/diverging/ambient-channel');
     expect(

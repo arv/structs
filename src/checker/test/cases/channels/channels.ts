@@ -1,5 +1,5 @@
 // Moves through channels (ownLayoutChannelsErrors, in the plain API).
-import { Channel, f64, go, ref, select, SharedArray, struct, type Sending } from "threads";
+import { Channel, f64, go, ref, select, selectAsync, SharedArray, struct, type Sending } from "threads";
 
 interface Node { value: number; next: Node | null }
 const Node = struct<Node>({ value: f64, next: ref<Node>() });
@@ -95,4 +95,37 @@ export function received(ch: Channel<Node>, out: Channel<Node>) {
   const n = ch.recv();
   if (n) out.send(n);
   return n?.value;                           // errors: may have been sent, and optional chaining
+}
+
+// recvOk gives the next value and whether one came: the receiver owns the value, as recv's.
+type Maybe = number[] | undefined;
+export function receivedOk(ch: Channel<Maybe>, out: Channel<Maybe>) {
+  const [xs, ok] = ch.recvOk();
+  if (ok) out.send(xs);                      // fine: the receiver's to send, even a sent undefined
+  return xs;                                 // error: may have been sent
+}
+
+export async function receivedOkAsync(ch: Channel<Maybe>, out: Channel<Maybe>) {
+  const [xs, ok] = await ch.recvOkAsync();
+  if (ok) await out.sendAsync(xs);           // fine: the receiver's to send
+  return xs;                                 // error: may have been sent
+}
+
+// select's third element is recvOk's ok; its value is the receiver's too.
+export function selectsOk(a: Channel<Maybe>, b: Channel<Maybe>, out: Channel<Maybe>) {
+  const [i, xs, ok] = select(a, b);
+  if (ok) out.send(xs);                      // fine: the receiver's to send
+  return i + (xs?.length ?? 0);              // error: may have been sent
+}
+
+export async function selectsOkAsync(a: Channel<Maybe>, b: Channel<Maybe>, out: Channel<Maybe>) {
+  const [i, xs, ok] = await selectAsync(a, b);
+  if (ok) await out.sendAsync(xs);           // fine: the receiver's to send
+  return i + (xs?.length ?? 0);              // error: may have been sent
+}
+
+// recvOk's tuple, as select's, would hold a counted value where nothing could count it.
+export function receivedOkCounted(ch: Channel<Node>) {
+  const result = ch.recvOk();                // error
+  return result[1];
 }

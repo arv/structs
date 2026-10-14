@@ -122,10 +122,12 @@ export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
 }
 
 // The runtime's calls that block their thread, by declaring class and name, and
-// what an async function calls instead ("" for none).
+// what an async function calls instead ("" for none). The fork's table has no
+// recvOk yet.
 const blockingCalls = new Map([
   ['Channel.send', 'sendAsync'],
   ['Channel.recv', 'recvAsync'],
+  ['Channel.recvOk', 'recvOkAsync'],
   ['ChannelCell.send', 'sendAsync'],
   ['ChannelCell.recv', 'recvAsync'],
   ['Thread.join', 'joinAsync'],

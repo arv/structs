@@ -448,9 +448,16 @@ export declare class SharedSet<T> implements Cell {
 
 /**
  * A channel: values move through it from thread to thread, in order. A thread
- * that may block uses `send` , `recv` , `for...of` and `select` ; an async
- * function uses `sendAsync` , `recvAsync` , `for await` and `selectAsync` ,
- * which wait without blocking the worker it shares with others.
+ * that may block uses `send` , `recv` , `recvOk` , `for...of` and `select` ; an
+ * async function uses `sendAsync` , `recvAsync` , `recvOkAsync` , `for await`
+ * and `selectAsync` , which wait without blocking the worker it shares with
+ * others.
+ *
+ * `recv` gives undefined both for a sent undefined and once the channel is
+ * closed: `recvOk` tells them apart, as Go's `v, ok := <-ch` does, and
+ * `select` gives the same ok, third (`for...of` ends at the close alone). So a
+ * `Channel<void>` signals by `close()` , which wakes every receiver, or is read
+ * with `recvOk` .
  */
 export declare class Channel<T> implements Cell {
   readonly [cellBrand]: true;
@@ -468,12 +475,26 @@ export declare class Channel<T> implements Cell {
   sendAsync(value: Sending<T>): Promise<void>;
   /**
    * The next value, which the caller now owns; waits while empty. Undefined
-   * once closed and empty.
+   * once closed and empty, as for a sent undefined: `recvOk` tells them apart.
    */
   recv(): Sending<T> | undefined;
   /** `recv`, without blocking. */
   recvAsync(): Promise<Sending<T> | undefined>;
-  /** No more sends. Receivers still get what is left. */
+  /**
+   * `recv` , with whether a value came: `[value, true]` for the next value,
+   * which the caller now owns, even an undefined one; `[undefined, false]` once
+   * closed and empty. `const [v, ok] = ch.recvOk();` As with `select` , the
+   * ownership checker refuses it on a channel of shared structs or
+   * SharedArrays, whose count the tuple, an ordinary array, could not hold:
+   * `recv` and `for...of` receive those.
+   */
+  recvOk(): [value: Sending<T> | undefined, ok: boolean];
+  /** `recvOk`, without blocking. */
+  recvOkAsync(): Promise<[value: Sending<T> | undefined, ok: boolean]>;
+  /**
+   * No more sends. Receivers still get what is left, then undefined (`recvOk` 's
+   * ok false), and loops over the channel end.
+   */
   close(): void;
   [Symbol.iterator](): Iterator<T>;
   [Symbol.asyncIterator](): AsyncIterator<T>;
@@ -491,16 +512,20 @@ export declare function go<A extends unknown[]>(
   ...args: Sending<A>
 ): void;
 /**
- * Waits until one of the channels has a value or is closed: its index and the
- * value (undefined if closed).
+ * Waits until one of the channels has a value or is closed: its index, the
+ * value, and whether a value came, as `recvOk` 's ok: `[index, value, true]` ,
+ * or `[index, undefined, false]` for a closed channel. Without ok, a sent
+ * undefined and a close look the same. The ownership checker refuses it on
+ * channels of shared structs or SharedArrays, whose count the tuple, an
+ * ordinary array, could not hold.
  */
 export declare function select<T>(
   ...channels: Channel<T>[]
-): [index: number, value: T | undefined];
+): [index: number, value: T | undefined, ok: boolean];
 /** `select`, without blocking: for an async function. */
 export declare function selectAsync<T>(
   ...channels: Channel<T>[]
-): Promise<[index: number, value: T | undefined]>;
+): Promise<[index: number, value: T | undefined, ok: boolean]>;
 
 /** Prints a line, synchronously, from any thread. */
 export declare function log(...args: unknown[]): void;

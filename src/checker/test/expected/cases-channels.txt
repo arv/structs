@@ -11,3 +11,8 @@ channels.ts(82,18): error TS96021: A value of type 'Node | undefined' cannot be 
 channels.ts(90,14): error TS96022: A 'for-of' or 'for-in' variable cannot have type 'Node': its value is an address in the shared heap.
 channels.ts(97,10): error TS96002: 'n' cannot be used here: it may have been sent to 'send' on line 96.
 channels.ts(97,10): error TS96018: Optional chaining is not supported on 'Node | undefined': its value is an address in the shared heap.
+channels.ts(105,10): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 104.
+channels.ts(111,10): error TS96002: 'xs' cannot be used here: it may have been sent to 'sendAsync' on line 110.
+channels.ts(118,15): error TS96002: 'xs' cannot be used here: it may have been sent to 'send' on line 117.
+channels.ts(124,15): error TS96002: 'xs' cannot be used here: it may have been sent to 'sendAsync' on line 123.
+channels.ts(129,18): error TS96021: A value of type 'Node | undefined' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
