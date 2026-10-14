@@ -183,6 +183,10 @@ function receive(c: number) {
 export class Channel {
   declare $cell: number;
   constructor(capacity = 0) {
+    if (!Number.isInteger(capacity) || capacity < 0)
+      throw new RangeError(
+        `threads: a channel's capacity is a whole number, not ${capacity}`,
+      );
     const slots = Math.max(1, capacity),
       a = __newCell(K_CHAN, (RING + 2 * slots) * 4, this) >> 2;
     I32[a + 1] = slots;

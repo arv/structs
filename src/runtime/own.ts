@@ -173,6 +173,10 @@ type CellClass = {prototype: object} & Partial<StructType>;
 // a cell is a JS object of one of these classes; it crosses as its block's
 // address
 const cellKinds = new Map<number, CellClass>(); // kind -> class
+// every struct type declared on this thread (sharedStruct): two with one
+// layout share a kind, and the later one is the kind's class, but both are
+// types (newSharedArray checks)
+const structTypes = new WeakSet<object>();
 const sharedAddr = new WeakMap<object, number>(); // a shared value -> its blob
 const REVOKED = new Proxy(Object.create(null), {
   get: (_, key) => {
@@ -796,6 +800,8 @@ cellKinds.set(K_CONDITION, Condition);
 // shared heap. no copies; the program orders its reads and writes itself (with
 // a Lock, say)
 export function sharedFloat64Array(n: number) {
+  if (!Number.isInteger(n) || n < 0)
+    throw new RangeError(`own: a length is a whole number, not ${n}`);
   const a = $alloc(16 + n * 8);
   I32[a >> 2] = K_F64;
   I32[(a >> 2) + 1] = n;
@@ -937,6 +943,7 @@ export function sharedStruct<T = unknown>(
     }),
   );
   cellKinds.set(kind, Struct);
+  structTypes.add(Struct);
   return Struct;
 }
 // the struct type of kind: declared here, or by another thread, whose module
@@ -1030,7 +1037,23 @@ const elementSize: (a: number) => number = a => I32[(a >> 2) + 2] & 0xffff,
   elementKind: (a: number) => number = a => I32[(a >> 2) + 2] >>> 16;
 export function newSharedArray(type: StructType | number, length: number) {
   const struct = typeof type !== 'number',
-    size = struct ? type.size : Math.abs(type);
+    size = struct ? type?.size : Math.abs(type);
+  // checked here, where every array is made: a size that is not would make a
+  // block of no bytes, or of a negative number of them, over the next one
+  if (!Number.isInteger(length) || length < 0)
+    throw new RangeError(
+      `own: a SharedArray's length is a whole number, not ${length}`,
+    );
+  // a struct type is one sharedStruct declared (structTypes): an object of a
+  // size and no kind, or of another's, would write a kind into every element
+  // that nothing reads back
+  if (
+    !(size > 0) ||
+    (struct ? !structTypes.has(type) : !elementCodes.has(type))
+  )
+    throw new TypeError(
+      'own: a SharedArray holds numbers, booleans, strings, i32s, u8s or a shared struct',
+    );
   const a = $allocBlock(16 + length * size);
   I32[a >> 2] = K_SHARED_ARRAY;
   I32[(a >> 2) + 1] = length;

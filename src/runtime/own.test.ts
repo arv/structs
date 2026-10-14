@@ -626,6 +626,75 @@ describe('strings are collected', () => {
 
 function noop() {}
 
+describe('sizes are checked', () => {
+  // a length or a capacity that is not a whole number would make a block of no
+  // bytes, or of a negative number of them, over the next block
+  it('refuses a SharedArray of a bad length or type', () => {
+    expect(() => new T.SharedArray(Number, -3)).toThrow(RangeError);
+    expect(() => new T.SharedArray(Number, NaN)).toThrow(RangeError);
+    expect(() => new T.SharedArray(Number, 1.5)).toThrow(RangeError);
+    expect(
+      () => new T.SharedArray(Int32Array as unknown as typeof Number, 4),
+    ).toThrow(TypeError);
+    expect(
+      () => new T.SharedArray('i32' as unknown as typeof Number, 4),
+    ).toThrow(TypeError);
+    expect(new T.SharedArray(Number, 0).length).toBe(0);
+  });
+  it('takes a struct type whose layout another, later one shares', () => {
+    // the two share a kind, and the later is the kind's class; both are types
+    const A = T.struct({x: T.f64}, 'Twin');
+    T.struct({x: T.f64}, 'Twin');
+    expect(new T.SharedArray(A, 1).length).toBe(1);
+  });
+  it('refuses a struct type that is not one declared', () => {
+    // an object with a size, but not the type registered for a kind
+    expect(
+      () =>
+        new T.SharedArray({size: 16, kind: 0} as unknown as typeof Number, 2),
+    ).toThrow(TypeError);
+    expect(
+      () => new T.SharedArray({size: 16} as unknown as typeof Number, 2),
+    ).toThrow(TypeError);
+  });
+  it('refuses a channel of a bad capacity', () => {
+    expect(() => new T.Channel(NaN)).toThrow(RangeError);
+    expect(() => new T.Channel(-1)).toThrow(RangeError);
+    expect(() => new T.Channel(Infinity)).toThrow(RangeError);
+    expect(() => new T.Channel(1.5)).toThrow(RangeError);
+    expect(() => own.sharedFloat64Array(1.5)).toThrow(RangeError);
+    expect(() => own.sharedFloat64Array(NaN)).toThrow(RangeError);
+  });
+  it('the allocator refuses sizes that are not positive', () => {
+    expect(() => runtime.$alloc(-8)).toThrow(RangeError);
+    expect(() => runtime.$alloc(NaN)).toThrow(RangeError);
+    expect(() => runtime.$allocBlock(0)).toThrow(RangeError);
+    expect(() => own.sharedFloat64Array(-1)).toThrow(RangeError);
+    // a fraction would round to no bytes, or to fewer than asked
+    expect(() => runtime.$alloc(0.5)).toThrow(/cannot allocate/);
+    expect(() => runtime.$alloc(8.5)).toThrow(/cannot allocate/);
+    expect(() => runtime.$allocBlock(31.9)).toThrow(/cannot allocate/);
+  });
+  it('the allocator refuses sizes past an i32, and takes the last one short of it', () => {
+    // rounded, a size past 0x7ffffff8 would wrap; the largest accepted size is
+    // refused as a size by nothing, only by the heap, which has no room for it
+    const thrown = (f: () => void) => {
+      try {
+        f();
+        return '';
+      } catch (e) {
+        return String(e);
+      }
+    };
+    expect(thrown(() => runtime.$alloc(0x7ffffff9))).toMatch(/cannot allocate/);
+    expect(thrown(() => runtime.$alloc(2 ** 31))).toMatch(/cannot allocate/);
+    expect(thrown(() => runtime.$alloc(Infinity))).toMatch(/cannot allocate/);
+    const last = thrown(() => runtime.$alloc(0x7ffffff8));
+    expect(last).toMatch(/RangeError/);
+    expect(last).not.toMatch(/cannot allocate/);
+  });
+});
+
 describe('a wait that throws', () => {
   // Atomics.wait throws where a thread may not block (a page's main thread);
   // the runtime refuses such calls first ($mustNotBlock), but should a wait

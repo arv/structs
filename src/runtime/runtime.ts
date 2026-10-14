@@ -158,8 +158,17 @@ let acur = 0,
   aend = 0;
 const heapFullMessage = () =>
   `threads: the shared heap is full (${I32[C_HEAP_END] >> 20} MB)`;
+// a size that is not a positive whole number within an i32 (NaN, a negative,
+// a fraction, too large) is refused: rounded, it would be 0, or short, or
+// wrap, and the bump pointer would stand still or move back, and the next
+// block would overlap this one
+const sized = (bytes: number) => {
+  if (!(Number.isInteger(bytes) && bytes > 0 && bytes <= 0x7ffffff8))
+    throw new RangeError(`threads: cannot allocate ${bytes} bytes`);
+  return (bytes + 7) & ~7;
+};
 export function $alloc(bytes: number) {
-  bytes = (bytes + 7) & ~7;
+  bytes = sized(bytes);
   if (acur + bytes <= aend) {
     const p = acur;
     acur += bytes;
@@ -225,7 +234,7 @@ const caches: number[][] = [];
 const cacheFor: (c: number) => number[] = c => caches[c] ?? (caches[c] = []);
 // zero: whether the block must be zeroed (a message's is overwritten whole)
 export function $allocBlock(bytes: number, zero = true) {
-  bytes = (bytes + 7) & ~7;
+  bytes = sized(bytes);
   count(N_BALLOC);
   const c = bytes >> 3;
   let p = 0;
@@ -359,7 +368,10 @@ export function $defer(p: number) {
   count(N_DEFER);
   if (!CAN_BLOCK) pageLater();
 }
+// a point before the thread began (a page before start(): ME is 0 until
+// threadBegin) is none: its word would be a control word's. start() reclaims
 export function $quiescent() {
+  if (ME === 0) return;
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   if ((++qsTick & 63) === 0 || pend.length >= pendLimit) reclaim();
 }
@@ -372,6 +384,7 @@ export function $quiescent() {
 // reclaim after the wait. a contended lock, a channel's sleep, come here often:
 // nothing but the reclaim when the queue is empty
 export function $waitBegin() {
+  if (ME === 0) return;
   reclaim();
   if (pend.length === 0) {
     Atomics.store(I32, ME + T_QS, IDLE);
@@ -383,7 +396,7 @@ export function $waitBegin() {
   nudgePageForShared();
 }
 export const $waitEnd = () => {
-  Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
+  if (ME !== 0) Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
 };
 // the oldest epoch a running thread may still hold an uncounted address from
 // (`but`: an entry left out)
