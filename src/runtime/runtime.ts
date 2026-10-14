@@ -23,9 +23,7 @@ const C_PEND = 19,
   C_PEND_LEN = 20,
   C_PEND_CAP = 21,
   C_PEND_LOCK = 22; // decrements left by threads that ended
-export const C_ACTIVITY = 23,
-  // bumped on every channel change; threads waiting in select (chan.ts)
-  C_SELECTING = 24;
+// words 23 and 24 are free (a select waits on its own channels: chan.ts)
 const C_AQ_LOCK = 25,
   C_AQ_HEAD = 26,
   C_AQ_TAIL = 27,

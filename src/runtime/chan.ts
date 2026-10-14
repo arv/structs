@@ -32,8 +32,8 @@ import {
   I32,
   $waitBegin,
   $waitEnd,
-  C_ACTIVITY,
-  C_SELECTING,
+  $allocBlock,
+  $freeBlock,
   $lock,
   $unlock,
   $mustNotBlock,
@@ -41,9 +41,11 @@ import {
 } from './runtime.ts';
 
 // [0 kind][1 slots][2 lock][3 seq][4 head][5 tail][6 count][7 closed][8 sent][9
-// received][10 unbuffered][11 -] then the ring from word 12: a slot is [message
-// address][bytes]. seq changes with every change, and waiters wait on it. an
-// unbuffered channel has one slot, and its sender also waits for the receiver
+// received][10 unbuffered][11 selects] then the ring from word 12: a slot is
+// [message address][bytes]. seq changes with every change, and waiters wait on
+// it. an unbuffered channel has one slot, and its sender also waits for the
+// receiver. selects: the first of the blocking selects waiting on the channel
+// (see select)
 const K_CHAN = 24,
   RING = 12;
 const LOCK = 2,
@@ -54,20 +56,27 @@ const LOCK = 2,
   CLOSED = 7,
   SENT = 8,
   RECEIVED = 9,
-  UNBUFFERED = 10;
+  UNBUFFERED = 10,
+  SELECTS = 11;
 
 // the channel's lock (runtime.ts $lock): held only for a few loads and stores,
 // never across a wait
 const lock = $lock,
   unlock = $unlock;
 // holding the lock: record a change and wake everyone waiting on this channel,
-// and any select; an async function on this thread waiting for it wakes at once
+// the selects waiting on it among them; an async function on this thread
+// waiting for it wakes at once
 const changed: (c: number) => void = c => {
   I32[c + SEQ]++;
+  // a select's record is [next][its wake word's index] (see select): under the
+  // lock, as a select adds and takes out its records under it
+  for (let r = I32[c + SELECTS]; r !== 0; r = I32[r >> 2]) {
+    const w = I32[(r >> 2) + 1];
+    Atomics.add(I32, w, 1);
+    Atomics.notify(I32, w);
+  }
   unlock(c + LOCK);
   Atomics.notify(I32, c + SEQ);
-  Atomics.add(I32, C_ACTIVITY, 1);
-  if (Atomics.load(I32, C_SELECTING) !== 0) Atomics.notify(I32, C_ACTIVITY);
   watches.get(c)?.fire();
 };
 
@@ -303,26 +312,77 @@ export function go(f: ThreadFn, ...args: unknown[]) {
 // value], the value undefined for a closed channel. the first ready channel
 // wins, from a rotating start for fairness
 let turn = 0;
+// the first ready channel's [index, value], or null
+const ready = (chans: Channel[]): [number, unknown] | null => {
+  const n = chans.length;
+  for (let k = 0; k < n; k++) {
+    const i = (turn + k) % n,
+      v = chans[i].poll();
+    if (v === EMPTY) continue;
+    turn = (i + 1) % n;
+    return [i, v === DONE ? undefined : v];
+  }
+  return null;
+};
+// a blocking select waits on a word of its own, which a change of any of its
+// channels bumps: it adds a record to each channel's list of selects (word 11,
+// under the channel's lock), [next][the wake word's index], and takes them out
+// once it is done. a change elsewhere in the heap does not wake it, and a
+// change of a channel no select waits on costs nothing more
 export function select(...chans: Channel[]): [number, unknown] {
   $mustNotBlock('select()', 'await selectAsync()');
-  const n = chans.length;
-  for (;;) {
-    const seen = Atomics.load(I32, C_ACTIVITY);
-    for (let k = 0; k < n; k++) {
-      const i = (turn + k) % n,
-        v = chans[i].poll();
-      if (v === EMPTY) continue;
-      turn = (i + 1) % n;
-      return [i, v === DONE ? undefined : v];
+  const first = ready(chans);
+  if (first !== null) return first;
+  const n = chans.length,
+    bytes = 8 + 8 * n, // [wake][-] then n records
+    b = $allocBlock(bytes),
+    wake = b >> 2;
+  const record = (i: number) => b + 8 + 8 * i;
+  const leave = () => {
+    for (let i = 0; i < n; i++) {
+      const c = chans[i].$cell >> 2,
+        r = record(i);
+      lock(c + LOCK);
+      for (let link = c + SELECTS; I32[link] !== 0; link = I32[link] >> 2)
+        if (I32[link] === r) {
+          I32[link] = I32[r >> 2];
+          break;
+        }
+      unlock(c + LOCK);
     }
-    Atomics.add(I32, C_SELECTING, 1);
-    $waitBegin();
-    try {
-      Atomics.wait(I32, C_ACTIVITY, seen);
-    } finally {
-      $waitEnd();
-      Atomics.sub(I32, C_SELECTING, 1);
+  };
+  try {
+    for (;;) {
+      const seen = Atomics.load(I32, wake);
+      for (let i = 0; i < n; i++) {
+        const c = chans[i].$cell >> 2,
+          r = record(i);
+        lock(c + LOCK);
+        I32[r >> 2] = I32[c + SELECTS];
+        I32[(r >> 2) + 1] = wake;
+        I32[c + SELECTS] = r;
+        unlock(c + LOCK);
+      }
+      // a change before the records were in is seen here; one after wakes the
+      // wait (the word is no longer seen)
+      let got: [number, unknown] | null;
+      try {
+        got = ready(chans);
+        if (got === null) {
+          $waitBegin();
+          try {
+            Atomics.wait(I32, wake, seen);
+          } finally {
+            $waitEnd();
+          }
+        }
+      } finally {
+        leave();
+      }
+      if (got !== null) return got;
     }
+  } finally {
+    $freeBlock(b, bytes);
   }
 }
 // the same in an async function: waits without blocking its worker, on the

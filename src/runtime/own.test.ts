@@ -795,10 +795,9 @@ describe('sizes are checked', () => {
 describe('a wait that throws', () => {
   // Atomics.wait throws where a thread may not block (a page's main thread);
   // the runtime refuses such calls first ($mustNotBlock), but should a wait
-  // throw regardless, the thread is left running, not waiting, and select's
-  // count of waiters balanced. the wait is made to throw here
+  // throw regardless, the thread is left running, not waiting, and a select's
+  // records out of its channels' lists. the wait is made to throw here
   const QS_1 = 2048 + 8 + 5, // thread 1's quiescent state (T_QS of its entry)
-    SELECTING = 24, // C_SELECTING
     IDLE = 0x7fffffff;
   const atomics = Atomics as unknown as {wait: typeof Atomics.wait};
   const throwing = (f: () => void) => {
@@ -820,12 +819,11 @@ describe('a wait that throws', () => {
     runtime.$freeBlock(t, 32);
   });
 
-  it('a select leaves the thread running, and no waiter counted', () => {
+  it('a select leaves the thread running, and no record on its channel', () => {
     const ch = new T.Channel();
-    const selecting = runtime.I32[SELECTING];
     throwing(() => expect(() => T.select(ch)).toThrow(TypeError));
     expect(runtime.I32[QS_1]).not.toBe(IDLE);
-    expect(runtime.I32[SELECTING]).toBe(selecting);
+    expect(runtime.I32[(ch.$cell >> 2) + 11]).toBe(0); // its list of selects
   });
 });
 

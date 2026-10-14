@@ -1,6 +1,6 @@
 // chan.ts on one thread: channels, blocking and async.
 import {describe, expect, it} from 'vite-plus/test';
-import {threads as T} from './test-heap.ts';
+import {runtime, threads as T} from './test-heap.ts';
 
 describe('channels', () => {
   it('move values in order', () => {
@@ -26,6 +26,34 @@ describe('channels', () => {
       y = new T.Channel(1);
     y.send(9);
     expect(T.select(x, y)).toEqual([1, 9]);
+  });
+
+  it('a blocking select is woken by its own channels, not by others', () => {
+    // this test is the other thread too: the select's wait sends on a channel
+    // the select does not wait on, then on one it does
+    const x = new T.Channel(1),
+      y = new T.Channel(1),
+      other = new T.Channel(1);
+    const atomics = Atomics as unknown as {wait: typeof Atomics.wait};
+    const wait = atomics.wait;
+    const bumped: boolean[] = [];
+    atomics.wait = ((arr: Int32Array, i: number, v: number) => {
+      other.send('elsewhere');
+      bumped.push(Atomics.load(arr, i) !== v);
+      y.send('mine');
+      bumped.push(Atomics.load(arr, i) !== v);
+      return 'not-equal';
+    }) as typeof Atomics.wait;
+    try {
+      expect(T.select(x, y)).toEqual([1, 'mine']);
+    } finally {
+      atomics.wait = wait;
+    }
+    expect(bumped).toEqual([false, true]);
+    // the select's records are out of the channels' lists
+    for (const ch of [x, y, other])
+      expect(runtime.I32[(ch.$cell >> 2) + 11]).toBe(0);
+    expect(other.recv()).toBe('elsewhere');
   });
 
   it('wait without blocking in an async function', async () => {
