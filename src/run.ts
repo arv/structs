@@ -8,7 +8,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 //   --threads=1,2,4,8   the thread counts the program runs its work with
 //   --stats             print the runtime's counters and the number of workers
 //                       started (to stderr) at exit
-//   --heap=MiB          shared heap size (default 512)
+//   --heap=MiB          shared heap size, a whole number from 2 to 2047
+//                       (default 512)
 //   --pool=N            workers started up front (default 8; more start on
 //                       demand)
 //   --check             poison freed blocks
@@ -18,7 +19,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {Worker} from 'node:worker_threads';
 import {findProgram} from './program.ts';
 import {
-  initShared,
+  sharedHeap,
   shutdown,
   counters,
   workersComing,
@@ -38,8 +39,7 @@ if (!name) {
   process.exit(1);
 }
 
-const sab = new SharedArrayBuffer(Number(opt('heap', 512)) << 20);
-initShared(sab);
+const sab = sharedHeap(Number(opt('heap', 512)));
 
 const data = {
   sab,

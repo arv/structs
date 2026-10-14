@@ -114,6 +114,32 @@ describe('shared structs', () => {
     p.u = -1;
     expect(p.u).toBe(255);
   });
+
+  it('declared again are the type declared first', () => {
+    // the same name and layout, the same kind: the handles made before are
+    // instances of the type, and box gives them back
+    const A = T.struct({x: T.f64}, 'Again');
+    const p = new A();
+    const B = T.struct({x: T.f64}, 'Again');
+    expect(B).toBe(A);
+    expect(p).toBeInstanceOf(B);
+    expect(own.box(p.$cell)).toBe(p);
+  });
+
+  it('declared after a struct of their kind was boxed are its type', () => {
+    // a struct another thread made, of a type this one has not declared: box
+    // declares it from its layout, and a declaration here is that type
+    const layout = 'struct ["Elsewhere",["v"],[],""]';
+    const a = own.newStruct({
+      kind: runtime.$intern(layout),
+      size: 16,
+    } as Parameters<typeof own.newStruct>[0]);
+    const h = own.box(a)!;
+    const E = own.sharedStruct('Elsewhere', ['v']);
+    expect(h).toBeInstanceOf(E);
+    expect(Object.getPrototypeOf(h)).toBe(E.prototype);
+    own.release(a);
+  });
 });
 
 describe('SharedArrays', () => {
@@ -142,6 +168,17 @@ describe('SharedArrays', () => {
     expect(() => {
       a[3] = 1;
     }).toThrow(RangeError);
+  });
+
+  it('are instances of SharedArray, made new or boxed', () => {
+    const P = T.struct({x: T.f64}, 'Elements');
+    for (const type of [Number, Boolean, String, T.i32, T.u8, P])
+      expect(new T.SharedArray(type, 3)).toBeInstanceOf(T.SharedArray);
+    // a compiled SharedArray is an address; boxed, it is the same
+    const a = own.newSharedArray(8, 2);
+    expect(own.box(a)).toBeInstanceOf(T.SharedArray);
+    expect([...(own.box(a) as unknown as Iterable<number>)]).toEqual([0, 0]);
+    own.release(a);
   });
 });
 
@@ -822,8 +859,8 @@ describe('sizes are checked', () => {
     ).toThrow(TypeError);
     expect(new T.SharedArray(Number, 0).length).toBe(0);
   });
-  it('takes a struct type whose layout another, later one shares', () => {
-    // the two share a kind, and the later is the kind's class; both are types
+  it('takes a struct type whose layout is declared again', () => {
+    // the two share a kind, and the later declaration is the earlier type
     const A = T.struct({x: T.f64}, 'Twin');
     T.struct({x: T.f64}, 'Twin');
     expect(new T.SharedArray(A, 1).length).toBe(1);
@@ -855,6 +892,30 @@ describe('sizes are checked', () => {
     expect(() => runtime.$alloc(0.5)).toThrow(/cannot allocate/);
     expect(() => runtime.$alloc(8.5)).toThrow(/cannot allocate/);
     expect(() => runtime.$allocBlock(31.9)).toThrow(/cannot allocate/);
+  });
+  it('refuses a partition into parts that are not a whole number', () => {
+    // a fraction would leave out the tail, and 0, a negative or NaN every item
+    const items = Array.from({length: 10}, (_, i) => i + 1);
+    for (const parts of [2.5, 0, -1, NaN, Infinity])
+      expect(() => T.partition(items, parts)).toThrow(RangeError);
+    const parts = T.partition(items, 3);
+    expect(parts.map(p => p.length)).toEqual([3, 3, 4]);
+    expect(parts.flat()).toEqual(items);
+  });
+  it('refuses a heap past an i32, or too small, before it writes to it', () => {
+    // 2 GiB would wrap the heap's end negative, and every allocation would
+    // fail. not a buffer: the check comes first, so nothing is written
+    const heapOf = (byteLength: number) => () =>
+      runtime.initShared({byteLength} as SharedArrayBuffer);
+    expect(heapOf(2 ** 31)).toThrow(RangeError);
+    expect(heapOf(2 ** 31)).toThrow(/2047 MB/);
+    expect(heapOf(2 ** 31 - 4)).toThrow(RangeError); // not a multiple of 8
+    expect(heapOf(1 << 20)).toThrow(RangeError); // the control area alone
+    // in MB, as run.ts and page.ts take it: a shift would make 2048 negative
+    // and 4096 no bytes
+    for (const mb of [2048, 4096, 1.5, 1, 0, -1, NaN])
+      expect(() => runtime.sharedHeap(mb)).toThrow(RangeError);
+    expect(runtime.sharedHeap(2).byteLength).toBe(2 << 20);
   });
   it('the allocator refuses sizes past an i32, and takes the last one short of it', () => {
     // rounded, a size past 0x7ffffff8 would wrap; the largest accepted size is
@@ -1051,6 +1112,31 @@ describe('the rest', () => {
     );
     own.spawn(noop);
     expect(runtime.counters(sab)).toMatchObject({live: 1, queued: 1});
+  });
+
+  it('fns() refuses a name another function has', () => {
+    // its keys are the name alone: spawning either would run the one
+    // registered last
+    function first() {}
+    function second() {}
+    own.fns({twice: first});
+    own.fns({twice: first}); // the same function again
+    expect(() => own.fns({twice: second})).toThrow(/named twice already/);
+    expect(() => own.spawn(second)).toThrow(/registers it/);
+    // a table is read once: a getter cannot give the check one function and
+    // the registration another
+    own.fns({once: first});
+    let reads = 0;
+    own.fns({
+      get once() {
+        return reads++ === 0 ? first : second;
+      },
+    });
+    expect(() => own.fns({once: second})).toThrow(/named once already/);
+    // a module's functions are keyed by its url: should it load again, its
+    // new functions are the ones to run
+    own.register('mod.ts', {twice: first});
+    own.register('mod.ts', {twice: second});
   });
 
   it('log writes a line', () => {

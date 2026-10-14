@@ -320,7 +320,7 @@ export declare function register(
 
 /**
  * Splits an owned array into `parts` owned, disjoint chunks of nearly equal
- * size. Trusted.
+ * size; `parts` is a whole number, at least 1 (else a RangeError). Trusted.
  */
 export declare function partition<T>(
   items: Sending<T[]>,

@@ -5,7 +5,7 @@
 // program by its path in the repository (chrome.ts's server points its imports
 // of the runtime at src/runtime/)
 import {
-  initShared,
+  sharedHeap,
   shutdown,
   counters,
   workersComing,
@@ -31,8 +31,24 @@ const threads = (params.get('threads') ?? '1,2,4,8').split(',').map(Number);
 const pool = Number(params.get('pool') ?? navigator.hardwareConcurrency ?? 8);
 const out = document.getElementById('out')!;
 
-const sab = new SharedArrayBuffer(Number(params.get('heap') ?? 512) << 20);
-initShared(sab);
+// a heap refused (a ?heap= that is not a whole number of MB from 2 to 2047)
+// fails the page as finish would, with no heap to shut down: chrome.ts waits
+// for a result
+const heap = () => {
+  try {
+    return sharedHeap(Number(params.get('heap') ?? 512));
+  } catch (e) {
+    window.__escapeResult = {
+      ok: false,
+      error: String(e),
+      output: '',
+      counters: {},
+    };
+    document.title = 'failed';
+    throw e;
+  }
+};
+const sab = heap();
 
 const workers: Worker[] = [];
 let text = '',

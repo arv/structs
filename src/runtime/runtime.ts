@@ -1114,8 +1114,22 @@ export function $log(...args: unknown[]) {
 }
 
 // ---- setup and the worker side ----
+// the heap's size in bytes. its addresses are i32s, and so is its end
+// (C_HEAP_END), and its f64 view needs a multiple of 8: so it is at most the
+// last multiple of 8 below 2 GiB, 2047 MB in whole MB. it holds at least the
+// control area and the first string table
+const MB = 2 ** 20,
+  HEAP_MIN = CTRL_BYTES + 16 + MIN_TABLE * 4,
+  HEAP_MAX = 0x7ffffff8;
 export function initShared(sab: SharedArrayBuffer) {
-  // once, before any worker starts
+  // once, before any worker starts. a size it cannot take is refused before
+  // anything is written: 2 GiB would wrap C_HEAP_END negative, and every
+  // allocation would fail, and a heap too small would drop the writes past it
+  const bytes = sab.byteLength;
+  if (!(bytes % 8 === 0 && bytes >= HEAP_MIN && bytes <= HEAP_MAX))
+    throw new RangeError(
+      `threads: the shared heap is a multiple of 8 bytes from ${HEAP_MIN} to ${HEAP_MAX} (${Math.floor(HEAP_MAX / MB)} MB), not ${bytes}`,
+    );
   const i32 = new Int32Array(sab),
     cap = MIN_TABLE,
     table = CTRL_BYTES;
@@ -1126,6 +1140,20 @@ export function initShared(sab: SharedArrayBuffer) {
   i32[C_HEAP_END] = sab.byteLength;
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
   i32[C_EPOCH] = 2; // even: IDLE, 1, is never an epoch
+}
+// a coordinator's heap of mb MB (src/run.ts's --heap, src/page.ts's ?heap=),
+// set up. mb is a whole number that initShared takes, checked first: as a
+// shift, mb << 20, 2048 would be negative and 4096 no bytes at all
+export function sharedHeap(mb: number) {
+  const least = Math.ceil(HEAP_MIN / MB),
+    most = Math.floor(HEAP_MAX / MB);
+  if (!(Number.isInteger(mb) && mb >= least && mb <= most))
+    throw new RangeError(
+      `threads: a heap is a whole number of MB from ${least} to ${most}, not ${mb}`,
+    );
+  const sab = new SharedArrayBuffer(mb * MB);
+  initShared(sab);
+  return sab;
 }
 // opts: check, the runtime's check option; nudge, in a page's pool worker:
 // post the page a nudge when it holds up freeing (see nudgePage)
