@@ -1187,8 +1187,9 @@ function leave() {
   }
   freeTid();
 }
-function runThread(t: number) {
-  if (!hosting) threadBegin(workerTid());
+// `begun`: the thread's entry is begun already (poolLoop, under its claim)
+function runThread(t: number, begun = false) {
+  if (!hosting && !begun) threadBegin(workerTid());
   count(N_THREADS);
   let r: Result;
   try {
@@ -1429,15 +1430,12 @@ async function hostTurn(): Promise<boolean> {
   const t = takeAsync();
   if (t !== 0) {
     const failed = await $prepare(t);
-    // the pool may have been stopped during the wait: its thread is lost. a
-    // pool operation from the check to the start: no reset falls between
+    // the pool may have been stopped during the wait: its thread is lost (the
+    // thread is not a pool operation: see poolLoop)
     if (!busy()) return false;
-    try {
-      if (failed !== null) endThread(t, 0, false, true, failed);
-      else runThread(t);
-    } finally {
-      done();
-    }
+    done();
+    if (failed !== null) endThread(t, 0, false, true, failed);
+    else runThread(t);
     $quiescent();
     // resumed threads run between new ones
     if ((++started & 31) === 0) await eventLoopTurn();
@@ -1539,19 +1537,26 @@ export async function poolLoop() {
       continue;
     }
     const failed = await $prepare(t);
-    // the pool may have been stopped during the wait: its thread is lost. a
-    // pool operation from the check to the thread's end: no reset falls in
+    // the pool may have been stopped during the wait: its thread is lost. the
+    // thread itself is not a pool operation: a reset waits for a thread that
+    // runs (resetPool, running), and not for one that blocks, which a busy
+    // claim held through the thread would have it do, for a second each time,
+    // and for good once a blocked worker of a pool that was stopped is never
+    // woken; what the thread does with the pool (spawn, its end) is fenced on
+    // its own
     if (!busy()) return leave();
+    // the claim lasts until the thread's entry is alive: a reset sees the one
+    // or the other, never a worker between a thread taken and a thread begun.
+    // (ended either way: a thread table that is full throws here)
     try {
-      if (failed !== null) {
-        // the thread ends as one that threw, the joiner told why: the loop
-        // goes on, with the worker
-        threadBegin(workerTid());
-        endThread(t, 0, false, true, failed);
-      } else runThread(t);
+      threadBegin(workerTid());
     } finally {
       done();
     }
+    // a module that did not load: the thread ends as one that threw, the
+    // joiner told why, and the loop goes on, with the worker
+    if (failed !== null) endThread(t, 0, false, true, failed);
+    else runThread(t, true);
   }
 }
 // a program's main, on the coordinator's main worker (src/worker.ts,
