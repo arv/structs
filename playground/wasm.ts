@@ -79,7 +79,7 @@ export async function compileInBrowser(source: string, types: string) {
     waiting.set(id, {resolve, reject});
     worker!.postMessage({id, source, types} satisfies CompilerRequest);
   });
-  const {tail, added} = registration(source, RUNTIME);
+  const {tail, added} = registration(source, RUNTIME, c.js);
   return {
     key: '',
     compiled: {

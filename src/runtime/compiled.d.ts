@@ -17,13 +17,20 @@ export declare function keyRegistration(
   runtime: string,
   key: string,
 ): string;
+/** The functions code the fork emitted registers, or null if none. */
+export declare function registeredIn(
+  code: string,
+  runtime: string,
+): string[] | null;
 /**
  * What a program with its types only erased needs at its end (the line that
- * registers its top-level functions), and how many lines that is.
+ * registers the top-level functions the fork's emit of it, `compiled`,
+ * registers), and how many lines that is.
  */
 export declare function registration(
   source: string,
   runtime: string,
+  compiled: string | null,
 ): {tail: string; added: number};
 export type Diagnostic = {
   line: number;

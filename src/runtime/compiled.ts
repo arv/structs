@@ -68,15 +68,36 @@ export function keyRegistration(code: string, runtime: string, key: string) {
   return `${code.slice(0, at)}${register}(${JSON.stringify(key)}, {${code.slice(at + call.length)}`;
 }
 
+// The functions code the fork emitted registers (in its register call, its
+// last statement), or null where it registers none.
+export function registeredIn(code: string, runtime: string) {
+  const register = helpersOf(code, runtime).register;
+  if (!register) return null;
+  const call = `${register}(import.meta.url, {`,
+    at = code.lastIndexOf(call);
+  if (at < 0) return null;
+  const list = code.slice(at + call.length, code.indexOf('}', at));
+  return list
+    .split(',')
+    .map(name => name.trim())
+    .filter(name => name !== '');
+}
+
 // What a program with its types only erased needs at its end: the one line
 // that registers its top-level functions, which is how a thread finds the one
-// it runs (the fork's emit adds it itself); and how many lines that is.
-export function registration(source: string, runtime: string) {
-  const names = [
-    ...source.matchAll(
-      /^(?:export\s+)?(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)/gm,
-    ),
-  ].map(m => m[1]);
+// it runs; and how many lines that is. Which functions are the fork's to say,
+// as its emit of the program (`compiled`) adds the line itself: the fork's
+// parser, which runs wherever this does (in node, and in a browser as
+// WebAssembly), knows a declaration at the top level from a function
+// anywhere else. Nothing where the fork registers nothing, or emitted
+// nothing.
+export function registration(
+  source: string,
+  runtime: string,
+  compiled: string | null,
+) {
+  const names = compiled === null ? null : registeredIn(compiled, runtime);
+  if (!names?.length) return {tail: '', added: 0};
   const register = uniqueName(source, 'register'),
     specifier = register === 'register' ? register : `register as ${register}`;
   const tail = `\n// added: the runtime finds a thread's function by module and name\nimport { ${specifier} } from "${runtime}";\n${register}(import.meta.url, { ${names.join(', ')} });\n`;
