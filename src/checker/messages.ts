@@ -117,6 +117,14 @@ export const Messages = {
     code: 96032,
     text: "A value of type '{0}' cannot be yielded, or returned by a generator: it would be stored in an IteratorResult, an ordinary object, which the caller keeps past the generator's count of it.",
   },
+  StructRedeclared: {
+    code: 96034,
+    text: "'{0}' is declared a shared struct again, laid out otherwise: {1}. The checker reads a struct type's values by one layout, so a type has one; declare the other as a type of its own.",
+  },
+  LayoutMismatch: {
+    code: 96033,
+    text: "A value of type '{0}' cannot be used as '{1}': {2}. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
+  },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

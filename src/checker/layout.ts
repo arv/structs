@@ -22,7 +22,7 @@ import type {SourceFile} from 'typescript/ast';
 import {CellKind, Conversion, isArrayKind} from './context.ts';
 import type {CellType, FieldKind, Own, StructInfo} from './context.ts';
 import {IndexKind, ObjectFlags, SymbolFlags, TypeFlags} from './host.ts';
-import type {Type} from './host.ts';
+import type {Signature, Type} from './host.ts';
 import {
   checkIntegerCompoundAssignment,
   checkIntegerTarget,
@@ -315,6 +315,7 @@ function getStructOfUnion(
     name: '',
     fields: first.fields.slice(0, n),
     kinds: first.kinds.slice(0, n),
+    types: first.types.slice(0, n),
   };
   for (const s of structs.slice(1)) {
     for (let k = 0; k < n; k++) {
@@ -322,6 +323,7 @@ function getStructOfUnion(
         info.fields[k] = '';
         info.kinds[k] = '';
       }
+      if (s.types[k] !== info.types[k]) info.types[k] = undefined;
     }
   }
   c.structUnions.set(t, info);
@@ -406,10 +408,316 @@ function setTarget(c: Own, expr: Node | undefined, targetRaw: boolean): void {
 // handle).
 type Target = Type | undefined | null;
 
-function setTargetType(c: Own, expr: Node | undefined, target: Target): void {
+// cast: a type assertion's, which may name a struct laid out as the value's and
+// more (a downcast) as well as one laid out as a part of it
+function setTargetType(
+  c: Own,
+  expr: Node | undefined,
+  target: Target,
+  cast = false,
+): void {
   if (!expr || target === undefined) return;
-  if (target !== null) checkIntegerTarget(c, expr, target);
+  if (target !== null) {
+    checkIntegerTarget(c, expr, target);
+    checkLayoutTarget(c, expr, target, cast);
+  }
   setTarget(c, expr, target !== null && isCellType(c, target));
+}
+
+// A shared struct value used as another struct type (TypeScript relates struct
+// types by their members, not by their layouts): the other's fields must be
+// this one's first, in order and of the same kinds, as the reads and writes
+// typed by the other go by its places. A SharedArray's elements must be laid
+// out as the other's, as its element size is theirs. The expression's
+// branches are checked as setTarget walks them.
+function checkLayoutTarget(
+  c: Own,
+  expr: Node,
+  target: Type,
+  cast: boolean,
+): void {
+  switch (expr.kind) {
+    case K.ParenthesizedExpression:
+      checkLayoutTarget(c, expr.expression, target, cast);
+      return;
+    case K.ConditionalExpression:
+      checkLayoutTarget(c, expr.whenTrue, target, cast);
+      checkLayoutTarget(c, expr.whenFalse, target, cast);
+      return;
+    case K.BinaryExpression:
+      switch (expr.operatorToken.kind) {
+        case K.AmpersandAmpersandToken:
+          // a struct is truthy: a struct on the left is never the result
+          checkLayoutTarget(c, expr.right, target, cast);
+          return;
+        case K.BarBarToken:
+        case K.QuestionQuestionToken: {
+          // the right is the result only if the left may be falsy (||), or
+          // null or undefined (??): not after a struct, which is neither
+          checkLayoutTarget(c, expr.left, target, cast);
+          const left = c.host.typeOf(expr.left);
+          const members =
+            left.flags & TypeFlags.Union ? c.host.memberTypes(left) : [left];
+          const passes =
+            expr.operatorToken.kind === K.BarBarToken
+              ? members.some(
+                  m =>
+                    !(
+                      m.flags &
+                      (TypeFlags.Object |
+                        TypeFlags.NonPrimitive |
+                        TypeFlags.ESSymbolLike |
+                        TypeFlags.Intersection)
+                    ),
+                )
+              : members.some(
+                  m =>
+                    !!(
+                      m.flags &
+                      (TypeFlags.Any |
+                        TypeFlags.Unknown |
+                        TypeFlags.Nullable |
+                        TypeFlags.Void |
+                        TypeFlags.InstantiableNonPrimitive |
+                        TypeFlags.InstantiablePrimitive)
+                    ),
+                );
+          if (passes) checkLayoutTarget(c, expr.right, target, cast);
+          return;
+        }
+        case K.CommaToken:
+          checkLayoutTarget(c, expr.right, target, cast);
+          return;
+      }
+  }
+  if (!isExpression(expr)) return;
+  const source = c.host.typeOf(expr);
+  const why = layoutMismatch(c, source, target, cast);
+  if (why)
+    c.error(
+      expr,
+      Messages.LayoutMismatch,
+      c.host.typeToString(source),
+      c.host.typeToString(target),
+      why,
+    );
+}
+
+// The shared structs of t's members other than null, undefined and the
+// primitives (a falsy 0 beside a struct), or none when one of them is not a
+// struct (a handle's type, a type parameter).
+function structsOf(c: Own, t: Type): StructInfo[] {
+  const result: StructInfo[] = [];
+  for (const member of nonNullishMembers(c, t)) {
+    if (member.flags & TypeFlags.Primitive) continue;
+    const s = getStructOfType(c, member);
+    if (!s) return [];
+    result.push(s);
+  }
+  return result;
+}
+
+// The pairs being compared (a struct's reference field may refer to the
+// struct, a function return one): a pair met again is taken to hold, as what
+// it holds by is being compared already.
+interface Seen {
+  structs: Map<StructInfo, Set<StructInfo>>;
+  types: Map<Type, Set<Type>>;
+}
+const newSeen = (): Seen => ({structs: new Map(), types: new Map()});
+function within<K, R>(
+  pairs: Map<K, Set<K>>,
+  a: K,
+  b: K,
+  held: R,
+  compare: () => R,
+): R {
+  let bs = pairs.get(a);
+  if (bs?.has(b)) return held;
+  if (!bs) pairs.set(a, (bs = new Set()));
+  bs.add(b);
+  try {
+    return compare();
+  } finally {
+    bs.delete(b);
+  }
+}
+
+// why a value of struct `from` may not be used as struct `to`, or undefined if
+// it may: `to`'s fields first in `from`, in order and of the same kinds, and
+// what each reference field refers to as what `to`'s field is read as, so on
+// down (a cast may go either way there too)
+function unfit(
+  c: Own,
+  from: StructInfo,
+  to: StructInfo,
+  cast: boolean,
+  seen: Seen,
+): string | undefined {
+  if (from === to) return undefined;
+  for (let k = 0; k < to.fields.length; k++) {
+    const f = to.fields[k]!;
+    if (from.fields[k] === f && from.kinds[k] === to.kinds[k]) continue;
+    const at = from.fields.indexOf(f);
+    if (at < 0) return `'${from.name}' has no field '${f}'`;
+    if (at !== k)
+      return `field '${f}' is at place ${at} of '${from.name}' and ${k} of '${to.name}'`;
+    return `field '${f}' is of another kind in '${from.name}' than in '${to.name}'`;
+  }
+  return within(seen.structs, from, to, undefined, () => {
+    for (let k = 0; k < to.fields.length; k++) {
+      const a = from.types[k],
+        b = to.types[k];
+      if (to.kinds[k] !== 'r' || !a || !b) continue;
+      const why = layoutMismatch(c, a, b, cast, seen);
+      if (why)
+        return `field '${to.fields[k]}' of '${from.name}' refers to what that of '${to.name}' cannot stand for: ${why}`;
+    }
+    return undefined;
+  });
+}
+
+function layoutMismatch(
+  c: Own,
+  source: Type,
+  target: Type,
+  cast: boolean,
+  seen: Seen = newSeen(),
+): string | undefined {
+  // SharedArrays, member by member (a place may be one or null): each array of
+  // the value's must have the elements, laid out the same, of one of the
+  // place's, as its element size is theirs
+  const elements = (t: Type) =>
+    nonNullishMembers(c, t)
+      .map(m => getSharedArrayElementType(c, m))
+      .filter((e): e is Type => e !== undefined);
+  const sourceElements = elements(source),
+    targetElements = elements(target);
+  if (sourceElements.length !== 0 && targetElements.length !== 0) {
+    for (const e of sourceElements) {
+      const from = getStructOfType(c, e);
+      if (!from) continue;
+      // only the place's arrays whose elements these can be: one of numbers
+      // takes no struct, and must not let one through
+      const into = targetElements.filter(t =>
+        c.host.checker.isTypeAssignableTo(e as any, t as any),
+      );
+      const tos = (into.length !== 0 ? into : targetElements).map(t =>
+        getStructOfType(c, t),
+      );
+      if (
+        !tos.some(
+          to =>
+            !to ||
+            (from.fields.length === to.fields.length &&
+              !unfit(c, from, to, false, seen)),
+        )
+      )
+        return `the elements are '${from.name}' structs, which '${tos[0]!.name}' structs, of another layout or size, cannot stand for`;
+    }
+    return undefined;
+  }
+  const tos = structsOf(c, target);
+  if (tos.length === 0) {
+    // a promise: what it resolves to, into what the place's does
+    if (source.flags & TypeFlags.Object && target.flags & TypeFlags.Object) {
+      const from = c.host.awaitedType(source),
+        to = c.host.awaitedType(target);
+      if (from !== source && to !== target) {
+        const why = layoutMismatch(c, from, to, cast, seen);
+        return why && `what it resolves to: ${why}`;
+      }
+    }
+    return callableMismatch(c, source, target, cast, seen);
+  }
+  for (const from of structsOf(c, source)) {
+    let why: string | undefined;
+    for (const to of tos) {
+      const up = unfit(c, from, to, cast, seen);
+      if (!up || (cast && !unfit(c, to, from, cast, seen))) {
+        why = undefined;
+        break;
+      }
+      why ??= up;
+    }
+    if (why) return why;
+  }
+  return undefined;
+}
+
+// A function used as one of another type: what it returns is taken for what
+// the other returns, and what the other is called with is passed as its
+// parameters, so both go as a value into a place (a callback's own, as deep
+// as they go). Each of the place's signatures against the value's one that
+// TypeScript relates to it: the first whose parameters and result are
+// assignable to it, or its only one.
+function callableMismatch(
+  c: Own,
+  source: Type,
+  target: Type,
+  cast: boolean,
+  seen: Seen,
+): string | undefined {
+  const composite = TypeFlags.Object | TypeFlags.Union | TypeFlags.Intersection;
+  if (!(source.flags & composite) || !(target.flags & composite))
+    return undefined;
+  const host = c.host;
+  // a union of functions: any of them may be the one called
+  if (source.flags & TypeFlags.Union) {
+    for (const member of host.memberTypes(source)) {
+      const why = callableMismatch(c, member, target, cast, seen);
+      if (why) return why;
+    }
+    return undefined;
+  }
+  const assignable = (a: Type | undefined, b: Type | undefined) =>
+    !a || !b || host.checker.isTypeAssignableTo(a as any, b as any);
+  const returnOf = (s: Signature) =>
+    host.checker.getReturnTypeOfSignature(s as any) as Type;
+  return within(seen.types, source, target, undefined, () => {
+    // its calls, then its constructions (a struct type's new () makes one)
+    for (const construct of [false, true]) {
+      const froms = host.callSignatures(source, construct);
+      if (froms.length === 0) continue;
+      for (const to of host.callSignatures(target, construct)) {
+        // a call of `to` passes its parameters' worth of arguments, which an
+        // overload that needs more cannot take
+        const from =
+          froms.length === 1
+            ? froms[0]
+            : froms.find(
+                f =>
+                  host.requiredArguments(f) <= to.parameters.length &&
+                  to.parameters.every((_, i) => {
+                    const passed = host.parameterTypeAt(to, i),
+                      taken = host.parameterTypeAt(f, i);
+                    return (
+                      assignable(passed, taken) || assignable(taken, passed)
+                    );
+                  }) &&
+                  assignable(returnOf(f), returnOf(to)),
+              );
+        if (!from) continue;
+        const result = layoutMismatch(
+          c,
+          returnOf(from),
+          returnOf(to),
+          cast,
+          seen,
+        );
+        if (result)
+          return `${construct ? 'what it constructs' : 'what it returns'}: ${result}`;
+        for (let i = 0; i < to.parameters.length; i++) {
+          const passed = host.parameterTypeAt(to, i),
+            taken = host.parameterTypeAt(from, i);
+          if (!passed || !taken) break;
+          const why = layoutMismatch(c, passed, taken, cast, seen);
+          if (why) return `what it is called with, parameter ${i + 1}: ${why}`;
+        }
+      }
+    }
+    return undefined;
+  });
 }
 
 export function getConversion(c: Own, expr: Node): Conversion {
@@ -566,6 +874,7 @@ function computeConversion(c: Own, node: Node): void {
         c,
         node.expression,
         host.checker.getTypeFromTypeNode(node.type),
+        true,
       );
       return;
     case K.ForOfStatement:

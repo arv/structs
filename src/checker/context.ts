@@ -21,7 +21,8 @@ export interface StructInfo {
   decl: Node | undefined;
   name: string;
   fields: string[];
-  kinds: FieldKind[];
+  kinds: FieldKind[]; // as its markers lay them out
+  types: (Type | undefined)[]; // as the struct's type reads them
 }
 
 // How a value is converted where it flows (printer.OwnConversion).

@@ -71,11 +71,20 @@ function reword(line: string): string {
     );
 }
 
-// What threads-check cannot report like the fork, and why.
-const knownDifferences: Record<string, {missing: string[]; reason: string}> = {
+// What threads-check cannot report like the fork (missing), and what it
+// reports that the fork does not (extra), and why.
+const knownDifferences: Record<
+  string,
+  {missing?: string[]; extra?: string[]; reason: string}
+> = {
   'fork/ownLayoutStructUnionsErrors': {
     reason:
-      'stock TypeScript reduces a union of struct types to the supertype (the fork does not), and does not parse `shared struct`',
+      'stock TypeScript reduces a union of struct types to the supertype (the fork does not), and does not parse `shared struct`; with the union reduced, threads-check reports the struct of the other layout where it is used as the supertype (96033), and the struct type of the other layout where it is used as that of the supertype, which the fork reports at the field it reads',
+    extra: [
+      "different.mts(10,43): error TS96033: A value of type 'StructType<{ v: number; u: number; }>' cannot be used as 'StructType<{ u: number; }>': what it constructs: field 'u' is at place 1 of 'B' and 0 of 'Struct'. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
+      "different.mts(15,25): error TS96033: A value of type '{ u: number; } & Cell' cannot be used as '{ v: number; u: number; } & Cell': 'Struct' has no field 'v'. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
+      "different.mts(19,32): error TS96033: A value of type '{ v: number; u: number; } & Cell' cannot be used as '{ u: number; } & Cell': field 'u' is at place 1 of 'B' and 0 of 'A'. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
+    ],
     missing: [
       "different.mts(14,7): error TS96026: Field 'u' is at different places in the shared structs of this union.",
       "different.mts(15,14): error TS96026: Field 'u' is at different places in the shared structs of this union.",
@@ -304,19 +313,24 @@ try {
     const known = knownDifferences[c.name];
     const missing = expected.filter(l => !actual.includes(l));
     const extra = actual.filter(l => !expected.includes(l));
-    const unexplained = missing.filter(l => !known?.missing.includes(l));
-    const ok = unexplained.length === 0 && extra.length === 0;
+    const unexplained = missing.filter(l => !known?.missing?.includes(l));
+    const unexplainedExtra = extra.filter(l => !known?.extra?.includes(l));
+    const ok = unexplained.length === 0 && unexplainedExtra.length === 0;
     if (!ok) failures++;
     const timing = fork
       ? `${ms.toFixed(0)} ms (fork ${fork.ms.toFixed(0)} ms)`
       : `${ms.toFixed(0)} ms`;
-    const explained = missing.length - unexplained.length;
+    const explained =
+      missing.length -
+      unexplained.length +
+      extra.length -
+      unexplainedExtra.length;
     rows.push(
       `${ok ? 'ok' : 'FAIL'} ${c.name}: ${actual.length} diagnostics, as ${source} says${explained ? ` but for ${explained} known differences` : ''}; ${timing}`,
     );
     if (explained) rows.push(`    (${known!.reason})`);
     for (const l of unexplained) rows.push(`    missing: ${l}`);
-    for (const l of extra) rows.push(`    extra:   ${l}`);
+    for (const l of unexplainedExtra) rows.push(`    extra:   ${l}`);
   }
 } finally {
   api.close();

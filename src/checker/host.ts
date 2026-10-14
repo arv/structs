@@ -51,6 +51,9 @@ export class Host {
   private readonly aliases = new Map<TsSymbol, TsSymbol | undefined>();
   private readonly typeArgs = new Map<Type, readonly Type[]>();
   private readonly awaited = new Map<Type, Type>();
+  private readonly calls = new Map<Type, readonly Signature[]>();
+  private readonly constructs = new Map<Type, readonly Signature[]>();
+  private readonly required = new Map<Signature, number>();
   private readonly wellKnown = new Map<string, string | undefined>();
   private readonly typeStrings = new Map<Type, string>();
   private readonly libraryPaths = new Map<string, boolean>();
@@ -251,6 +254,41 @@ export class Host {
       this.libraryPaths.set(path, result);
     }
     return result;
+  }
+
+  // The call signatures of t (a function type's), or its construct
+  // signatures (a class's, a struct type's).
+  callSignatures(t: Type, construct = false): readonly Signature[] {
+    const cache = construct ? this.constructs : this.calls;
+    let signatures = cache.get(t);
+    if (!signatures) {
+      signatures = this.checker.getSignaturesOfType(
+        t as any,
+        construct ? SignatureKind.Construct : SignatureKind.Call,
+      ) as readonly Signature[];
+      cache.set(t, signatures);
+    }
+    return signatures;
+  }
+
+  // How many arguments a call with signature s must pass: its parameters
+  // before the first optional one, one with a default, or a rest.
+  requiredArguments(s: Signature): number {
+    let n = this.required.get(s);
+    if (n === undefined) {
+      n = 0;
+      for (const p of s.getParameters()) {
+        const decl = this.declarationOf(p.valueDeclaration);
+        if (
+          decl &&
+          (decl.questionToken || decl.initializer || decl.dotDotDotToken)
+        )
+          break;
+        n++;
+      }
+      this.required.set(s, n);
+    }
+    return n;
   }
 
   // The type an `await` of a value of type t gives: t itself unless it is a
