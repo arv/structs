@@ -15,6 +15,14 @@ runtime.attach(
   () => {},
 );
 
+it('a collect before the thread began writes nothing', () => {
+  // __collect (own.ts) reaches the reclaim, which stores the thread's word
+  const STR_LOCK = 5; // C_STR_LOCK, the word a thread's T_QS is at ME 0
+  runtime.$defer(-64); // something queued, so that the reclaim does work
+  runtime.$drain();
+  expect(runtime.I32[STR_LOCK]).toBe(0);
+});
+
 it('a point before the thread began writes nothing', () => {
   const STR_LOCK = 5, // C_STR_LOCK, the word a thread's T_QS would be at ME 0
     ALLOC = 0; // C_ALLOC, where T_ALIVE would be

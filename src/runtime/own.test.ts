@@ -876,13 +876,32 @@ describe('sizes are checked', () => {
   });
 });
 
+describe('a thread alone', () => {
+  // with no other thread running, what a thread deferred is safe at its next
+  // reclaim: no thread may hold an address it read uncounted
+  const L = own.sharedStruct('Lone', ['v', 'next'], [1]);
+  const nextOf = (a: number) => (a >> 2) + 2 + 2 * 1;
+  it('frees what it deferred at its next point', () => {
+    const before = T.heapStats().pending;
+    const a = own.newStruct(L),
+      b = own.newStruct(L);
+    own.store(nextOf(a), b);
+    own.store(nextOf(a), 0); // b's decrement, deferred
+    runtime.$waitBegin(); // a reclaim, and the hand-off of what it kept
+    runtime.$waitEnd();
+    expect(runtime.I32[b >> 2]).toBe(runtime.K_FREE);
+    expect(T.heapStats().pending).toBeLessThanOrEqual(before); // nothing kept
+    own.release(a);
+  });
+});
+
 describe('a wait that throws', () => {
   // Atomics.wait throws where a thread may not block (a page's main thread);
   // the runtime refuses such calls first ($mustNotBlock), but should a wait
   // throw regardless, the thread is left running, not waiting, and a select's
   // records out of its channels' lists. the wait is made to throw here
   const QS_1 = 2048 + 8 + 5, // thread 1's quiescent state (T_QS of its entry)
-    IDLE = 0x7fffffff;
+    IDLE = 1;
   const atomics = Atomics as unknown as {wait: typeof Atomics.wait};
   const throwing = (f: () => void) => {
     const wait = atomics.wait;

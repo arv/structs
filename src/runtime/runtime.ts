@@ -406,9 +406,11 @@ export const $waitEnd = () => {
   if (ME !== 0) Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
 };
 // the oldest epoch a running thread may still hold an uncounted address from
-// (`but`: an entry left out); the epoch itself, with none behind it
+// (`but`: an entry left out); with none, the next epoch, which nothing
+// deferred so far carries: what is queued is safe, every running thread
+// being at a point past it, or none running
 function oldestEpoch(but = 0) {
-  let min = Atomics.load(I32, C_EPOCH);
+  let min = (Atomics.load(I32, C_EPOCH) + 2) | 0;
   const n = Atomics.load(I32, C_NEXT_TID);
   for (let t = 1; t < n; t++) {
     const e = C_THREADS + t * T_ENTRY;
@@ -421,6 +423,8 @@ function oldestEpoch(but = 0) {
 }
 // apply the queued decrements that are safe now (at a quiescent point)
 function reclaim() {
+  // a point before the thread began is none (see $quiescent)
+  if (ME === 0) return;
   if (pend.length === 0 && Atomics.load(I32, C_PEND_LEN) === 0) {
     stuckLen = -1;
     pendLimit = 4096;
@@ -655,6 +659,7 @@ function handOffPending() {
 // page cannot: it tries again at once
 const pendingCount = () => pend.length / 2 + Atomics.load(I32, C_PEND_LEN);
 export function $drain() {
+  if (ME === 0) return; // before the thread began: nothing of its own to free
   for (let round = 0; round < 1000; round++) {
     const before = pendingCount();
     if (before === 0) return;
