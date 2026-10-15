@@ -124,6 +124,7 @@ const encoder = new TextEncoder();
 // the strings in the blob being written -> their body
 const written = new Map<string, number>();
 let repeats = 0; // the blob's repeated strings so far
+let writing = false;
 // the shapes in the blob being written, by first key (or '' for none): [ keys,
 // shape, ... ]; and the last one used, since an array's objects usually have
 // the same keys
@@ -357,19 +358,31 @@ function put(
   if (freeze) frozen.push(v);
   return boxWord(at, Array.isArray(v) ? T_ARR : T_OBJ, body);
 }
-// a blob of v in the shared heap; its address
 // a blob of v in the shared heap; its address. all or nothing: when the blob
 // does not fit (a full heap), or v cannot be sent, the counts taken for it go
 // back and nothing is frozen
-function write(v: Sent, moved: Moved | null, freeze: boolean, alloc = $alloc) {
+function write(v: Sent, moved: Moved | null, freeze: boolean, depth = 0) {
+  // Reading a getter (or a proxy's trap) can call share or send again. The
+  // scratch buffer and its counts belong to the outer write until it ends:
+  // reject before changing any of them, even if the getter catches this.
+  if (writing)
+    throw new TypeError(
+      'own: already serializing a value: cannot send or share another from a getter or proxy trap',
+    );
+  writing = true;
+  revokeDepth = $checking() ? Infinity : depth;
   wn = 1;
+  let a = 0;
   try {
     put(0, v, moved, freeze, 0);
-    const a = alloc(wn * 8);
+    // Even a shared blob may need to be rolled back: freezing can invoke
+    // proxy traps after the allocation. Reuse failed blobs as messages do.
+    a = $allocBlock(wn * 8, false);
     U8.set(new Uint8Array(wf.buffer, 0, wn * 8), a);
     for (const o of frozen) Object.freeze(o);
     return a;
   } catch (e) {
+    if (a !== 0) $freeBlock(a, wn * 8);
     for (const p of takenStrings) $releaseString(p);
     for (const p of takenCells) release(p);
     throw e;
@@ -382,6 +395,7 @@ function write(v: Sent, moved: Moved | null, freeze: boolean, alloc = $alloc) {
     takenCells.length = 0;
     frozen.length = 0;
     if (wf.length > BUFFER_KEPT) setBuffer(new Float64Array(BUFFER_WORDS));
+    writing = false;
   }
 }
 
@@ -566,13 +580,19 @@ function revoke(objs: Moved) {
 // block of its own, which the receiver frees once it has read it. [address,
 // bytes]. the moved values are v, or v's elements (depth 1: a thread's
 // arguments)
-const messageBlock: (bytes: number) => number = bytes =>
-  $allocBlock(bytes, false); // written whole
 export function __message(v: unknown, depth = 0): [number, number] {
   const moved: Moved = [];
-  revokeDepth = $checking() ? Infinity : depth;
-  const a = write(v as Sent, moved, false, messageBlock),
-    bytes = wn * 8;
+  let a: number;
+  try {
+    a = write(v as Sent, moved, false, depth);
+  } catch (e) {
+    // Channel sends pass their counted value directly; spawn passes an
+    // array, whose counted arguments it rolls back itself.
+    const address = addressForRollback(v);
+    if (address !== undefined) release(address);
+    throw e;
+  }
+  const bytes = wn * 8;
   revoke(moved);
   return [a, bytes];
 }
@@ -1340,6 +1360,15 @@ export const moved: (a: number) => CountedArg = a => new CountedArg(a);
 let countedInto: number[] | null = null;
 export const __isCounted: (v: unknown) => boolean = v =>
   v instanceof CountedArg;
+function addressForRollback(v: unknown): number | undefined {
+  // Both instanceof and the address read can invoke proxy traps. Rollback
+  // must not replace the original error or skip later counted arguments.
+  try {
+    return v instanceof CountedArg ? v.a : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // boxing: where a struct or SharedArray value (an address) flows into `any` ,
 // `unknown` , a generic and the like, the compiler wraps it in this thread's
@@ -1816,14 +1845,29 @@ export function __start(fn: ThreadFn, args: unknown[], detached: boolean) {
   // retained for the thread (countedRef): its count is given back, as the
   // message would have carried it
   if (!$poolRunning()) {
-    for (const v of args) if (v instanceof CountedArg) release(v.a);
+    for (const v of args) {
+      const address = addressForRollback(v);
+      if (address !== undefined) release(address);
+    }
     throw new Error(STOPPED);
   }
   const t = $allocBlock(32);
   I32[t >> 2] = K_THREAD;
   I32[(t + 4) >> 2] = detached ? 1 : 0;
   I32[(t + 8) >> 2] = detached ? DETACHED : RUNNING;
-  const [a, bytes] = __message([key, ...args], 1);
+  let a: number, bytes: number;
+  try {
+    [a, bytes] = __message([key, ...args], 1);
+  } catch (e) {
+    // No thread or message owns these yet. Serialization rolls back the
+    // counts it took itself, but counted arguments arrived with theirs.
+    $freeBlock(t, 32);
+    for (const v of args) {
+      const address = addressForRollback(v);
+      if (address !== undefined) release(address);
+    }
+    throw e;
+  }
   I32[(t + 16) >> 2] = a;
   I32[(t + 20) >> 2] = bytes;
   $quiescent();

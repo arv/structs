@@ -71,3 +71,32 @@ it('the runtime queues no thread on a pool that was shut down', () => {
   expect(word(C_BUSY)).toBe(0);
   runtime.$freeBlock(t, 32);
 });
+
+it('continues stopped-pool rollback after a counted proxy address getter throws', () => {
+  function stoppedProxyAddress(value: unknown, address: number) {
+    return [value, address];
+  }
+  own.register(import.meta.url, {stoppedProxyAddress});
+  const N = own.sharedStruct('StoppedProxyAddress', ['n']),
+    a = own.newStruct(N),
+    b = own.newStruct(N),
+    counted = own.countedRef(a),
+    proxy = new Proxy(counted, {
+      get(target, key, receiver) {
+        if (key === 'a') throw new Error('rollback address error');
+        return Reflect.get(target, key, receiver);
+      },
+    }),
+    before = live();
+  try {
+    expect(() =>
+      own.spawn(stoppedProxyAddress, proxy, own.countedRef(b)),
+    ).toThrow(/the pool was stopped/);
+    expect(refs(b)).toBe(1);
+    expect(live()).toBe(before);
+  } finally {
+    own.release(counted.a);
+    own.release(a);
+    own.release(b);
+  }
+});

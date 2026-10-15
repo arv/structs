@@ -71,6 +71,299 @@ describe('moving values', () => {
     expect(Object.isFrozen(shared.a[1])).toBe(true);
     expect(move(shared)).toEqual({a: [1, {b: 2}]});
   });
+
+  it('rejects reentrant writes before they can corrupt the outer value', () => {
+    const H = T.struct({n: T.f64}, 'ReentrantWrite'),
+      handle = new H(),
+      refs = () => runtime.I32[(handle.$cell >> 2) + 1];
+    for (const outer of [move, T.share])
+      for (const inner of [move, T.share]) {
+        const nested = {inner: 1},
+          value = [
+            123,
+            handle,
+            {
+              get x() {
+                inner(nested);
+                return 42;
+              },
+            },
+          ],
+          before = refs();
+        expect(() => outer(value)).toThrow(/already serializing/);
+        // Failed writes neither move nor freeze their input, and return the
+        // counts they took before the getter ran.
+        expect(value[0]).toBe(123);
+        expect(Object.isFrozen(value)).toBe(false);
+        expect(Object.isFrozen(nested)).toBe(false);
+        expect(nested.inner).toBe(1);
+        expect(refs()).toBe(before);
+        expect(move([123, {x: 42}])).toEqual([123, {x: 42}]);
+      }
+  });
+
+  it('keeps the outer move depth when a getter catches a reentrant write', () => {
+    const nested = {inner: {n: 1}};
+    let failure: unknown;
+    const value = {
+      get x() {
+        try {
+          own.__message({n: 2}, 1);
+        } catch (e) {
+          failure = e;
+        }
+        return nested;
+      },
+    };
+    expect(move(value)).toEqual({x: {inner: {n: 1}}});
+    expect(failure).toBeInstanceOf(TypeError);
+    // Only value itself moves: the rejected write's depth 1 must not cause
+    // nested to be revoked as well.
+    expect(nested.inner.n).toBe(1);
+  });
+
+  it('reclaims thread blocks and arguments of rejected reentrant spawns', () => {
+    function reentrantSpawn(value: number) {
+      return value;
+    }
+    own.register(import.meta.url, {reentrantSpawn});
+    const N = own.sharedStruct('ReentrantSpawnArgument', ['n']),
+      a = own.newStruct(N),
+      pool = runtime.counters(globalThis.__escapeSab!);
+    try {
+      for (let i = 0; i < 32; i++) {
+        const value = {
+          get x() {
+            const before = T.heapStats();
+            expect(() => own.spawn(reentrantSpawn, own.countedRef(a))).toThrow(
+              /already serializing/,
+            );
+            const after = T.heapStats();
+            expect(after.allocated - before.allocated).toBe(1);
+            expect(after.freed - before.freed).toBe(1);
+            expect(runtime.I32[(a >> 2) + 1]).toBe(1);
+            return 42;
+          },
+        };
+        expect(move([123, value])).toEqual([123, {x: 42}]);
+      }
+      expect(runtime.counters(globalThis.__escapeSab!)).toMatchObject({
+        live: pool.live,
+        queued: pool.queued,
+      });
+    } finally {
+      own.release(a);
+    }
+  });
+
+  it('continues spawn rollback after a proxy throws on a prototype check', () => {
+    function proxySpawn(value: unknown, address: number) {
+      return [value, address];
+    }
+    own.register(import.meta.url, {proxySpawn});
+    const N = own.sharedStruct('ProxyRollbackArgument', ['n']),
+      a = own.newStruct(N),
+      proxy = new Proxy(
+        {},
+        {
+          getPrototypeOf() {
+            throw new Error('prototype trap');
+          },
+        },
+      );
+    try {
+      const value = {
+        get x() {
+          const before = T.heapStats();
+          expect(() => own.spawn(proxySpawn, proxy, own.countedRef(a))).toThrow(
+            /already serializing/,
+          );
+          const after = T.heapStats();
+          expect(after.allocated - before.allocated).toBe(1);
+          expect(after.freed - before.freed).toBe(1);
+          expect(runtime.I32[(a >> 2) + 1]).toBe(1);
+          return 42;
+        },
+      };
+      expect(move([123, value])).toEqual([123, {x: 42}]);
+    } finally {
+      own.release(a);
+    }
+  });
+
+  it('preserves the serialization error when a proxy also throws during rollback', () => {
+    const original = new Error('original prototype error');
+    let calls = 0;
+    const proxy = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          if (++calls === 1) throw original;
+          throw new Error('rollback prototype error');
+        },
+      },
+    );
+    let failure: unknown;
+    try {
+      own.__message(proxy);
+    } catch (e) {
+      failure = e;
+    }
+    expect(failure).toBe(original);
+    expect(move({after: 42})).toEqual({after: 42});
+  });
+
+  it('propagates errors from an array proxy during normal serialization', () => {
+    const original = new Error('second prototype lookup');
+    for (const reentrant of [false, true]) {
+      let calls = 0;
+      const proxy = new Proxy([123], {
+        getPrototypeOf() {
+          if (++calls === 2) {
+            if (reentrant) T.share({nested: 1});
+            throw original;
+          }
+          return {};
+        },
+      });
+      expect(() => move(proxy)).toThrow(
+        reentrant ? /already serializing/ : original,
+      );
+      expect(move([123, {after: 42}])).toEqual([123, {after: 42}]);
+    }
+  });
+
+  it('preserves the original error when a counted proxy address getter throws', () => {
+    const N = own.sharedStruct('ThrowingMessageAddress', ['n']),
+      a = own.newStruct(N),
+      counted = own.countedRef(a),
+      original = new Error('original address error');
+    let reads = 0;
+    const proxy = new Proxy(counted, {
+      get(target, key, receiver) {
+        if (key === 'a') {
+          if (++reads === 1) throw original;
+          throw new Error('rollback address error');
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    let failure: unknown;
+    try {
+      try {
+        own.__message(proxy);
+      } catch (e) {
+        failure = e;
+      }
+      expect(failure).toBe(original);
+      expect(move({after: 42})).toEqual({after: 42});
+    } finally {
+      // The proxy hides its count's address; its original wrapper still owns it.
+      own.release(counted.a);
+      own.release(a);
+    }
+  });
+
+  it('continues spawn rollback after a counted proxy address getter throws', () => {
+    function addressProxySpawn(value: unknown, address: number) {
+      return [value, address];
+    }
+    own.register(import.meta.url, {addressProxySpawn});
+    const N = own.sharedStruct('ThrowingSpawnAddress', ['n']),
+      a = own.newStruct(N),
+      b = own.newStruct(N),
+      counted = own.countedRef(a),
+      proxy = new Proxy(counted, {
+        get(target, key, receiver) {
+          if (key === 'a') throw new Error('rollback address error');
+          return Reflect.get(target, key, receiver);
+        },
+      });
+    try {
+      const value = {
+        get x() {
+          const before = T.heapStats();
+          expect(() =>
+            own.spawn(addressProxySpawn, proxy, own.countedRef(b)),
+          ).toThrow(/already serializing/);
+          const after = T.heapStats();
+          expect(after.allocated - before.allocated).toBe(1);
+          expect(after.freed - before.freed).toBe(1);
+          expect(runtime.I32[(b >> 2) + 1]).toBe(1);
+          return 42;
+        },
+      };
+      expect(move([123, value])).toEqual([123, {x: 42}]);
+    } finally {
+      own.release(counted.a);
+      own.release(a);
+      own.release(b);
+    }
+  });
+
+  it('reclaims shared blobs when a freeze trap attempts a reentrant write', () => {
+    const key = 'reentrantFreezePayload',
+      name = runtime.$internRef(key);
+    try {
+      for (const traps of [
+        {
+          preventExtensions() {
+            T.share({nested: 1});
+            return false;
+          },
+        },
+        {
+          defineProperty() {
+            T.share({nested: 1});
+            return false;
+          },
+        },
+      ])
+        for (let i = 0; i < 32; i++) {
+          const value = new Proxy({[key]: 123}, traps),
+            before = T.heapStats();
+          expect(() => T.share(value)).toThrow(/already serializing/);
+          const after = T.heapStats();
+          expect(after.allocated - before.allocated).toBe(1);
+          expect(after.freed - before.freed).toBe(1);
+          expect(runtime.I32[(name >> 2) + 1]).toBe(1);
+        }
+      expect(move([123, {x: 42}])).toEqual([123, {x: 42}]);
+    } finally {
+      own.release(name);
+    }
+  });
+
+  it('returns counted arguments when reentrant channel sends fail', async () => {
+    const N = own.sharedStruct('ReentrantChannelArgument', ['n']),
+      a = own.newStruct(N),
+      ch = new T.Channel(1);
+    try {
+      for (const async of [false, true]) {
+        let failure: Promise<unknown> | undefined;
+        const value = {
+          get x() {
+            if (async)
+              failure = ch
+                .sendAsync(own.countedRef(a))
+                .catch((e: unknown) => e);
+            else
+              expect(() => ch.send(own.countedRef(a))).toThrow(
+                /already serializing/,
+              );
+            return 42;
+          },
+        };
+        expect(move([123, value])).toEqual([123, {x: 42}]);
+        if (async) expect(await failure).toBeInstanceOf(TypeError);
+        expect(runtime.I32[(a >> 2) + 1]).toBe(1);
+        await ch.sendAsync(7);
+        expect(await ch.recvAsync()).toBe(7);
+      }
+    } finally {
+      own.release(a);
+    }
+  });
 });
 
 describe('shared structs', () => {

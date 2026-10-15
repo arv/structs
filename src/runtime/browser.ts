@@ -84,24 +84,24 @@ export function start(options: Options = {}) {
   // this pool's: a message of one stopped since is dropped (a grow posted as
   // it was stopped, say, would add a worker to the next)
   const g = generation;
+  const failPool = (e: Error) => {
+    if (generation === g) stopPool(e);
+  };
   const onMessage: (m: Message) => void = m => {
+    if (generation !== g) return;
     if (m.type === 'out') onLog(m.text);
     // every pool thread is busy: one more worker
     else if (m.type === 'grow') {
-      // one that fails to load is reported, and no longer counted as coming;
-      // the thread that asked waits for a worker that is there
-      if (generation === g)
-        add().catch(e => {
-          if (generation === g) workersComing(sab, -1);
-          console.error(e);
-        });
+      // Existing workers may be blocked joining the queued thread: a failed
+      // addition cannot leave it waiting for a worker that never comes.
+      add().catch(failPool);
     }
     // the page holds up freeing: between tasks, as now, it holds no uncounted
     // address (REFCOUNT.md), so it passes a quiescent point, and frees what
     // that makes safe
     else if (m.type === 'nudge') $nudged();
     else if (m.type === 'crash')
-      console.error($failed(m.message, m.stack, 'threads: a worker crashed: '));
+      failPool($failed(m.message, m.stack, 'threads: a worker crashed: '));
   };
   const add = () =>
     new Promise<void>((resolve, reject) => {
@@ -111,25 +111,40 @@ export function start(options: Options = {}) {
       });
       workers.push(w);
       let ready = false;
+      const failed = (e: Error) => {
+        if (generation !== g) return;
+        if (ready) failPool(e);
+        else reject(e);
+      };
       w.onmessage = ({data: m}: MessageEvent<Message>) => {
+        if (generation !== g) {
+          // The heap survives stop(): a queued nudge can reclaim decrements
+          // that became safe after the page's last shutdown reclaim.
+          if (m.type === 'nudge') $nudged();
+          return;
+        }
         if (m.type === 'ready') {
           ready = true;
           resolve();
         } else if (m.type === 'crash' && !ready)
           // the worker could not start (the runtime did not load, say): a
           // start that waits for it would wait for good
-          reject(
+          failed(
             $failed(m.message, m.stack, 'threads: a worker failed to start: '),
           );
         else onMessage(m);
       };
       // an error with no message: the worker's module did not load (a 404, a
-      // syntax error, a server without COOP/COEP)
+      // syntax error, a server without COOP/COEP), or failed after ready
       w.onerror = e =>
-        reject(
+        failed(
           new Error(
-            `threads: a worker failed to start: ${e.message || 'its module did not load'}`,
+            `threads: a worker ${ready ? 'crashed' : 'failed to start'}: ${e.message || (ready ? 'an error with no message' : 'its module did not load')}`,
           ),
+        );
+      w.onmessageerror = () =>
+        failed(
+          new Error('threads: a worker sent a message the page could not read'),
         );
       w.postMessage({sab, opts: {check, nudge: true}});
     });
@@ -212,14 +227,19 @@ export async function run<A extends unknown[], R>(
 // event loop: stopped mid-way through them, the next start takes the second
 export function stop() {
   forThePage('stop()');
+  stopPool(new Error(STOPPED));
+}
+// A worker that dies can take a thread with it, and the remaining workers
+// may wait for that thread. Stop them all and fail every run with the cause.
+function stopPool(error: Error) {
   // no pool runs, or is starting: none was started (the heap perhaps not even
   // made), or it was stopped since
   if (started === null) return;
   shutdown(sab!);
   for (const w of workers.splice(0)) w.terminate();
-  for (const fail of waiting) fail(new Error(STOPPED));
+  for (const fail of waiting) fail(error);
   waiting.clear();
-  failStart?.(new Error(STOPPED));
+  failStart?.(error);
   failStart = null;
   generation++;
   stopped = true;
