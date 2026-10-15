@@ -561,3 +561,13 @@ export declare function heapStats(): {
   freed: number;
   pending: number;
 };
+/**
+ * Frees the cycles of shared structs, SharedArrays, SharedMaps and SharedSets
+ * that nothing outside them refers to, which counting alone never frees, and
+ * returns how many blocks it freed. Every other thread stops at its next
+ * quiescent point while it runs, and a thread that's waiting stays waiting. If
+ * one doesn't stop within `timeout` ms (1000 by default), it frees nothing and
+ * returns 0. Called while another thread collects, it waits for that
+ * collection and returns 0.
+ */
+export declare function collectCycles(timeout?: number): number;

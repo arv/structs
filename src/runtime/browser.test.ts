@@ -90,3 +90,33 @@ it('a worker whose module does not load fails start() with that cause', async ()
   );
   browser.stop();
 });
+
+it('stays awake once stopped, so a collection a stopped worker runs on waits for it', async () => {
+  // thread 1's awake word, the word that names the thread that collects, and
+  // thread 2's entry, as runtime.ts lays them out
+  const AWAKE_1 = 2048 + 8 + 2,
+    C_GC = 23,
+    ENTRY_2 = 2048 + 2 * 8;
+  await browser.start({workers: 1});
+  // a worker of the pool is collecting as the page stops it, and runs on
+  Atomics.store(runtime.I32, C_GC, ENTRY_2);
+  browser.stop(); // the page cannot wait for the collection: it returns
+  // quiescent, and awake: the collection waits for the page, which goes on
+  // running tasks that change counts, and gives up rather than scan
+  expect(runtime.I32[QS_1]).toBe(IDLE);
+  expect(runtime.I32[AWAKE_1]).toBe(1);
+  // a nudge the worker posted before the stop: a point, and still awake
+  runtime.$nudged();
+  expect(runtime.I32[AWAKE_1]).toBe(1);
+  const S = own.sharedStruct('StoppedPage', ['next'], [0]),
+    a = own.newStruct(S);
+  own.store((a >> 2) + 2, own.retain(a));
+  own.release(a);
+  // the worker was terminated in its collection: the next start's reset ends
+  // it, and the page is the pool's again
+  await browser.start({workers: 1});
+  expect(runtime.I32[C_GC]).toBe(0);
+  expect(runtime.I32[AWAKE_1]).toBe(1);
+  expect(own.collectCycles()).toBe(1);
+  browser.stop();
+});

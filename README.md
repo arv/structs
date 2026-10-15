@@ -411,7 +411,10 @@ with a thread that never ends: call `stop()`, then `start()` again.
 ### Odds and Ends
 
 `log(...args)` prints a line from any thread. `heapStats()` reports the shared
-memory in use, and the blocks allocated and freed.
+memory in use, and the blocks allocated and freed. `collectCycles()` frees
+cycles of shared structs, SharedArrays and maps, which counting alone never
+frees, and returns how many blocks it freed. Every other thread stops at its
+next quiescent point while it runs (see [REFCOUNT.md](REFCOUNT.md#cycles)).
 
 ## Performance
 
@@ -475,12 +478,13 @@ today:
 - **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
   7.1's API.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**
-  Structs, SharedArrays and maps are reference counted, but cycles of them leak.
-  Channels, locks and conditions are never freed. A moved value (a thread's
-  arguments and result, or a channel's message) is freed once it's read, but
-  shared values are never freed. Strings are interned, one copy each, and
-  counted. A string is freed once no field, element, map or message refers to
-  it.
+  Structs, SharedArrays and maps are reference counted, and `collectCycles()`
+  frees cycles of them, stopping every thread for a moment. Nothing calls it on
+  its own yet. Channels, locks and conditions are never freed. A moved value (a
+  thread's arguments and result, or a channel's message) is freed once it's
+  read, but shared values are never freed. Strings are interned, one copy each,
+  and counted. A string is freed once no field, element, map or message refers
+  to it.
 - **Closures don't cross threads.** A thread runs a top-level function.
 - **A SharedMap or SharedSet has one lock.** Every call takes it for a moment,
   so threads that change one map all the time wait for each other. A thread with

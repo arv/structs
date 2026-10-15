@@ -43,6 +43,9 @@ try {
     m => parentPort!.postMessage(m),
     s => writeSync(1, s),
   );
+  // a pool worker takes part in collections of cycles before the program
+  // loads: its modules may make blocks as they load
+  if (role === 'pool') R.$workerJoin();
   // the program module only defines functions: it runs nothing until main
   const mod: {main(threads: number[]): unknown} = await import(program);
   if (role === 'main') {
@@ -53,6 +56,7 @@ try {
     parentPort!.postMessage({type: 'done'});
   } else await R.poolLoop();
 } catch (e: any) {
+  R?.$workerGone();
   // a join's error that main threw on is the failure it tells of, with the
   // stack of the thread where it began
   const [message, stack] = R?.$failureOf(e) ?? [

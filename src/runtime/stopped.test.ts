@@ -34,7 +34,7 @@ runtime.shutdown(sab);
 
 it('a spawn on a pool that was shut down throws, and changes nothing', () => {
   // the page's thread, as stop() leaves it: quiescent until start() again
-  runtime.$waitBegin();
+  runtime.$stopped();
   expect(word(QS_1)).toBe(IDLE);
   const before = live();
   const args = {n: 1};

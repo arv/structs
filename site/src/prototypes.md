@@ -109,29 +109,29 @@ Vite config.
 
 Here's what each file is for:
 
-| File                                                                         | What it is                                                                                                                                   |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `presets/`                                                                   | The original programs, in plain JavaScript with threads. The measurements compare against these.                                             |
-| `runtime/runtime.ts`                                                         | The shared heap: the allocator, free lists, interned strings, deferred decrements and the worker pool.                                       |
-| `runtime/threads.ts`, `threads.d.ts`                                         | The API that programs import, in plain TypeScript: own and shared values, shared structs, channels, maps and locks.                          |
-| `runtime/own.ts`                                                             | Own and shared values on top of the runtime, plus shared structs and SharedArrays, Lock and Condition.                                       |
-| `runtime/chan.ts`                                                            | Go-style goroutines and channels on own and shared values.                                                                                   |
-| `runtime/maps.ts`                                                            | SharedMap and SharedSet.                                                                                                                     |
-| `runtime/heap.ts`, `browser.ts`, `threads-worker.ts`                         | A page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers.                                        |
-| `runtime/vite-plugin-threads.ts`                                             | The bundler plugin. It compiles with the fork, registers thread functions, serves the playground's compiles and sets cross-origin isolation. |
-| `runtime/compiled.ts`                                                        | What the plugin and the playground's page both do with compiled code.                                                                        |
-| [`checker/`](https://github.com/arv/threads/tree/main/src/checker)           | threads-check, the ownership checker, built on TypeScript 7.1's API.                                                                         |
-| `nbody-own.ts`                                                               | N-body, written by hand for own and shared values.                                                                                           |
-| `nbody-cells.ts`                                                             | The same, with the positions in a shared typed-array cell instead of snapshots, so nothing is copied per step.                               |
-| `nbody-struct.ts`                                                            | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap.                                     |
-| `nbody-ts.ts`, `tsconfig.programs.json`                                      | The same, with ordinary objects that are moved and shared.                                                                                   |
-| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | The presets with channels (N-body both copying plain objects and over shared structs), plus a small example of what channels cost.           |
-| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.ts`                             | Reference counting for shared structs and SharedArrays: the design, its test, and that test written by hand the way the compiler emits it.   |
-| `tutorial.ts`                                                                | The example from [TUTORIAL.md](/tutorial/).                                                                                                  |
-| `async-main.ts`                                                              | An async `main`, which run.test.ts runs.                                                                                                     |
-| `run.ts`, `worker.ts`, `program.ts`                                          | Run a program on node `worker_threads`.                                                                                                      |
-| `chrome.ts`, `index.html`, `page.ts`, `web-worker.ts`                        | Run a program in Chrome.                                                                                                                     |
-| `bench.ts`, `trace-summary.ts`                                               | The measurements.                                                                                                                            |
+| File                                                                         | What it is                                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presets/`                                                                   | The original programs, in plain JavaScript with threads. The measurements compare against these.                                                                          |
+| `runtime/runtime.ts`                                                         | The shared heap: the allocator, free lists, interned strings, deferred decrements and the worker pool.                                                                    |
+| `runtime/threads.ts`, `threads.d.ts`                                         | The API that programs import, in plain TypeScript: own and shared values, shared structs, channels, maps and locks.                                                       |
+| `runtime/own.ts`                                                             | Own and shared values on top of the runtime, plus shared structs and SharedArrays, Lock and Condition.                                                                    |
+| `runtime/chan.ts`                                                            | Go-style goroutines and channels on own and shared values.                                                                                                                |
+| `runtime/maps.ts`                                                            | SharedMap and SharedSet.                                                                                                                                                  |
+| `runtime/heap.ts`, `browser.ts`, `threads-worker.ts`                         | A page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers.                                                                     |
+| `runtime/vite-plugin-threads.ts`                                             | The bundler plugin. It compiles with the fork, registers thread functions, serves the playground's compiles and sets cross-origin isolation.                              |
+| `runtime/compiled.ts`                                                        | What the plugin and the playground's page both do with compiled code.                                                                                                     |
+| [`checker/`](https://github.com/arv/threads/tree/main/src/checker)           | threads-check, the ownership checker, built on TypeScript 7.1's API.                                                                                                      |
+| `nbody-own.ts`                                                               | N-body, written by hand for own and shared values.                                                                                                                        |
+| `nbody-cells.ts`                                                             | The same, with the positions in a shared typed-array cell instead of snapshots, so nothing is copied per step.                                                            |
+| `nbody-struct.ts`                                                            | N-body in TypeScript with a `SharedArray` of shared structs, which the fork lays out in the shared heap.                                                                  |
+| `nbody-ts.ts`, `tsconfig.programs.json`                                      | The same, with ordinary objects that are moved and shared.                                                                                                                |
+| `mandelbrot-chan.ts`, `nbody-chan.ts`, `nbody-chan-struct.ts`, `pipeline.ts` | The presets with channels (N-body both copying plain objects and over shared structs), plus a small example of what channels cost.                                        |
+| `REFCOUNT.md`, `refcount.ts`, `refcount-hand.ts`, `cycles-hand.ts`           | Reference counting for shared structs and SharedArrays: the design, its test, that test written by hand the way the compiler emits it, and cycles collected under a race. |
+| `tutorial.ts`                                                                | The example from [TUTORIAL.md](/tutorial/).                                                                                                                               |
+| `async-main.ts`                                                              | An async `main`, which run.test.ts runs.                                                                                                                                  |
+| `run.ts`, `worker.ts`, `program.ts`                                          | Run a program on node `worker_threads`.                                                                                                                                   |
+| `chrome.ts`, `index.html`, `page.ts`, `web-worker.ts`                        | Run a program in Chrome.                                                                                                                                                  |
+| `bench.ts`, `trace-summary.ts`                                               | The measurements.                                                                                                                                                         |
 
 ## Shared Everything, Publish on Escape
 
@@ -413,9 +413,9 @@ The prototypes don't cover everything. Here's what they leave out:
 
 - **Not everything is freed in the shared heap.** Shared structs, SharedArrays,
   maps and strings are reference counted
-  ([Reference Counting](/reference-counting/)), and cycles of them leak. A moved
-  value is freed once it's read. Shared values, channels, locks and conditions
-  are never freed.
+  ([Reference Counting](/reference-counting/)), and cycles of them are freed
+  only by `collectCycles()`. A moved value is freed once it's read. Shared
+  values, channels, locks and conditions are never freed.
 - **Ordering relies on V8 in practice, not on the spec.** Plain
   SharedArrayBuffer accesses are taken to behave as relaxed atomics. There are
   no 8-byte release stores. NaN payloads are kept intact when copied through

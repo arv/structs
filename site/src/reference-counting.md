@@ -18,8 +18,9 @@ is the same test written by hand. The playground's "Reference counting under a
 race" runs it in a browser
 ([programs/refcount.ts](https://github.com/arv/threads/blob/main/playground/programs/refcount.ts)).
 Shared structs, SharedArrays, SharedMaps, SharedSets and interned strings are
-freed when nothing refers to them. Other cells (`Lock`, `Condition`, `Channel`)
-and shared values are still never freed.
+freed when nothing refers to them, and `collectCycles()` frees cycles of them.
+Other cells (`Lock`, `Condition`, `Channel`) and shared values are still never
+freed.
 
 :::
 
@@ -97,8 +98,9 @@ These are the quiescent points:
 - the end of a `scope`
 - a thread's start and its end
 - `__quiescent()`, which the compiler puts at the end of each iteration of a
-  loop that reads or stores a reference field. It's an atomic load and store.
-  Numeric loops get none.
+  loop that reads or stores a reference field. It's an atomic load and store,
+  and a load of the word that says whether cycles are being collected. Numeric
+  loops get none.
 
 A thread that's blocked in a wait counts as quiescent the whole time. Before it
 blocks, it moves the decrements it couldn't apply yet to a shared list, just as
@@ -107,6 +109,9 @@ other thread works off a thread's own queue.
 
 A thread that runs for a long time without a quiescent point delays reclaiming,
 so memory grows. It never affects correctness.
+
+A quiescent point is also where a thread parks while another thread collects
+cycles (see [Cycles](#cycles)).
 
 ### Async Functions
 
@@ -161,6 +166,7 @@ The rules below quote them that way.
 | `capture(fn, ...ps)`                      | Retains each address for a closure that captures them. They're released when the closure is collected.                                                                                                |
 | `F64`, `I32`, `U8`, `outOfBounds`         | The shared heap's views, which field and element accesses index into, and what an out-of-range index reads (it throws).                                                                               |
 | `heapStats()`                             | Reports the heap bytes in use, the blocks allocated and freed, and the decrements pending.                                                                                                            |
+| `collectCycles(timeout)`                  | Stops every other thread at a quiescent point, frees the cycles nothing outside them refers to, and returns how many blocks it freed (see [Cycles](#cycles)).                                         |
 
 Freed blocks go to free lists by size, with a per-thread cache over global
 lists. Allocation takes from these lists before it bumps the shared cursor.
@@ -278,13 +284,74 @@ is one of three things:
     a reused address for the string that left it. The runtime's own strings,
     such as struct layouts and the message for a full heap, are pinned and stay.
 
+## Cycles
+
+Counting never frees a cycle. Each block in it holds a count on the next, so no
+count reaches 0. `collectCycles()` frees cycles, the way CPython's cycle
+collector does.
+
+A full mark-and-sweep isn't possible here. Its roots would be the addresses that
+threads hold in their locals, and those are plain numbers on each worker's
+stack, which nothing can list. But a block's count says how many references it
+has, and the heap can count the ones it holds itself. Whatever is left comes
+from outside the heap. A collection goes like this:
+
+1. **Stop the world.** The thread that collects waits until every other thread
+   is asleep. A running thread parks at its next quiescent point. A thread
+   that's waiting (in `Atomics.wait`, a channel's `recv`, a `Lock`, a `join`) is
+   asleep already. If it wakes during the collection, it waits for the end
+   before it changes anything. A pool worker between threads is asleep only
+   while it waits for work, because a registry's finalizers change counts too.
+   It takes part from the moment it attaches, before it loads the program's
+   modules, which may make blocks as they load. Hosts get their bells rung and
+   the page gets a nudge, so that each passes a quiescent point. The page can't
+   block, so it spins until the collection ends. A page that stopped its pool
+   stays awake: it still runs tasks that change counts, so a collection that a
+   worker of the stopped pool began waits for it and gives up. Threads that
+   waited for one collection to end wake before the next one starts, so a thread
+   that collects again and again doesn't keep the others stopped.
+2. **Apply what waits.** Every other thread is quiescent, so every deferred
+   decrement is safe, and the collector applies them all. One it can't apply (a
+   queue that a full heap left on its thread) only keeps more blocks alive.
+3. **Subtract the heap's own references.** The collector walks every block that
+   can hold a reference: structs with reference fields, SharedArrays of them,
+   maps and sets. A bitmap in the heap's last 64th, one bit per 8 bytes, marks
+   where each one starts. For each block, it takes the count and subtracts the
+   references the other blocks hold on it: reference fields, struct elements'
+   fields, and map and set entries. A reference to an element counts its array.
+4. **Mark from the roots.** A block with some count left is held from outside
+   the heap: by a thread's local or handle, a thread's arguments, a message in
+   flight or a shared value. It's a root. Everything a root reaches through
+   references stays.
+5. **Free the rest.** What's left is garbage: cycles, and blocks that only
+   cycles reach. The collector gives back the counts they hold outside the
+   garbage (strings, and blocks something else holds as well), and then frees
+   each block once. Its own bookkeeping is a few typed arrays, 13 bytes for each
+   block it walks.
+
+A collection is all or nothing. If a thread doesn't reach a quiescent point
+within the timeout (a second by default), the collector frees nothing and
+returns 0. That happens with a long loop that touches no reference field, with
+uncompiled code, and with a thread that spins on a value that a parked thread
+would change.
+
+Nothing collects on its own yet. An allocation can happen in the middle of
+runtime code, often under a lock, so it can't simply stop the world when the
+heap runs low. Call `collectCycles()` where a program drops structures that may
+hold cycles.
+
+Only counted blocks are collected. Channels, locks, conditions and shared values
+aren't counted, so a block that one of them holds stays. Counting them needs new
+compiler emit.
+
 ## Limits
 
 Reference counting here has real limits. Here's what to keep in mind:
 
-- **Cycles leak.** A cycle of reference fields keeps its counts above 0. A
-  backup collector (trial deletion at quiescent points) or a rule against
-  recursive struct types would close this.
+- **Cycles wait for a collection.** Counting never frees a cycle, and nothing
+  calls `collectCycles()` on its own yet (see [Cycles](#cycles)). A collection
+  stops every thread for a moment, and gives up if one doesn't reach a quiescent
+  point in time.
 - **Handles and closures are released late, or not at all in Node.** The same
   goes for a thread that's never joined, and its result. They go once the
   thread's `Thread` is collected.

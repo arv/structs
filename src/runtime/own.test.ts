@@ -369,7 +369,7 @@ describe('reference counts', () => {
     own.store(next(a), 0);
     runtime.threadEnd(); // b's decrement to the shared list, held up by 3
     runtime.threadBegin(1);
-    runtime.$waitBegin(); // stop()
+    runtime.$stopped(); // stop()
     expect(runtime.I32[QS_1]).toBe(IDLE);
     expect(runtime.I32[b >> 2]).toBe(N.kind);
     // thread 3 passes a point (one that reclaims nothing), and the nudge of

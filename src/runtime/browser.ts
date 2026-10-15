@@ -17,7 +17,7 @@ import {
   STOPPED,
   $failed,
   $nudged,
-  $waitBegin,
+  $stopped,
 } from './runtime.ts';
 import type {Message} from './runtime.ts';
 
@@ -223,8 +223,9 @@ export function stop() {
   failStart = null;
   generation++;
   stopped = true;
-  // the page's thread: quiescent until start() again
-  $waitBegin();
+  // the page's thread: quiescent until start() again, and awake (see
+  // $stopped)
+  $stopped();
   started = null;
   startedWith = null;
 }

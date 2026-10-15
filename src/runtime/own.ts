@@ -51,6 +51,10 @@ import {
   $releaseString,
   $poolRunning,
   STOPPED,
+  $track,
+  $untrack,
+  $eachTracked,
+  $collectCycles,
 } from './runtime.ts';
 
 const SAB = globalThis.__escapeSab ?? null;
@@ -627,10 +631,13 @@ const K_LOCK = 20,
   // decrement skipped as uncounted would keep the block for good
   K_SHARED_MAP = 25,
   K_SHARED_SET = 26;
-// counted cells defined outside this module (maps.ts): what freeing a block of
-// their kind releases and frees, given drop, which gives back a count it held
-type Destroy = (b: number, drop: (p: number) => void) => void;
-const destroys = new Map<number, Destroy>([[K_STR, b => $stringDying(b)]]);
+// counted cells defined outside this module (maps.ts): the counts a block of
+// their kind holds, each given to f (held), and how its memory is freed (free)
+type Holds = {
+  held: (b: number, f: (p: number) => void) => void;
+  free: (b: number) => void;
+};
+const holds = new Map<number, Holds>();
 // structs, SharedArrays, strings, maps and sets (REFCOUNT.md)
 const counted: (kind: number) => boolean = kind =>
   kind === K_SHARED_ARRAY ||
@@ -691,15 +698,16 @@ export const __newCell = (kind: number, bytes: number, self: CellObject) =>
   newCell(kind, bytes, self);
 // a counted kind's class, and how one of its blocks is freed. a block of it
 // starts [kind][count], and its handles hold counts as a struct's do
-export const __countedCellKind = (
-  kind: number,
-  Cls: CellClass,
-  destroy: Destroy,
-) => {
+export const __countedCellKind = (kind: number, Cls: CellClass, h: Holds) => {
   if (kind !== K_SHARED_MAP && kind !== K_SHARED_SET)
     throw new TypeError(`own: kind ${kind} is not one own.ts counts`);
   cellKinds.set(kind, Cls);
-  destroys.set(kind, destroy);
+  holds.set(kind, h);
+};
+// a new map's or set's block, its table in place: one a collection looks at
+// (see collectCycles)
+export const __tracked = (b: number) => {
+  $track(b);
 };
 const newCell = (kind: number, bytes: number, self: CellObject) => {
   const a = $alloc(bytes);
@@ -1049,6 +1057,9 @@ export function newStruct(type: StructType) {
   const a = $allocBlock(type.size);
   I32[a >> 2] = type.kind;
   I32[(a >> 2) + 1] = 1;
+  // one with no reference field is in no cycle (one not declared here, and
+  // unknown, may be)
+  if (type.refs?.length !== 0) $track(a);
   return a;
 }
 // [kind][length][element][count] then the elements from byte 16. type, which
@@ -1097,11 +1108,13 @@ export function newSharedArray(type: StructType | number, length: number) {
   I32[(a >> 2) + 1] = length;
   I32[(a >> 2) + 3] = 1;
   I32[(a >> 2) + 2] = size | ((struct ? 0 : elementCodes.get(type)!) << 16);
-  if (struct)
+  if (struct) {
     for (let e = a + 16, end = e + length * size; e < end; e += size) {
       I32[e >> 2] = type.kind;
       I32[(e >> 2) + 1] = a - e;
     }
+    if (type.refs.length !== 0 && length !== 0) $track(a);
+  }
   return a;
 }
 
@@ -1136,38 +1149,151 @@ function destroy(o: number) {
     if (Atomics.sub(I32, countAt(q), 1) === 1) work.push(q);
   };
   while (work.length !== 0) {
-    const b = work.pop()!,
-      kind = I32[b >> 2],
-      d = destroys.get(kind);
-    if (d !== undefined) d(b, drop);
-    else if (kind === K_SHARED_MAP || kind === K_SHARED_SET)
-      // the entry points load maps.ts (threads-worker.ts, browser.ts); a
-      // thread that has not would leave the block's contents counted
-      throw new Error(
-        'own: a SharedMap or SharedSet is freed on a thread that has not loaded maps.ts',
-      );
-    else if (kind === K_SHARED_ARRAY) {
-      const n = I32[(b >> 2) + 1],
-        size = elementSize(b);
-      if (size > 8 && n !== 0) {
-        // structs
-        const T = structType(I32[(b + 16) >> 2]);
-        if (T.refs.length + T.strs.length !== 0)
-          for (let e = b + 16, end = e + n * size; e < end; e += size) {
-            for (const k of T.refs) drop(I32[(e >> 2) + 2 + 2 * k]);
-            for (const k of T.strs) drop(I32[(e >> 2) + 2 + 2 * k]);
-          }
-      } else if (elementKind(b) === E_STR)
-        for (let e = (b + 16) >> 2, end = e + n; e < end; e++) drop(I32[e]);
-      $freeBlock(b, 16 + n * size);
-    } else {
-      const T = structType(kind);
-      for (const k of T.refs) drop(I32[(b >> 2) + 2 + 2 * k]);
-      for (const k of T.strs) drop(I32[(b >> 2) + 2 + 2 * k]);
-      $freeBlock(b, T.size);
+    const b = work.pop()!;
+    if (I32[b >> 2] === K_STR) $stringDying(b);
+    else {
+      held(b, drop);
+      freeShell(b);
     }
   }
 }
+// a map's or set's holds: the entry points load maps.ts (threads-worker.ts,
+// browser.ts); a thread that has not would leave the block's contents counted
+function holdsOf(kind: number) {
+  const h = holds.get(kind);
+  if (h === undefined)
+    throw new Error(
+      'own: a SharedMap or SharedSet is freed on a thread that has not loaded maps.ts',
+    );
+  return h;
+}
+const isMap = (kind: number) => kind === K_SHARED_MAP || kind === K_SHARED_SET;
+// each count struct, SharedArray, map or set b holds, given to f: its
+// reference and string fields, its elements', its entries'
+function held(b: number, f: (p: number) => void) {
+  const kind = I32[b >> 2];
+  if (isMap(kind)) holdsOf(kind).held(b, f);
+  else if (kind === K_SHARED_ARRAY) {
+    const n = I32[(b >> 2) + 1],
+      size = elementSize(b);
+    if (size > 8 && n !== 0) {
+      // structs
+      const T = structType(I32[(b + 16) >> 2]);
+      if (T.refs.length + T.strs.length !== 0)
+        for (let e = b + 16, end = e + n * size; e < end; e += size) {
+          for (const k of T.refs) f(I32[(e >> 2) + 2 + 2 * k]);
+          for (const k of T.strs) f(I32[(e >> 2) + 2 + 2 * k]);
+        }
+    } else if (elementKind(b) === E_STR)
+      for (let e = (b + 16) >> 2, end = e + n; e < end; e++) f(I32[e]);
+  } else {
+    const T = structType(kind);
+    for (const k of T.refs) f(I32[(b >> 2) + 2 + 2 * k]);
+    for (const k of T.strs) f(I32[(b >> 2) + 2 + 2 * k]);
+  }
+}
+// b's memory freed, once what it holds is given back (held)
+function freeShell(b: number) {
+  const kind = I32[b >> 2];
+  $untrack(b);
+  if (isMap(kind)) holdsOf(kind).free(b);
+  else if (kind === K_SHARED_ARRAY)
+    $freeBlock(b, 16 + I32[(b >> 2) + 1] * elementSize(b));
+  else $freeBlock(b, structType(kind).size);
+}
+
+// ---- cycles (REFCOUNT.md) ----
+// counting never frees a cycle: each block in it holds a count of the next.
+// with every other thread stopped (runtime.ts $collectCycles), a block's count,
+// less the counts the heap's tracked blocks hold on it, is what holds it from
+// outside the heap: a thread's local or handle, a thread's arguments, a message.
+// a block with some left is a root, and so is all it reaches through
+// references; what none reaches is garbage, cycles and what only they hold.
+// each block of it is freed once, and gives back the counts it holds on what
+// stays (strings, and blocks that something else holds as well). the tracked
+// blocks are the ones that can hold a reference: structs with reference
+// fields, SharedArrays of them, maps and sets
+// the block a count p holds is on, if it is one a collection tracks, else 0
+function trackedOwner(p: number) {
+  if (p === 0) return 0;
+  const kind = I32[p >> 2];
+  return counted(kind) && kind !== K_STR ? owner(p) : 0;
+}
+// the scan's own memory is a few typed arrays, 13 bytes for each tracked block
+// (at least 16 bytes of the heap): the blocks' addresses in order, their counts
+// less the heap's references, a mark each, and a work list
+function scanCycles() {
+  let n = 0;
+  $eachTracked(() => {
+    n++;
+  });
+  if (n === 0) return 0;
+  const at = new Int32Array(n),
+    left = new Int32Array(n),
+    mark = new Uint8Array(n),
+    work = new Int32Array(n);
+  n = 0;
+  $eachTracked(b => {
+    at[n] = b;
+    left[n] = I32[countAt(b)];
+    n++;
+  });
+  // the index of the tracked block a count p holds is on, or -1
+  const indexOf = (p: number) => {
+    const o = trackedOwner(p);
+    if (o === 0) return -1;
+    for (let lo = 0, hi = n - 1; lo <= hi;) {
+      const mid = (lo + hi) >> 1;
+      if (at[mid] < o) lo = mid + 1;
+      else if (at[mid] > o) hi = mid - 1;
+      else return mid;
+    }
+    return -1;
+  };
+  // each tracked block's count, less the counts tracked blocks hold on it
+  const subtract = (p: number) => {
+    const i = indexOf(p);
+    if (i >= 0) left[i]--;
+  };
+  for (let i = 0; i < n; i++) held(at[i], subtract);
+  // what is held from outside, and what it reaches
+  let top = 0,
+    reached = 0;
+  for (let i = 0; i < n; i++)
+    if (left[i] > 0) {
+      mark[i] = 1;
+      work[top++] = i;
+      reached++;
+    }
+  const reach = (p: number) => {
+    const i = indexOf(p);
+    if (i >= 0 && mark[i] === 0) {
+      mark[i] = 1;
+      work[top++] = i;
+      reached++;
+    }
+  };
+  while (top !== 0) held(at[work[--top]], reach);
+  if (reached === n) return 0;
+  // the rest gives back what it holds outside of itself (strings, blocks held
+  // from elsewhere too, and blocks that only it holds, which hold no
+  // reference: none of it is reached from there, nor freed by it), and then
+  // each block of it is freed
+  const outside = (p: number) => {
+    if (p === 0) return;
+    const i = indexOf(p);
+    if (i < 0 || mark[i] === 1) release(p);
+  };
+  for (let i = 0; i < n; i++) if (mark[i] === 0) held(at[i], outside);
+  for (let i = 0; i < n; i++) if (mark[i] === 0) freeShell(at[i]);
+  return n - reached;
+}
+// frees the cycles of shared structs, SharedArrays, maps and sets that nothing
+// outside them refers to, and returns how many blocks it freed. every other
+// thread stops at its next quiescent point meanwhile (runtime.ts
+// $collectCycles); 0 if one did not within timeout ms
+export const collectCycles = (timeout?: number) =>
+  $collectCycles(scanCycles, timeout);
 // a reference field store at i32 index i: takes over v's count. a thread may
 // have read the old value and not counted it yet, so its decrement waits for
 // every thread's next quiescent point

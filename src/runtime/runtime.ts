@@ -26,7 +26,10 @@ const C_PEND = 19,
   C_PEND_LEN = 20,
   C_PEND_CAP = 21,
   C_PEND_LOCK = 22; // decrements left by threads that ended
-// words 23 and 24 are free (a select waits on its own channels: chan.ts)
+// the thread table entry of the thread that collects cycles, 0 when none does
+// (see $collectCycles)
+const C_GC = 23;
+// word 24 is free (a select waits on its own channels: chan.ts)
 const C_AQ_LOCK = 25,
   C_AQ_HEAD = 26,
   C_AQ_TAIL = 27,
@@ -53,6 +56,8 @@ const C_THREADS = 2048,
   MAX_THREADS = 16384;
 const T_ALIVE = 0,
   T_FREE = 1, // given back by a worker that left (see freeTid)
+  T_AWAKE = 2, // the worker may change counts (see wake)
+  T_WAKING = 3, // the worker waits for a collection to end, to wake
   T_QS = 5,
   T_HOST = 6,
   T_BELL = 7;
@@ -187,7 +192,7 @@ const CHUNK = 64 << 10;
 let acur = 0,
   aend = 0;
 const heapFullMessage = () =>
-  `threads: the shared heap is full (${I32[C_HEAP_END] >> 20} MB)`;
+  `threads: the shared heap is full (${I32.byteLength >> 20} MB)`;
 // a size that is not a positive whole number within an i32 (NaN, a negative,
 // a fraction, too large) is refused: rounded, it would be 0, or short, or
 // wrap, and the bump pointer would stand still or move back, and the next
@@ -411,6 +416,7 @@ export function $defer(p: number) {
 // threadBegin) is none: its word would be a control word's. start() reclaims
 export function $quiescent() {
   if (ME === 0) return;
+  if (Atomics.load(I32, C_GC) !== 0) park();
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
   if ((++qsTick & 63) === 0 || pend.length >= pendLimit) reclaim();
 }
@@ -421,21 +427,38 @@ export function $quiescent() {
 // thread works a worker's own queue off; then a nudge, if the page alone holds
 // the list up. a full heap leaves the queue here (handOffPending), for the
 // reclaim after the wait. a contended lock, a channel's sleep, come here often:
-// nothing but the reclaim when the queue is empty
-export function $waitBegin() {
+// nothing but the reclaim when the queue is empty. a thread that waits is
+// asleep too: it changes no count until it wakes, so a collection of cycles
+// need not wait for it (see wake)
+export function $waitBegin(sleep = true) {
   if (ME === 0) return;
   reclaim();
   if (pend.length === 0) {
     Atomics.store(I32, ME + T_QS, IDLE);
+    if (sleep) asleep();
     return;
   }
   handOffPending();
   // idle first: the page, nudged below, is to see a thread that holds nothing
   Atomics.store(I32, ME + T_QS, IDLE);
   nudgePageForShared();
+  if (sleep) asleep();
 }
+// a page that stopped its pool (browser.ts stop): quiescent until start()
+// again, as in a wait, but awake. it waits for nothing, and goes on running
+// tasks that may change counts (a handle's finalizer, a map it holds, a late
+// nudge), so a collection must not take it for asleep: one that a worker of
+// the stopped pool, running on, began waits for it, gives up, and frees
+// nothing. it does not wake through wake(), which would wait for that
+// collection: the page cannot block, and one whose worker was terminated in
+// it would never end (start()'s reset clears it)
+export const $stopped = () => $waitBegin(false);
+// awake first, which waits for a collection under way to end: a thread in a
+// wait wakes when it likes, and must not change a count while one runs
 export const $waitEnd = () => {
-  if (ME !== 0) Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
+  if (ME === 0) return;
+  wake(ME);
+  Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
 };
 // the oldest epoch a running thread may still hold an uncounted address from
 // (`but`: an entry left out); with none, the next epoch, which nothing
@@ -612,7 +635,7 @@ export function $nudged() {
 }
 function pagePoint() {
   if (Atomics.load(I32, ME + T_QS) === IDLE) {
-    $waitBegin();
+    $stopped();
     return;
   }
   $quiescent();
@@ -703,6 +726,7 @@ export function $drain() {
       if (hosting) return;
       if (CAN_BLOCK) {
         Atomics.store(I32, ME + T_QS, IDLE);
+        asleep();
         Atomics.wait(PRIV, 0, 0, 1);
         $waitEnd();
       }
@@ -716,6 +740,151 @@ export function $heapStats() {
     freed: Atomics.load(I32, C_CNT + N_BFREE) + LC[N_BFREE],
     pending: pendingCount(),
   };
+}
+
+// ---- cycles: a collection stops the world (REFCOUNT.md) ----
+// counting frees no cycle, so a collection looks at every counted block that
+// holds references (own.ts), with no thread changing a count meanwhile. each
+// worker with an entry in the thread table is awake (T_AWAKE 1) while it may
+// change one: running a thread, or between threads (a registry's finalizers,
+// a result dropped), and asleep (0) in a wait, parked at a quiescent point
+// while a collection runs, or idle in the pool. the collector (C_GC, its
+// entry) waits until every other worker is asleep. a worker wakes by marking
+// itself awake and then looking at C_GC, and the collector marks C_GC and
+// then looks at each worker: one of the two sees the other, so a worker never
+// wakes into a collection, and waits for its end instead. the page cannot
+// block, so it spins; a collection is short
+let awakeAt = 0; // the entry this worker is awake on, 0 when asleep
+// a pool worker stays awake between threads (see poolLoop): what it does there
+// changes counts too
+let pooled = false;
+// one that waits for a collection to end marks its entry waking meanwhile
+// (T_WAKING): a collector that collects again at once would else take C_GC back
+// before the thread sees it free, and the thread would never wake. a mark of
+// its own entry, not a count: a worker of a pool that was reset (resetPool
+// clears the marks) that wakes late clears its own, and changes no other's
+function wake(e: number) {
+  if (awakeAt === e) return;
+  let waiting = false;
+  for (;;) {
+    for (let g; (g = Atomics.load(I32, C_GC)) !== 0 && g !== e;) {
+      if (!waiting) {
+        waiting = true;
+        Atomics.store(I32, e + T_WAKING, 1);
+        continue; // C_GC again: the collection may have ended meanwhile
+      }
+      if (CAN_BLOCK) Atomics.wait(I32, C_GC, g);
+    }
+    Atomics.store(I32, e + T_AWAKE, 1);
+    const g = Atomics.load(I32, C_GC);
+    if (g === 0 || g === e) break;
+    Atomics.store(I32, e + T_AWAKE, 0);
+  }
+  awakeAt = e;
+  if (waiting) {
+    Atomics.store(I32, e + T_WAKING, 0);
+    Atomics.notify(I32, e + T_WAKING);
+  }
+}
+// an entry other than this thread's marked waking, else 0
+function waking() {
+  for (let t = 1, n = Atomics.load(I32, C_NEXT_TID); t < n; t++) {
+    const e = C_THREADS + t * T_ENTRY;
+    if (e !== ME && Atomics.load(I32, e + T_WAKING) === 1) return e;
+  }
+  return 0;
+}
+function asleep() {
+  const e = awakeAt;
+  if (e === 0) return;
+  awakeAt = 0;
+  Atomics.store(I32, e + T_AWAKE, 0);
+  if (Atomics.load(I32, C_GC) !== 0) Atomics.notify(I32, e + T_AWAKE);
+}
+// at a quiescent point, while another thread collects: asleep until it is done,
+// as in a wait, its queue handed off first so that the collector can apply it
+function park() {
+  const g = Atomics.load(I32, C_GC);
+  if (g === 0 || g === ME) return;
+  $waitBegin();
+  $waitEnd();
+}
+// the blocks a collection looks at, a bit per 8 bytes of the heap, set while a
+// struct, a SharedArray, a SharedMap or a SharedSet starts there (own.ts sets
+// and clears them). the bits are past the heap's end, in its last 64th
+const blockMap = () => I32[C_HEAP_END] >> 2;
+export function $track(p: number) {
+  const b = p >> 3;
+  Atomics.or(I32, blockMap() + (b >> 5), 1 << (b & 31));
+}
+export function $untrack(p: number) {
+  const b = p >> 3;
+  Atomics.and(I32, blockMap() + (b >> 5), ~(1 << (b & 31)));
+}
+// each tracked block's address, in address order
+export function $eachTracked(f: (p: number) => void) {
+  const m = blockMap(),
+    end = m + (Atomics.load(I32, C_ALLOC) >> 8) + 1;
+  for (let w = m; w < end; w++)
+    for (let bits = I32[w]; bits !== 0; bits &= bits - 1)
+      f(((w - m) * 32 + 31 - Math.clz32(bits & -bits)) * 8);
+}
+// stop every other worker, apply every decrement that waits, run scan (own.ts,
+// which frees the cycles it finds), and let them go on: scan's result, or 0
+// when the world did not stop within timeout ms (a thread that runs long
+// without a quiescent point, uncompiled code, or one that waits on a parked
+// thread with a spin rather than a wait). another thread's collection under
+// way: this one waits for it, and does not collect again
+export function $collectCycles(scan: () => number, timeout = 1000) {
+  if (ME === 0) return 0; // before the thread began: no other thread runs
+  // threads that waited for the last collection to end wake first, and each
+  // goes on to its next quiescent point: so a thread that collects again and
+  // again does not stop the others for good. this one waits asleep, as
+  // another collection may start meanwhile, and wait for it
+  const until = performance.now() + timeout;
+  while (waking() !== 0) {
+    $waitBegin();
+    for (let e; (e = waking()) !== 0;) {
+      if (performance.now() > until) break;
+      if (CAN_BLOCK) Atomics.wait(I32, e + T_WAKING, 1, 1);
+    }
+    $waitEnd();
+    if (performance.now() > until) return 0;
+  }
+  if (Atomics.compareExchange(I32, C_GC, 0, ME) !== 0) {
+    park();
+    return 0;
+  }
+  try {
+    if (!stopTheWorld(until)) return 0;
+    // every other thread is quiescent: whatever waits is safe
+    for (let round = 0; round < 100; round++) {
+      const before = pendingCount();
+      if (before === 0) break;
+      reclaim();
+      if (pendingCount() >= before) break;
+    }
+    return scan();
+  } finally {
+    Atomics.store(I32, C_GC, 0);
+    Atomics.notify(I32, C_GC);
+  }
+}
+// waits until every other worker is asleep: a host's bell is rung, and the page
+// nudged, so that each passes a quiescent point (where it parks); the rest
+// reach one on their own. false once it is until
+function stopTheWorld(until: number) {
+  for (let t = 1; t < Atomics.load(I32, C_NEXT_TID); t++) {
+    const e = C_THREADS + t * T_ENTRY;
+    if (e === ME) continue;
+    while (Atomics.load(I32, e + T_AWAKE) === 1) {
+      if (performance.now() > until) return false;
+      if (Atomics.load(I32, e + T_HOST) === 1) ring(e);
+      else if (t === 1 && NUDGE) nudgePage(true);
+      if (CAN_BLOCK) Atomics.wait(I32, e + T_AWAKE, 1, 1);
+    }
+  }
+  return true;
 }
 // ---- text in shared memory: a string is stored a byte per char when it is
 // ASCII, and as UTF-16 units otherwise. TextDecoder makes a string of long
@@ -1173,10 +1342,12 @@ export function $log(...args: unknown[]) {
 // the heap's size in bytes. its addresses are i32s, and so is its end
 // (C_HEAP_END), and its f64 view needs a multiple of 8: so it is at most the
 // last multiple of 8 below 2 GiB, 2047 MB in whole MB. it holds at least the
-// control area and the first string table
+// control area, the first string table and the map of blocks (a 64th of it,
+// past the end: see $track)
 const MB = 2 ** 20,
-  HEAP_MIN = CTRL_BYTES + 16 + MIN_TABLE * 4,
+  HEAP_MIN = CTRL_BYTES + 16 + MIN_TABLE * 4 + (32 << 10),
   HEAP_MAX = 0x7ffffff8;
+const blockMapBytes = (bytes: number) => (Math.ceil(bytes / 256) * 4 + 7) & ~7;
 export function initShared(sab: SharedArrayBuffer) {
   // once, before any worker starts. a size it cannot take is refused before
   // anything is written: 2 GiB would wrap C_HEAP_END negative, and every
@@ -1193,7 +1364,7 @@ export function initShared(sab: SharedArrayBuffer) {
   i32[table >> 2] = K_STR_TABLE; // see strFind
   i32[(table >> 2) + 1] = cap;
   i32[C_ALLOC] = table + 16 + cap * 4;
-  i32[C_HEAP_END] = sab.byteLength;
+  i32[C_HEAP_END] = bytes - blockMapBytes(bytes);
   i32[C_NEXT_TID] = 2; // the program's main thread is 1
   i32[C_EPOCH] = 2; // even: IDLE, 1, is never an epoch
 }
@@ -1242,6 +1413,12 @@ const HEAP_FULL = () =>
 export function threadBegin(tid: number) {
   if (tid >= MAX_THREADS) throw new RangeError('threads: out of thread ids');
   ME = C_THREADS + tid * T_ENTRY;
+  // awake on its entry (a pool worker is already), first: a thread that begins
+  // while cycles are collected waits for the end
+  if (awakeAt !== ME) {
+    asleep();
+    wake(ME);
+  }
   // thread 1, a page's: no nudge is on its way to it as it begins
   if (tid === 1) Atomics.store(I32, C_NUDGED, 0);
   Atomics.store(I32, ME + T_QS, Atomics.load(I32, C_EPOCH));
@@ -1256,6 +1433,8 @@ export function threadEnd() {
   // what the shared list holds now is the page's to free, perhaps: this
   // worker, idle, will not look again until its next thread
   nudgePageForShared();
+  // a pool worker stays awake until it waits for work (see poolLoop)
+  if (!pooled) asleep();
 }
 // after a thread's end, on a worker between threads: what was freed since (a
 // result dropped, what the registries finalized: own.ts) is counted, and what
@@ -1351,6 +1530,7 @@ const workerTid = () => {
 // not run on, keeps it: nothing it writes may land in another worker's
 function freeTid() {
   if (myTid === 0) return;
+  asleep();
   Atomics.store(I32, C_THREADS + myTid * T_ENTRY + T_FREE, 1);
   myTid = 0; // once: a worker to come may have the entry by now
 }
@@ -1682,6 +1862,7 @@ let finalizeWait = FINALIZE;
 // registries. an idle worker with handles to finalize gives its event loop a
 // turn now and then
 export async function poolLoop() {
+  $workerJoin();
   for (;;) {
     if (hosting) {
       // false: of a pool that was stopped
@@ -1728,7 +1909,10 @@ export async function poolLoop() {
           // FINALIZE ms for good. so a turn that finalizes nothing doubles the
           // wait, up to POLL; one that finalizes something, or a thread, makes
           // it FINALIZE again
-          if (Atomics.wait(I32, C_PENDING, 0, finalizeWait) === 'timed-out') {
+          asleep();
+          const r = Atomics.wait(I32, C_PENDING, 0, finalizeWait);
+          wake(C_THREADS + workerTid() * T_ENTRY);
+          if (r === 'timed-out') {
             const before = finalized();
             await eventLoopTurn();
             settle();
@@ -1737,7 +1921,11 @@ export async function poolLoop() {
                 ? FINALIZE
                 : Math.min(POLL, finalizeWait * 2);
           }
-        } else Atomics.wait(I32, C_PENDING, 0, POLL);
+        } else {
+          asleep();
+          Atomics.wait(I32, C_PENDING, 0, POLL);
+          wake(C_THREADS + workerTid() * T_ENTRY);
+        }
         continue;
       }
       // no longer idle before the thread is taken: a thread queued between
@@ -1787,6 +1975,21 @@ export async function poolLoop() {
     if (failed !== null) endThread(t, 0, false, true, failed);
     else runThread(t, true);
   }
+}
+// a pool worker, as it attaches: awake on its entry from here (see wake), but
+// in its waits for work, before it loads the program, whose modules may make
+// blocks as they load (a pool that grows does that while other threads run,
+// and may collect cycles). what a worker does between threads changes counts
+// too, and a module a thread needs is loaded before the thread begins
+export function $workerJoin() {
+  pooled = true;
+  wake(C_THREADS + workerTid() * T_ENTRY);
+}
+// a worker that failed (it crashed, or a module did not load): asleep, and its
+// entry given back, so that no collection waits for it
+export function $workerGone() {
+  asleep();
+  freeTid();
 }
 // a program's main, on the coordinator's main worker (src/worker.ts,
 // src/web-worker.ts), its thread begun: an async main is awaited, and meanwhile
@@ -1860,10 +2063,22 @@ export async function resetPool(sab: SharedArrayBuffer) {
     }
     return false;
   };
+  // the old pool's workers awake as it stopped (see wake): each marks itself
+  // asleep as it waits, or as it leaves. one terminated awake (between
+  // threads, in an event loop turn, or a host) never does, and would hold up
+  // every collection for good. one asleep is never taken for dead: it may
+  // wake, and mark itself awake, at any time
+  const wasAwake: number[] = [];
+  for (let t = 2, n = Atomics.load(i32, C_NEXT_TID); t < n; t++) {
+    const e = C_THREADS + t * T_ENTRY;
+    if (Atomics.load(i32, e + T_AWAKE) === 1) wasAwake.push(e);
+  }
+  const stillAwake = () =>
+    wasAwake.some(e => Atomics.load(i32, e + T_AWAKE) === 1);
   let late = false;
   for (
     const until = performance.now() + 1000;
-    Atomics.load(i32, C_BUSY) !== 0 || running();
+    Atomics.load(i32, C_BUSY) !== 0 || running() || stillAwake();
   ) {
     if (performance.now() > until) {
       console.warn(
@@ -1889,8 +2104,12 @@ export async function resetPool(sab: SharedArrayBuffer) {
     C_AQ_LEN,
     C_HOSTS,
     C_DRAFTS,
+    // a collection by a worker that was terminated in it: the page, which
+    // wakes next, would spin for good
+    C_GC,
   ])
     Atomics.store(i32, c, 0);
+  Atomics.notify(i32, C_GC);
   i32.fill(0, C_RING, C_RING + RING);
   // no old worker is a host now (thread 1, the page's, stays as it is, and an
   // entry given back stays so). one still in a thread after the second was
@@ -1900,8 +2119,16 @@ export async function resetPool(sab: SharedArrayBuffer) {
   for (let t = 2, n = i32[C_NEXT_TID]; t < n; t++) {
     const e = C_THREADS + t * T_ENTRY;
     Atomics.store(i32, e + T_HOST, 0);
+    // not waiting to wake: one that does so after the reset clears its
+    // own mark (see wake), and one terminated waiting never would
+    Atomics.store(i32, e + T_WAKING, 0);
     if (late) Atomics.store(i32, e + T_ALIVE, 0);
   }
+  // one awake from the stop to the second's end is taken for dead, as one
+  // still in a thread is: it was terminated awake. (one that ran on all that
+  // while, and was asleep for a moment of it, is the risk ALIVE's takes too)
+  if (late)
+    for (const e of wasAwake) Atomics.compareExchange(i32, e + T_AWAKE, 1, 0);
   // a worker of the old pool that still waits for work (see stale) leaves now
   Atomics.notify(i32, C_PENDING);
   return true;

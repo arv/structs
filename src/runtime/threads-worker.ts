@@ -14,14 +14,18 @@ declare global {
 onmessage = async ({data: {sab, opts}}) => {
   // before the runtime loads: its views are module constants
   globalThis.__escapeSab = sab;
+  let R: typeof import('./runtime.ts') | undefined;
   try {
-    const R = await import('./runtime.ts');
+    R = await import('./runtime.ts');
     R.attach(
       sab,
       opts,
       m => postMessage(m),
       text => postMessage({type: 'out', text}),
     );
+    // in collections of cycles from here: the modules below, and the ones a
+    // thread needs, may make blocks as they load
+    R.$workerJoin();
     const {setModuleLoader} = await import('./own.ts');
     // every cell kind's class and destroy, before the worker frees any block:
     // a thread's decrements may reach this worker (it reclaims what others
@@ -47,6 +51,7 @@ onmessage = async ({data: {sab, opts}}) => {
     postMessage({type: 'ready'});
     await R.poolLoop();
   } catch (e: any) {
+    R?.$workerGone();
     postMessage({
       type: 'crash',
       message: String(e),

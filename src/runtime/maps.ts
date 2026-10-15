@@ -37,6 +37,7 @@ import {
   retain,
   __sharedAddress,
   share,
+  __tracked,
 } from './own.ts';
 import {
   $allocBlock,
@@ -475,23 +476,31 @@ function make(kind: number, w: number) {
   I32[m >> 2] = kind;
   I32[(m >> 2) + 1] = 1;
   I32[(m >> 2) + TABLE] = newTable(MIN, w);
+  __tracked(m);
   const h = box(m);
   release(m);
   return h;
 }
-// what freeing a map's block gives back: the cells its keys and values hold
-const destroy = (w: number) => (m: number, give: (p: number) => void) => {
-  const t = I32[(m >> 2) + TABLE],
-    e0 = entriesAt(t);
-  for (let e = e0, end = e0 + I32[(t >> 2) + 2] * w; e < end; e += w) {
-    if (I32[(e >> 2) + 1] === HOLE_HI) continue;
-    const f = I32[(e + w + FLAGS) >> 2];
-    if (f & KEY_HELD) give(heldAddress(e));
-    if (f & VALUE_HELD) give(heldAddress(e + 8));
-  }
-  $freeBlock(t, tableBytes(I32[t >> 2], w));
-  $freeBlock(m, HEADER);
-};
+// what a map's block holds, which freeing it gives back (and a collection of
+// cycles follows: own.ts): the cells and strings its keys and values hold;
+// then its memory
+const holds = (w: number) => ({
+  held(m: number, give: (p: number) => void) {
+    const t = I32[(m >> 2) + TABLE],
+      e0 = entriesAt(t);
+    for (let e = e0, end = e0 + I32[(t >> 2) + 2] * w; e < end; e += w) {
+      if (I32[(e >> 2) + 1] === HOLE_HI) continue;
+      const f = I32[(e + w + FLAGS) >> 2];
+      if (f & KEY_HELD) give(heldAddress(e));
+      if (f & VALUE_HELD) give(heldAddress(e + 8));
+    }
+  },
+  free(m: number) {
+    const t = I32[(m >> 2) + TABLE];
+    $freeBlock(t, tableBytes(I32[t >> 2], w));
+    $freeBlock(m, HEADER);
+  },
+});
 // a loop over map or set h: keys (0), values (1) or entries (2). it holds the
 // handle, which keeps the map alive while it runs
 function* loop<T>(
@@ -700,7 +709,7 @@ export class SharedMap<K = unknown, V = unknown> {
     return 'SharedMap';
   }
 }
-__countedCellKind(K_SHARED_MAP, SharedMap, destroy(MAP_ENTRY));
+__countedCellKind(K_SHARED_MAP, SharedMap, holds(MAP_ENTRY));
 
 /** A Set in shared memory: the same methods, and the same semantics. */
 export class SharedSet<T = unknown> {
@@ -783,4 +792,4 @@ export class SharedSet<T = unknown> {
     return 'SharedSet';
   }
 }
-__countedCellKind(K_SHARED_SET, SharedSet, destroy(SET_ENTRY));
+__countedCellKind(K_SHARED_SET, SharedSet, holds(SET_ENTRY));
