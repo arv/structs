@@ -167,7 +167,8 @@ export function main() {
     attempt(() => (new Extended(), typeof received)),
   ];
   // the closure later() made holds its p until it is collected: the blocks
-  // are counted from here
+  // are counted from here. heapStats() counts every worker's blocks, so this
+  // runs with no other worker (compile.test.ts)
   const before = heapStats();
   results.push(attempt(() => new C().value));
   results.push(attempt(() => renamedResult().x));

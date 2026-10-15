@@ -302,6 +302,10 @@ describe('what the lowering moves, as it runs', () => {
         path.join(checker, '../run.ts'),
         path.join(out, 'moved.js'),
         '--threads=1',
+        // no pool: each pool worker loads moved.js too, and adds the block its
+        // module makes (Extended's base) to the shared counts when it settles,
+        // which may be between main's two heapStats()
+        '--pool=0',
       ],
       {encoding: 'utf8', timeout: 60_000},
     );
