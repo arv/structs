@@ -125,9 +125,21 @@ export const Messages = {
     code: 96033,
     text: "A value of type '{0}' cannot be used as '{1}': {2}. A shared struct's fields are read and written by their place, so a struct used as another must lay out that one's fields first, in its order and of its kinds.",
   },
+  NotAStruct: {
+    code: 96035,
+    text: "A value of type '{0}' cannot be used as '{1}': it is an ordinary object, not a shared struct, which 'new {2}()' makes.",
+  },
+  MarkerMismatch: {
+    code: 96036,
+    text: "Field '{0}' is marked {1} but typed '{2}': its values are stored as its marker says and checked as its type says, so type it '{3}' or mark it {4}.",
+  },
   StaysHere: {
     code: 96037,
     text: "A value of type '{0}' cannot be sent to another thread or shared: it stays on the thread that made it, which {1}.",
+  },
+  UnknownMarker: {
+    code: 96038,
+    text: "Field '{0}' is marked with a value whose kind the checker cannot tell: a Field of a number may be an f64, an i32 or a u8. Mark it with one of them, or with a const that holds one.",
   },
 } as const;
 

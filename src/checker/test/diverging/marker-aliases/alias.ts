@@ -32,3 +32,20 @@ export function viaAssertion(ch: Channel<number[]>) {
   ch.send((c2 as typeof consume)(xs));
   use(xs);                                   // error: consumed, through an assertion
 }
+
+// a field marker and an atomic operation, by element access
+interface ByElement { a: number; b: number; n: number }
+const ByElement = mk<ByElement>({ a: threads["f64"], b: threads[`f64`], n: threads["i32"] });  // error: n, a number marked i32
+const Work = mk({ hits: threads.i32 });
+export function atomics(w: threads.Struct<typeof Work>, key: "hits") {
+  threads["atomic"].add(w, key, 1);          // error: the field is not named by a string literal
+  threads.atomic["add"](w, key, 1);          // error
+}
+export { ByElement };
+// the runtime's atomic, destructured from its namespace or held by a const
+const { atomic: at } = threads;
+const held = threads.atomic;
+export function heldAtomics(w: threads.Struct<typeof Work>, key: "hits") {
+  at.add(w, key, 1);                         // error: the field is not named by a string literal
+  held["add"](w, key, 1);                    // error
+}

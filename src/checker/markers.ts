@@ -26,6 +26,7 @@ import {
   isPropertyNameLiteral,
   isThisParameter,
   K,
+  NodeFlags,
   skipParentheses,
   walkUpParenthesizedExpressions,
 } from './syntax.ts';
@@ -48,6 +49,85 @@ export function getRuntimeExportName(
       : '';
   c.runtimeExportNames.set(symbol, name);
   return name;
+}
+
+// The name an expression reads a member by: a property's, or a literal key's
+// (`ns["f64"]` , ns[`f64`] ), or "" for another.
+function memberName(expr: Node): string {
+  if (expr.kind === K.PropertyAccessExpression) return expr.name.text;
+  if (expr.kind !== K.ElementAccessExpression) return '';
+  const key = skipParentheses(expr.argumentExpression);
+  return key.kind === K.StringLiteral ||
+    key.kind === K.NoSubstitutionTemplateLiteral
+    ? key.text
+    : '';
+}
+
+// The symbol an expression refers to: a name's, or a member's read by a
+// property or a literal key (`threads.f64` and `threads["f64"]` alike).
+function referencedSymbol(c: Own, expr: Node): TsSymbol | undefined {
+  if (expr.kind === K.Identifier) return c.host.resolvedSymbol(expr);
+  if (expr.kind === K.PropertyAccessExpression)
+    return c.host.symbolAt(expr.name);
+  const name = memberName(expr);
+  if (name === '') return undefined;
+  return c.host.checker.getPropertyOfType(
+    c.host.typeOf(expr.expression) as any,
+    name,
+  ) as TsSymbol | undefined;
+}
+
+// The runtime's export an expression is, by the name it exports it by: the
+// export itself (through an import alias, or a namespace's member read by its
+// property or a literal key), a const that holds one, or a const destructured
+// from the namespace (`const { f64: double } = threads` ); "" for another.
+function runtimeExportOf(c: Own, expr: Node, seen = new Set<Node>()): string {
+  while (
+    expr.kind === K.ParenthesizedExpression ||
+    expr.kind === K.AsExpression ||
+    expr.kind === K.SatisfiesExpression ||
+    expr.kind === K.NonNullExpression ||
+    expr.kind === K.TypeAssertionExpression
+  )
+    expr = expr.expression;
+  if (seen.has(expr)) return '';
+  seen.add(expr);
+  let symbol = referencedSymbol(c, expr);
+  const name = getRuntimeExportName(c, symbol);
+  if (name !== '') return name;
+  if (symbol && symbol.flags & SymbolFlags.Alias)
+    symbol = c.host.resolveAlias(symbol);
+  const decl = symbol && c.host.valueDeclaration(symbol);
+  if (!decl) return '';
+  if (
+    decl.kind === K.VariableDeclaration &&
+    decl.initializer &&
+    (decl.parent as Node).flags & NodeFlags.Const
+  )
+    return runtimeExportOf(c, decl.initializer, seen);
+  // the member a const's object pattern selects from what it destructures
+  const variable = (decl.parent as Node | undefined)?.parent as
+    | Node
+    | undefined;
+  if (
+    decl.kind === K.BindingElement &&
+    !decl.dotDotDotToken &&
+    decl.parent.kind === K.ObjectBindingPattern &&
+    variable?.kind === K.VariableDeclaration &&
+    variable.initializer &&
+    (variable.parent as Node).flags & NodeFlags.Const
+  ) {
+    const key = (decl.propertyName ?? decl.name) as Node;
+    if (key.kind !== K.Identifier && key.kind !== K.StringLiteral) return '';
+    return getRuntimeExportName(
+      c,
+      c.host.checker.getPropertyOfType(
+        c.host.typeOf(variable.initializer) as any,
+        key.text,
+      ) as TsSymbol | undefined,
+    );
+  }
+  return '';
 }
 
 // The marker a type node refers to: "Sending" or "Shared" for `Sending<T>` and
@@ -102,13 +182,7 @@ const atomicOperations = new Set([
 // literal or on an element of a SharedArray<i32>, and false if it acts on
 // anything else, which is an error.
 export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
-  const callee = skipParentheses(call.expression);
-  if (
-    callee.kind !== K.PropertyAccessExpression ||
-    !atomicOperations.has(callee.name.text) ||
-    getRuntimeExportName(c, c.host.symbolAt(callee.expression)) !== 'atomic'
-  )
-    return undefined;
+  if (getAtomicOperation(c, call) === '') return undefined;
   if (call.arguments.length < 2) return false;
   const cell = getCellType(c, c.host.typeOf(call.arguments[0]));
   if (cell.kind === CellKind.ArrayOfI32) return true;
@@ -120,6 +194,15 @@ export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
   )
     return false;
   return cell.kinds[cell.fields.indexOf(key.text)] === 'i';
+}
+
+// The operation of the runtime's `atomic` a call calls (`atomic.add(...)` ,
+// `threads.atomic["add"](...)` and the like), or "".
+function getAtomicOperation(c: Own, call: Node): string {
+  const callee = skipParentheses(call.expression);
+  const op = memberName(callee);
+  if (!atomicOperations.has(op)) return '';
+  return runtimeExportOf(c, callee.expression) === 'atomic' ? op : '';
 }
 
 // The runtime's calls that block their thread, by declaring class and name, and
@@ -144,10 +227,9 @@ export function getBlockingCall(
   c: Own,
   call: Node,
 ): {name: string; instead: string} | undefined {
-  if (isAtomicCallValid(c, call) !== undefined) {
-    const op = skipParentheses(call.expression).name.text as string;
+  const op = getAtomicOperation(c, call);
+  if (op !== '')
     return op === 'wait' ? {name: `atomic.${op}`, instead: ''} : undefined;
-  }
   const handle = c.host.signatureOf(call).declaration;
   if (!handle || !c.isRuntimePath(handle.path)) return undefined;
   const decl = c.host.declarationOf(handle);
@@ -215,15 +297,21 @@ export function isCellBranded(c: Own, t: Type | undefined): boolean {
       result = true;
     }
   }
-  if (!result) {
-    const cell = getRuntimeType(c, 'Cell');
-    result =
-      !!cell &&
-      !!(t.flags & (TypeFlags.Object | TypeFlags.Intersection)) &&
-      c.host.checker.isTypeAssignableTo(t, cell);
-  }
+  if (!result) result = isAssignableToCell(c, t);
   c.cellBranded.set(t, result);
   return result;
+}
+
+// Reports whether a type is assignable to the runtime's `Cell` : its values
+// are cells the runtime made (not a struct type or a field marker, which are
+// ordinary objects at run time).
+export function isAssignableToCell(c: Own, t: Type): boolean {
+  const cell = getRuntimeType(c, 'Cell');
+  return (
+    !!cell &&
+    !!(t.flags & (TypeFlags.Object | TypeFlags.Intersection)) &&
+    c.host.checker.isTypeAssignableTo(t, cell)
+  );
 }
 
 // What the thread that made a Thread or a Scope does with it (StaysHere).
@@ -609,7 +697,7 @@ export function getStructOfCall(c: Own, call: Node): StructInfo | undefined {
         markerKind(
           c,
           property.kind === K.PropertyAssignment ? property.initializer : name,
-        ) ?? (type ? getFieldKind(c, type) : 'f'),
+        ).kind ?? (type ? getFieldKind(c, type) : 'f'),
       );
     }
   }
@@ -628,24 +716,65 @@ const markerNames: Record<FieldKind, string> = {
   'c': 'ref',
   '': '?',
 };
+// The type of a number field of each kind.
+const numberTypeNames: Partial<Record<FieldKind, string>> = {
+  f: 'number',
+  i: 'i32',
+  u: 'u8',
+};
 const laidOut = (s: StructInfo) =>
   s.fields.map((f, k) => `${f}: ${markerNames[s.kinds[k]!]}`).join(', ');
 
-// The kind of a field's marker (f64, i32, u8, bool, str, ref<T>()): of what
-// its Field<T> holds, T.
-function markerKind(c: Own, marker: Node): FieldKind | undefined {
+// The runtime's markers of a value's kind, by the names it exports them by.
+const scalarMarkers: Record<string, FieldKind> = {
+  f64: 'f',
+  i32: 'i',
+  u8: 'u',
+  bool: 'b',
+  str: 's',
+};
+
+// The runtime's marker of a value's kind an expression is, by the name it
+// exports it by, or "" when the checker cannot tell (see runtimeExportOf).
+function scalarMarkerOf(c: Own, expr: Node): string {
+  const name = runtimeExportOf(c, expr);
+  return name in scalarMarkers ? name : '';
+}
+
+// The kind of a field's marker (f64, i32, u8, bool, str, ref<T>()), and
+// whether it is known: by the runtime's marker it is, where the checker can
+// follow it there, else by its type: an IntegerField's literal `kind` , which
+// the runtime lays an integer out by, or what its Field<T> holds, T. A
+// number's Field<T> alone does not tell: TypeScript takes an i32 or a u8 for
+// an f64, and one for the other.
+function markerKind(
+  c: Own,
+  marker: Node,
+): {kind: FieldKind | undefined; known: boolean} {
+  const scalar = scalarMarkerOf(c, marker);
+  if (scalar !== '') return {kind: scalarMarkers[scalar], known: true};
   const host = c.host;
-  const brand = host.checker
-    .getPropertiesOfType(
-      host.checker.getApparentType(host.typeOf(marker) as any) as any,
-    )
-    .find(p => p.name.startsWith('__@fieldBrand@'));
-  return brand ? getFieldKind(c, host.typeOfSymbol(brand)) : undefined;
+  const properties = host.checker.getPropertiesOfType(
+    host.checker.getApparentType(host.typeOf(marker) as any) as any,
+  );
+  const kind = properties.find(
+    p =>
+      p.name === 'kind' &&
+      !!p.valueDeclaration &&
+      c.isRuntimePath(p.valueDeclaration.path),
+  );
+  const literal = kind && (host.typeOfSymbol(kind) as any).value;
+  if (literal === 'i32') return {kind: 'i', known: true};
+  if (literal === 'u8') return {kind: 'u', known: true};
+  const brand = properties.find(p => p.name.startsWith('__@fieldBrand@'));
+  if (!brand) return {kind: undefined, known: true};
+  const held = getFieldKind(c, host.typeOfSymbol(brand));
+  return {kind: held, known: !(held in numberTypeNames)};
 }
 
 // Checks a `struct(...)` call: its fields are given in an object literal, by
 // name, and each is a number, a boolean, a string or a reference (a shared
-// struct or a SharedArray, possibly null).
+// struct or a SharedArray, possibly null), a number marked as its type says.
 export function checkStructCall(c: Own, call: Node): void {
   const t = getStructTypeOfCall(c, call);
   if (!t || call.arguments.length < 1) return;
@@ -670,8 +799,36 @@ export function checkStructCall(c: Own, call: Node): void {
     }
     const symbol = c.host.checker.getPropertyOfType(t, name.text);
     if (!symbol) continue;
-    if (isFieldType(c, c.host.typeOfSymbol(symbol))) continue;
-    c.error(property, Messages.StructField);
+    const type = c.host.typeOfSymbol(symbol);
+    if (!isFieldType(c, type)) {
+      c.error(property, Messages.StructField);
+      continue;
+    }
+    // a number's marker lays it out as an f64, an i32 or a u8, which its type
+    // must say too: TypeScript takes one for another, and what is stored into
+    // an integer is checked by the type
+    const {kind: marked, known} = markerKind(
+      c,
+      property.kind === K.PropertyAssignment ? property.initializer : name,
+    );
+    const typed = getFieldKind(c, type);
+    if (!known && typed in numberTypeNames)
+      c.error(property, Messages.UnknownMarker, name.text);
+    else if (
+      marked !== undefined &&
+      marked !== typed &&
+      marked in numberTypeNames &&
+      typed in numberTypeNames
+    )
+      c.error(
+        property,
+        Messages.MarkerMismatch,
+        name.text,
+        markerNames[marked],
+        c.host.typeToString(type),
+        numberTypeNames[marked]!,
+        markerNames[typed],
+      );
   }
   // another struct(...) for the same type: the registry keeps one, by which
   // every value of the type is read; one laid out otherwise is refused

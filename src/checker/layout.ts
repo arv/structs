@@ -14,6 +14,8 @@
 //     (96026);
 //   - a string or channel field, or a string element, is not assigned by
 //     destructuring or as a loop variable (96027);
+//   - an ordinary object, which TypeScript may take for a struct by its
+//     members, is not used where a struct goes (96035);
 //   - an atomic operation acts on an i32 field named by a string literal, or on
 //     an element of a SharedArray<i32> (96028, reported with the struct calls,
 //     in refcount.ts).
@@ -21,16 +23,24 @@
 import type {SourceFile} from 'typescript/ast';
 import {CellKind, Conversion, isArrayKind} from './context.ts';
 import type {CellType, FieldKind, Own, StructInfo} from './context.ts';
-import {IndexKind, ObjectFlags, SymbolFlags, TypeFlags} from './host.ts';
-import type {Signature, Type} from './host.ts';
+import {
+  ElementFlags,
+  IndexKind,
+  ObjectFlags,
+  SymbolFlags,
+  TypeFlags,
+} from './host.ts';
+import type {Signature, TsSymbol, Type} from './host.ts';
 import {
   checkIntegerCompoundAssignment,
   checkIntegerTarget,
+  checkIntegerTypeTarget,
 } from './integers.ts';
 import {
   getRuntimeExportName,
   getStructOfCall,
   getStructRegistry,
+  isAssignableToCell,
 } from './markers.ts';
 import {Messages} from './messages.ts';
 import {
@@ -409,17 +419,19 @@ function setTarget(c: Own, expr: Node | undefined, targetRaw: boolean): void {
 type Target = Type | undefined | null;
 
 // cast: a type assertion's, which may name a struct laid out as the value's and
-// more (a downcast) as well as one laid out as a part of it
+// more (a downcast) as well as one laid out as a part of it. awaited: an async
+// function's result, which the place takes as what it resolves to
 function setTargetType(
   c: Own,
   expr: Node | undefined,
   target: Target,
   cast = false,
+  awaited = false,
 ): void {
   if (!expr || target === undefined) return;
   if (target !== null) {
     checkIntegerTarget(c, expr, target);
-    checkLayoutTarget(c, expr, target, cast);
+    checkLayoutTarget(c, expr, target, cast, awaited);
   }
   setTarget(c, expr, target !== null && isCellType(c, target));
 }
@@ -435,26 +447,27 @@ function checkLayoutTarget(
   expr: Node,
   target: Type,
   cast: boolean,
+  awaited: boolean,
 ): void {
   switch (expr.kind) {
     case K.ParenthesizedExpression:
-      checkLayoutTarget(c, expr.expression, target, cast);
+      checkLayoutTarget(c, expr.expression, target, cast, awaited);
       return;
     case K.ConditionalExpression:
-      checkLayoutTarget(c, expr.whenTrue, target, cast);
-      checkLayoutTarget(c, expr.whenFalse, target, cast);
+      checkLayoutTarget(c, expr.whenTrue, target, cast, awaited);
+      checkLayoutTarget(c, expr.whenFalse, target, cast, awaited);
       return;
     case K.BinaryExpression:
       switch (expr.operatorToken.kind) {
         case K.AmpersandAmpersandToken:
           // a struct is truthy: a struct on the left is never the result
-          checkLayoutTarget(c, expr.right, target, cast);
+          checkLayoutTarget(c, expr.right, target, cast, awaited);
           return;
         case K.BarBarToken:
         case K.QuestionQuestionToken: {
           // the right is the result only if the left may be falsy (||), or
           // null or undefined (??): not after a struct, which is neither
-          checkLayoutTarget(c, expr.left, target, cast);
+          checkLayoutTarget(c, expr.left, target, cast, awaited);
           const left = c.host.typeOf(expr.left);
           const members =
             left.flags & TypeFlags.Union ? c.host.memberTypes(left) : [left];
@@ -482,25 +495,191 @@ function checkLayoutTarget(
                         TypeFlags.InstantiablePrimitive)
                     ),
                 );
-          if (passes) checkLayoutTarget(c, expr.right, target, cast);
+          if (passes) checkLayoutTarget(c, expr.right, target, cast, awaited);
           return;
         }
         case K.CommaToken:
-          checkLayoutTarget(c, expr.right, target, cast);
+          checkLayoutTarget(c, expr.right, target, cast, awaited);
           return;
       }
   }
   if (!isExpression(expr)) return;
-  const source = c.host.typeOf(expr);
+  const value = c.host.typeOf(expr);
+  checkValueInto(
+    c,
+    expr,
+    awaited ? c.host.awaitedType(value) : value,
+    target,
+    cast,
+  );
+}
+
+// Checks a value of type source going into a place of type target, reported
+// at a node (the value's, or the spread it is one of).
+function checkValueInto(
+  c: Own,
+  at: Node,
+  source: Type,
+  target: Type,
+  cast: boolean,
+): void {
+  // an ordinary object, which TypeScript takes for a struct by its members:
+  // the place holds an address, which the runtime cannot unbox the object to
+  const structs = structMembersOf(c, target);
+  if (structs.length > 0 && ordinaryMemberOf(c, source)) {
+    c.error(
+      at,
+      Messages.NotAStruct,
+      c.host.typeToString(source),
+      c.host.typeToString(target),
+      structs[0]!.name,
+    );
+    return;
+  }
   const why = layoutMismatch(c, source, target, cast);
   if (why)
     c.error(
-      expr,
+      at,
       Messages.LayoutMismatch,
       c.host.typeToString(source),
       c.host.typeToString(target),
       why,
     );
+}
+
+// What a spread passes: each value it may hold, with how many places after
+// the spread's first it may go to (a tuple's elements each to their own, an
+// iteration's to any), and how many places the spread fills, at least and at
+// most (Infinity for an iteration, or a tuple with a rest element).
+export interface SpreadShape {
+  values: {type: Type; from: number; to: number}[];
+  min: number;
+  max: number;
+}
+
+export function spreadShape(c: Own, t: Type): SpreadShape {
+  const host = c.host;
+  // a union's members each by their own shape, filling places between the
+  // fewest and the most of theirs
+  if (t.flags & TypeFlags.Union) {
+    const shapes = host.memberTypes(t).map(m => spreadShape(c, m));
+    return {
+      values: shapes.flatMap(shape => shape.values),
+      min: Math.min(...shapes.map(shape => shape.min)),
+      max: Math.max(...shapes.map(shape => shape.max)),
+    };
+  }
+  // what is any may hold anything, as many as it likes
+  if (t.flags & TypeFlags.Any)
+    return {values: [{type: t, from: 0, to: Infinity}], min: 0, max: Infinity};
+  if (!host.checker.isTupleType(t)) {
+    const values = host
+      .iteratedTypes(t)
+      .map(type => ({type, from: 0, to: Infinity}));
+    return {values, min: 0, max: Infinity};
+  }
+  const flags = ((host.typeTarget(t) as any)?.elementFlags ?? []) as number[];
+  const shape: SpreadShape = {values: [], min: 0, max: 0};
+  host.typeArguments(t).forEach((type, k) => {
+    const flag = flags[k] ?? ElementFlags.Required;
+    if (flag & ElementFlags.Variable) {
+      // a rest element's type is its elements'; a variadic one's is iterated
+      const types =
+        flag & ElementFlags.Rest ? [type] : host.iteratedTypes(type);
+      // from its own place on: the elements before it, optional ones too,
+      // are all there when it has any
+      for (const each of types)
+        shape.values.push({type: each, from: k, to: Infinity});
+      shape.max = Infinity;
+      return;
+    }
+    // an element before any rest is at its own place, an optional one as
+    // well, when it is there; one after a rest is past its elements, which
+    // may be none
+    shape.values.push(
+      shape.max === Infinity
+        ? {type, from: shape.min, to: Infinity}
+        : {type, from: k, to: k},
+    );
+    if (flag & ElementFlags.Required) shape.min++;
+    shape.max++;
+  });
+  return shape;
+}
+
+// The parameter types of the places from..to of a signature (the rest's for
+// the places past it, each of a tuple rest's own), each once.
+export function parameterTypesAt(
+  c: Own,
+  signature: Signature,
+  from: number,
+  to: number,
+): Type[] {
+  const places = signature.parameters.length - 1 + restPlaces(c, signature);
+  const last = Math.min(to, Math.max(from, places - 1));
+  const types: Type[] = [];
+  const seen = new Set<number>();
+  for (let p = from; p <= last; p++) {
+    const t = c.host.parameterTypeAt(signature, p);
+    if (!t) break;
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    types.push(t);
+  }
+  return types;
+}
+
+// The places a signature's last parameter takes: one, or a rest typed a tuple
+// one for each of its elements (a rest element's for its own and those past
+// it); for a rest whose type the declaration does not tell (a type
+// parameter's), a generous number of them, probed.
+function restPlaces(c: Own, signature: Signature): number {
+  if (!signature.hasRestParameter) return 1;
+  const host = c.host;
+  // the rest's type as the signature has it, instantiated (a generic's, as
+  // the call or the callee's type gives its type arguments)
+  const parameters = (
+    signature as unknown as {getParameters(): readonly TsSymbol[]}
+  ).getParameters();
+  const t = host.typeOfSymbol(parameters.at(-1)!);
+  // a tuple's elements, the most of a union's members'; an array's one type
+  // for every place past
+  const width = (u: Type): number =>
+    host.checker.isTupleType(u) ? host.typeArguments(u).length : 1;
+  const widths =
+    t.flags & TypeFlags.Union ? host.memberTypes(t).map(width) : [width(t)];
+  return Math.max(1, ...widths);
+}
+
+// Reports whether a value of type t is an ordinary object: of an object type
+// with members, or an intersection of them (an object literal's, a class's),
+// that is not a shared struct or a SharedArray, nor a cell (of a type
+// assignable to the runtime's `Cell` , as a handle's is; a field marker or a
+// struct type is not one). Not `{}` , which any value goes through, as it goes
+// through `unknown` , `any` or a type parameter: a handle may be one.
+function isOrdinaryObjectType(c: Own, t: Type): boolean {
+  const parts = t.flags & TypeFlags.Intersection ? c.host.memberTypes(t) : [t];
+  return (
+    parts.every(p => !!(p.flags & TypeFlags.Object)) &&
+    !isCellType(c, t) &&
+    !isAssignableToCell(c, t) &&
+    c.host.checker.getPropertiesOfType(t as any).length > 0
+  );
+}
+
+// The member of t, other than null and undefined, that is an ordinary object,
+// if any.
+function ordinaryMemberOf(c: Own, t: Type): Type | undefined {
+  return nonNullishMembers(c, t).find(m => isOrdinaryObjectType(c, m));
+}
+
+// The shared structs among t's members, if a place of type t holds an
+// address: one of structs, or of structs and SharedArrays, possibly null.
+function structMembersOf(c: Own, t: Type): StructInfo[] {
+  if (!isCellType(c, t)) return [];
+  return nonNullishMembers(c, t)
+    .map(m => getStructOfType(c, m))
+    .filter((s): s is StructInfo => s !== undefined);
 }
 
 // The shared structs of t's members other than null, undefined and the
@@ -584,6 +763,13 @@ function layoutMismatch(
   cast: boolean,
   seen: Seen = newSeen(),
 ): string | undefined {
+  // an ordinary object where a struct goes, as what a function returns or is
+  // called with, or what a promise resolves to (as a value of its own, it is
+  // reported by checkLayoutTarget), whatever arrays beside it are
+  const ordinary =
+    structMembersOf(c, target).length > 0 && ordinaryMemberOf(c, source);
+  if (ordinary)
+    return `'${c.host.typeToString(ordinary)}' is an ordinary object, not a shared struct`;
   // SharedArrays, member by member (a place may be one or null): each array of
   // the value's must have the elements, laid out the same, of one of the
   // place's, as its element size is theirs
@@ -774,17 +960,51 @@ function computeConversion(c: Own, node: Node): void {
       const unresolved =
         (!signature.declaration && signature.parameters.length === 0) ||
         host.checker.isUnknownSignature(signature);
-      args.forEach((arg, i) => {
+      // the places an argument's value goes to, from..to: a spread before it
+      // fills a tuple's length of them, or an unknown number
+      let from = 0,
+        to = 0;
+      for (const arg of args) {
         if (arg.kind === K.SpreadElement) {
           setTarget(c, arg.expression, false);
-          return;
+          const shape = spreadShape(c, host.typeOf(arg.expression));
+          if (!unresolved) {
+            // each value is checked as an argument of its type would be
+            for (const value of shape.values)
+              for (const parameter of parameterTypesAt(
+                c,
+                signature,
+                from + value.from,
+                to + value.to,
+              )) {
+                checkIntegerTypeTarget(c, arg, value.type, parameter);
+                checkValueInto(c, arg, value.type, parameter, false);
+              }
+          }
+          from += shape.min;
+          to += shape.max;
+          continue;
         }
-        if (unresolved) {
-          setTarget(c, arg, false);
-          return;
+        if (unresolved) setTarget(c, arg, false);
+        else if (from === to)
+          setTargetType(c, arg, host.parameterTypeAt(signature, from));
+        else {
+          // past a spread of unknown length: checked against each parameter
+          // it may go to
+          const parameters = parameterTypesAt(c, signature, from, to);
+          for (const parameter of parameters) {
+            checkIntegerTarget(c, arg, parameter);
+            checkLayoutTarget(c, arg, parameter, false, false);
+          }
+          setTarget(
+            c,
+            arg,
+            parameters.length > 0 && parameters.every(p => isCellType(c, p)),
+          );
         }
-        setTargetType(c, arg, host.parameterTypeAt(signature, i));
-      });
+        from++;
+        to++;
+      }
       return;
     }
     case K.VariableDeclaration:
@@ -817,16 +1037,26 @@ function computeConversion(c: Own, node: Node): void {
       computeBinaryConversion(c, node);
       return;
     case K.ReturnStatement:
-      if (node.expression)
+      if (node.expression) {
+        const fn = getContainingFunction(node);
         setTargetType(
           c,
           node.expression,
-          getReturnTargetType(c, getContainingFunction(node)),
+          getReturnTargetType(c, fn),
+          false,
+          isAsyncFunction(fn),
         );
+      }
       return;
     case K.ArrowFunction:
       if (node.body && node.body.kind !== K.Block)
-        setTargetType(c, node.body, getReturnTargetType(c, node));
+        setTargetType(
+          c,
+          node.body,
+          getReturnTargetType(c, node),
+          false,
+          isAsyncFunction(node),
+        );
       return;
     case K.ArrayLiteralExpression: {
       if (isAssignmentTarget(node)) return;
@@ -1035,6 +1265,14 @@ function computeBinaryConversion(c: Own, node: Node): void {
       setTarget(c, left, false);
       return;
   }
+}
+
+// Reports whether a function is async: what it returns is awaited, into what
+// its promise resolves to.
+function isAsyncFunction(fn: Node | undefined): boolean {
+  return (
+    !!fn && isFunctionLike(fn) && !!(getFunctionFlags(fn) & FunctionFlags.Async)
+  );
 }
 
 // The type a function's returned values flow into: its declared, contextual or

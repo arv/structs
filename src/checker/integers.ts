@@ -68,6 +68,27 @@ export function checkIntegerTarget(c: Own, expr: Node, target: Type): void {
   c.error(expr, Messages.NotAnInteger, kind === 'u' ? 'a u8' : 'an i32');
 }
 
+// Reports a value of type source that flows into a place of type target, an
+// i32 or a u8, though it may not be an integer, by its type alone (a spread
+// argument's, which is no expression of its own).
+export function checkIntegerTypeTarget(
+  c: Own,
+  at: Node,
+  source: Type,
+  target: Type,
+): void {
+  const kind = getIntegerTargetKind(c, target);
+  // an optional element's undefined is no value that is stored
+  const values = nonNullishMembers(c, source);
+  if (
+    kind === '' ||
+    !maybeTypeOfKind(c, source, TypeFlags.NumberLike | TypeFlags.Any) ||
+    values.every(v => isIntegerType(c, v))
+  )
+    return;
+  c.error(at, Messages.NotAnInteger, kind === 'u' ? 'a u8' : 'an i32');
+}
+
 // Reports a compound assignment to an i32 or a u8 (`x /= 2`) whose result may
 // not be an integer.
 export function checkIntegerCompoundAssignment(

@@ -93,6 +93,20 @@ const knownDifferences: Record<
       "different.mts(38,14): error TS96026: Field 'u' is at different places in the shared structs of this union.",
     ],
   },
+  'fork/ownAsyncGoroutines': {
+    reason:
+      "the test's Node types its field 'value' a number and marks it i32, which threads-check refuses (96036): the field is laid out as an i32, and a fraction stored into it, checked as a number, would be truncated unseen; the fork does not compare a marker with its field's type",
+    extra: [
+      "replica.mts(49,29): error TS96036: Field 'value' is marked i32 but typed 'number': its values are stored as its marker says and checked as its type says, so type it 'i32' or mark it f64.",
+    ],
+  },
+  'fork/ownAsyncGoroutinesErrors': {
+    reason:
+      "the test's Node types its field 'value' a number and marks it i32, which threads-check refuses (96036), as in ownAsyncGoroutines",
+    extra: [
+      "blocking.mts(42,29): error TS96036: Field 'value' is marked i32 but typed 'number': its values are stored as its marker says and checked as its type says, so type it 'i32' or mark it f64.",
+    ],
+  },
 };
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'threads-check-')));

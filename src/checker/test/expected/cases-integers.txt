@@ -1,0 +1,15 @@
+integers.ts(12,13): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(13,13): error TS96029: This value may not be an integer, which a u8 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(14,13): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(15,14): error TS96029: This value may not be an integer, which a u8 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(16,3): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(17,3): error TS96029: This value may not be an integer, which a u8 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(18,18): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(19,8): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(20,15): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(22,51): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(23,54): error TS96029: This value may not be an integer, which a u8 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.
+integers.ts(43,3): error TS96028: An atomic operation takes an i32 field of a shared struct, named by a string literal, or an element of a SharedArray<i32>.
+integers.ts(44,3): error TS96028: An atomic operation takes an i32 field of a shared struct, named by a string literal, or an element of a SharedArray<i32>.
+integers.ts(45,3): error TS96028: An atomic operation takes an i32 field of a shared struct, named by a string literal, or an element of a SharedArray<i32>.
+integers.ts(46,26): error TS96029: This value may not be an integer, which an i32 would truncate silently: convert it explicitly, as with Math.round(), Math.trunc() or | 0.

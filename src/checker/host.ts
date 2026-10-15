@@ -6,6 +6,7 @@
 import type {SourceFile} from 'typescript/ast';
 import {
   API,
+  ElementFlags,
   IndexKind,
   ModuleKind,
   ObjectFlags,
@@ -33,7 +34,14 @@ import {
 } from './syntax.ts';
 import type {Node} from './syntax.ts';
 
-export {IndexKind, ModuleKind, ObjectFlags, SymbolFlags, TypeFlags};
+export {
+  ElementFlags,
+  IndexKind,
+  ModuleKind,
+  ObjectFlags,
+  SymbolFlags,
+  TypeFlags,
+};
 export type {NodeHandle, Signature, TsSymbol, Type};
 
 export class Host {

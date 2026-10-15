@@ -82,7 +82,7 @@ export const deeply: () => () => () => () => Node = deep;              // error
 // one type's struct declared again, its fields the type's, its markers other
 interface Measure { n: number }
 const Measure = struct<Measure>({ n: f64 });                           // error: the type keeps the i32 one below
-const MeasureAgain = struct<Measure>({ n: i32 });
+const MeasureAgain = struct<Measure>({ n: i32 });                      // error: a number marked i32
 export { Measure, MeasureAgain, NodeBox };
 // a falsy alternative: the struct is what reaches the place
 declare const childOrZero: Child | 0;
