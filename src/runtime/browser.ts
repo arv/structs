@@ -123,8 +123,14 @@ export function start(options: Options = {}) {
           );
         else onMessage(m);
       };
+      // an error with no message: the worker's module did not load (a 404, a
+      // syntax error, a server without COOP/COEP)
       w.onerror = e =>
-        reject(new Error(`threads: a worker failed to start: ${e.message}`));
+        reject(
+          new Error(
+            `threads: a worker failed to start: ${e.message || 'its module did not load'}`,
+          ),
+        );
       w.postMessage({sab, opts: {check, nudge: true}});
     });
   // the runtime set the heap up when it loaded; a pool that was stopped left

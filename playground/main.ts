@@ -511,7 +511,10 @@ runButton.addEventListener('click', async () => {
       );
   } catch (e) {
     if (running === current)
-      print(`<div class="error">${escapeHtml(String(e))}</div>`);
+      // an Error's message (a thread's failure says what it threw)
+      print(
+        `<div class="error">${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`,
+      );
   } finally {
     if (running === current) {
       running = null;

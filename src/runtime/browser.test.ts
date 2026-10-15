@@ -7,6 +7,7 @@ const g = globalThis as {__escapeSab?: SharedArrayBuffer; Worker?: unknown};
 g.__escapeSab = new SharedArrayBuffer(16 << 20);
 // a pool worker: ready as soon as it is given the heap
 const made: StandIn[] = [];
+let failNext = false; // the next worker's module does not load
 class StandIn {
   onmessage: ((e: {data: unknown}) => void) | null = null;
   onerror: unknown = null;
@@ -15,7 +16,15 @@ class StandIn {
     made.push(this);
   }
   postMessage() {
-    queueMicrotask(() => this.onmessage?.({data: {type: 'ready'}}));
+    const fails = failNext;
+    failNext = false;
+    queueMicrotask(() =>
+      fails
+        ? (this.onerror as ((e: {message: string}) => void) | null)?.({
+            message: '',
+          })
+        : this.onmessage?.({data: {type: 'ready'}}),
+    );
   }
   terminate() {
     this.terminated = true;
@@ -71,4 +80,13 @@ it('start() after stop() takes options again', async () => {
   expect(lines).toEqual(['hello']);
   own.spawn(noop);
   expect(runtime.counters(sab)).toMatchObject({live: 1, queued: 1});
+});
+
+it('a worker whose module does not load fails start() with that cause', async () => {
+  browser.stop();
+  failNext = true;
+  await expect(browser.start({workers: 1})).rejects.toThrow(
+    'threads: a worker failed to start: its module did not load',
+  );
+  browser.stop();
 });

@@ -166,14 +166,14 @@ export default {
 };
 ```
 
-| Option       | Default           |                                                                                                                                   |
-| ------------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `tsgo`       | (required)        | The tsgo fork's binary (see [Status](#status)).                                                                                   |
-| `tsconfig`   | `'tsconfig.json'` | The project the fork compiles, relative to Vite's root.                                                                           |
-| `args`       | `[]`              | More arguments for tsgo, after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir` and `--sourceMap`.                 |
-| `runtime`    | `'@arv/threads'`  | The module programs import the runtime from (tsgo's `--ownRuntime`).                                                              |
-| `playground` | `false`           | The dev server compiles programs the page sends it (`POST /__threads/compile`), as the playground's does.                         |
-| `checker`    | `null`            | With `playground`, the path of threads-check's entry module, which then reports the ownership errors instead of `tsgo own check`. |
+| Option       | Default           |                                                                                                                                                                                   |
+| ------------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsgo`       | (required)        | The tsgo fork's binary (see [Status](#status)).                                                                                                                                   |
+| `tsconfig`   | `'tsconfig.json'` | The project the fork compiles, relative to Vite's root.                                                                                                                           |
+| `args`       | `[]`              | More arguments for tsgo, after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir`, `--sourceMap`, `--noEmit false`, `--noEmitOnError false` and `--tsBuildInfoFile`. |
+| `runtime`    | `'@arv/threads'`  | The module programs import the runtime from (tsgo's `--ownRuntime`).                                                                                                              |
+| `playground` | `false`           | The dev server compiles programs the page sends it (`POST /__threads/compile`), as the playground's does.                                                                         |
+| `checker`    | `null`            | With `playground`, the path of threads-check's entry module, which then reports the ownership errors instead of `tsgo own check`.                                                 |
 
 The plugin serves what the fork emits for each module of that project, and
 leaves any other module to Vite, which erases its types and registers none of
@@ -184,10 +184,12 @@ its functions: no thread can run them. The project:
 - resolves imports as a bundler does (`"module": "esnext"`,
   `"moduleResolution": "bundler"`), so that `@arv/threads` is the API's
   declarations;
-- emits: a project with `"noEmit": true`, as Vite's templates have, takes
-  `args: ['--noEmit', 'false']`, and a tsconfig.json of references alone (also
+- emits JavaScript, whatever its tsconfig says: the plugin passes
+  `--noEmit false`, so a project with `"noEmit": true`, as Vite's templates
+  have, needs nothing more; but a tsconfig.json of references alone (also
   theirs) compiles nothing, so name the project itself
-  (`tsconfig: 'tsconfig.app.json'`).
+  (`tsconfig: 'tsconfig.app.json'`). Thread modules may be `.ts`, `.mts` or
+  `.tsx`.
 
 Type errors do not stop the build: tsc reports them, and the checker the
 ownership errors.
