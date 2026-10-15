@@ -8,7 +8,8 @@
   "type": "module",
   "scripts": {
     "build": "eleventy --config=eleventy.config.ts",
-    "dev": "eleventy --config=eleventy.config.ts --serve"
+    "dev": "eleventy --config=eleventy.config.ts --serve",
+    "og": "node og/render.ts"
   },
   "devDependencies": {
     "@11ty/eleventy": "^3.1.6",

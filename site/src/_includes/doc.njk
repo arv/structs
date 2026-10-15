@@ -12,6 +12,13 @@
     {%- if description %}
     <meta name="description" content="{{ description }}" />
     {%- endif %}
+    <meta property="og:title" content="{% if page.url == "/" %}Threads Docs{% else %}{{ navTitle or title }} | Threads Docs{% endif %}" />
+    {%- if description %}
+    <meta property="og:description" content="{{ description }}" />
+    {%- endif %}
+    <meta property="og:url" content="https://threads.arv.tools{{ page.url }}" />
+    <meta property="og:image" content="https://threads.arv.tools/assets/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <script>
       // the theme before the first paint: the one picked, or the system's
       (() => {
