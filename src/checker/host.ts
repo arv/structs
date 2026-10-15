@@ -4,6 +4,7 @@
 // expressions, one for its call signatures, and so on).
 
 import type {SourceFile} from 'typescript/ast';
+import type {RequestFileSystem} from 'typescript/proto';
 import {
   API,
   ElementFlags,
@@ -528,8 +529,17 @@ function isQueriedOperator(op: K): boolean {
   return false;
 }
 
-export function createHost(api: API, tsconfig: string): Host {
-  const snapshot = api.createSnapshot({openProjects: [tsconfig]});
+// The project of a tsconfig, read from disk, or from `fileSystem`: the files
+// sent with the request (an API with no disk, as in WebAssembly).
+export function createHost(
+  api: API,
+  tsconfig: string,
+  fileSystem?: RequestFileSystem,
+): Host {
+  const snapshot = api.createSnapshot({
+    openProjects: [tsconfig],
+    ...(fileSystem && {fileSystem}),
+  });
   const project =
     snapshot.getConfiguredProject(tsconfig) ?? snapshot.getProjects()[0];
   if (!project) {

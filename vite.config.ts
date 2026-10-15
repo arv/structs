@@ -33,6 +33,7 @@ export default defineConfig({
     include: [
       'src/**/*.test.ts',
       'playground/*.test.ts',
+      'playground/tsgo/*.test.ts',
       'site/*.test.ts',
       'site/lib/*.test.ts',
     ],

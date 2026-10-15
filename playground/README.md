@@ -19,13 +19,13 @@ TypeScript's hover types, completions and errors from the threads API. As you
 type, the page compiles your program and shows you:
 
 - **The compiled JavaScript.** This is what the compiler compiles your program
-  to: threads-check on the dev server, and the fork of TypeScript in the
-  browser. Everything the compiler added is marked.
+  to: threads-check, on the dev server and in the browser alike. Everything the
+  compiler added is marked.
 - **The JavaScript with its types erased.** This is the same program with its
   types only erased, and it still runs.
 - **The ownership checker's errors.** They show up as squiggles in the editor
-  and in a list. On the dev server they come from threads-check. In the browser
-  they come from the fork's own check.
+  and in a list. They come from threads-check, which checks ownership as it
+  compiles.
 - **The output.** **Run** runs the program on a pool of Web Workers.
 
 The **Compiled** and **Types erased** switch picks which of the two JavaScript
@@ -59,14 +59,13 @@ didn't load at all.
 
 - **Node** 22.18 or later (24.11 or later if you're on Node 24).
 - **A recent Chrome**, or another browser with SharedArrayBuffer.
-- **The TypeScript fork**, but only for a static build, which compiles in the
-  browser. This is a fork of TypeScript 7.0.2,
-  [arv/threads-checker](https://github.com/arv/threads-checker). Build it in a
-  clone of it with `go build -o built/local/tsgo ./cmd/tsgo`.
+- **Go** 1.27 or later, and git, but only for a static build, which compiles in
+  the browser. `vp run build-wasm` fetches TypeScript's sources and builds tsgo,
+  its compiler, from them.
 
-The dev server doesn't need the fork. It compiles and checks with threads-check,
-the compiler and ownership checker. It's [src/checker/](../src/checker), and it
-runs on stock TypeScript 7.1.
+The dev server needs neither. It compiles and checks with threads-check, the
+compiler and ownership checker. It's [src/checker/](../src/checker), and it runs
+on stock TypeScript 7.1.
 
 The repository is a pnpm workspace on [Vite+](https://viteplus.dev). Its
 [README](../README.md#development) has the details.
@@ -91,24 +90,33 @@ ownership checker on them. Run both before you send a change to a program.
 
 ## Static Builds
 
-Without a dev server, the page compiles programs itself. TypeScript 7.1's API,
-which threads-check runs on, has no WebAssembly build, so the page uses the fork
-compiled to WebAssembly
-([arv/threads-checker](https://github.com/arv/threads-checker)'s `cmd/wasm`),
-running in a worker. You get the same JavaScript, `tsgo own check`'s ownership
-errors, and tsgo erasing the types.
+Without a dev server, the page compiles programs itself, with threads-check, the
+same compiler the dev server runs, in a worker. threads-check runs on TypeScript
+7.1's API, which on Node starts tsgo, TypeScript's compiler, as a process. Here
+tsgo is stock TypeScript compiled to WebAssembly, in a worker of its own, and
+the two talk over shared memory instead of a pipe ([tsgo/](tsgo)). You get the
+same JavaScript and the same errors as on the dev server, and tsgo erasing the
+types.
 
-The catch is size. The compiler is 34 MB (about 8 MB compressed), because Go's
-WebAssembly is huge. The page shows its download as it goes.
+The catch is size. tsgo is 46 MB (about 10 MB gzipped, as GitHub Pages sends
+it), because Go's WebAssembly is huge. The page shows its download as it goes.
 
 ```sh
-vp run build-wasm                                          # the fork's compiler, into public/compiler/ (needs Go)
+vp run build-wasm                                          # tsgo, in WebAssembly, into public/compiler/ (needs Go and git)
 vp build                                                   # into dist/, to be served from /playground/
 vp preview                                                 # serves dist/, at /playground/
+vp run test-build                                          # the build in Chrome, served as Pages serves it, against the dev server
 ```
 
-`vp run build-wasm` builds from the clone that `TSGO_FORK` names. By default,
-that's ~/src/arv/threads-checker.
+`vp run build-wasm` builds tsgo from TypeScript's sources at the commit that
+threads-check's `typescript` package was built from, so the two speak the same
+protocol. It fetches them into node_modules/.cache/typescript, or builds in the
+checkout that `TS_SOURCE` names. It needs no fork of TypeScript.
+
+`vp run test-build` serves the build with no COOP or COEP headers, so the
+service worker has to isolate it. It compiles every program in the browser and
+runs each, compiled and with its types erased, and checks that the JavaScript,
+the errors and the output are what the dev server gives.
 
 The build is served from `/playground/`. To serve it from another path, build it
 with `BASE=/elsewhere/ vp build`.
@@ -174,16 +182,18 @@ M5 Pro. Times are in milliseconds, on 1, 2, 4 and 8 threads:
 
 ## Layout
 
-| Path                     | What It Is                                                                                                           |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `index.html`, `main.ts`  | The page, built on [Monaco](https://github.com/microsoft/monaco-editor)                                              |
-| `boot.ts`                | The page's entry: it isolates the page, then loads `main.ts`                                                         |
-| `programs/`              | The page's programs                                                                                                  |
-| `vite.config.ts`         | The dev server, with the runtime's Vite plugin, which compiles with threads-check (or the fork) and runs the checker |
-| `wasm.ts`, `compiler.ts` | Compiling in the browser: the page's side, and the worker that runs the compiler                                     |
-| `build-wasm.ts`          | Builds the compiler, in WebAssembly, into `public/compiler/`                                                         |
-| `public/coi-sw.js`       | The service worker that isolates the page where the host can't                                                       |
-| `assets.d.ts`            | The types of what Vite imports besides modules                                                                       |
+| Path                     | What It Is                                                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `index.html`, `main.ts`  | The page, built on [Monaco](https://github.com/microsoft/monaco-editor)                                                     |
+| `boot.ts`                | The page's entry: it isolates the page, then loads `main.ts`                                                                |
+| `programs/`              | The page's programs                                                                                                         |
+| `vite.config.ts`         | The dev server, with the runtime's Vite plugin, which compiles with threads-check (or the fork) and runs the checker        |
+| `wasm.ts`, `compiler.ts` | Compiling in the browser: the page's side, and the worker that runs threads-check                                           |
+| `tsgo/`                  | tsgo in WebAssembly: its entry point (`main.go`), its worker, and the API client's channel to it, on pipes in shared memory |
+| `build-wasm.ts`          | Builds tsgo, in WebAssembly, into `public/compiler/`                                                                        |
+| `test-build.ts`          | The static build in Chrome, against the dev server                                                                          |
+| `public/coi-sw.js`       | The service worker that isolates the page where the host can't                                                              |
+| `assets.d.ts`            | The types of what Vite imports besides modules                                                                              |
 
 The runtime and the checker are in [src/](../src).
 

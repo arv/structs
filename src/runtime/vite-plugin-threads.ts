@@ -300,7 +300,7 @@ export default function threads(options: Options = {}): Plugin {
     const key = `p${crypto
       .createHash('sha1')
       .update(
-        `5\0${tsgo ? 'fork' : 'threads-check'}\0${checker || !tsgo ? 'threads-check' : 'fork'}\0${fingerprint}\0${source}`,
+        `6\0${tsgo ? 'fork' : 'threads-check'}\0${checker || !tsgo ? 'threads-check' : 'fork'}\0${fingerprint}\0${source}`,
       )
       .digest('hex')
       .slice(0, 12)}`;
@@ -405,21 +405,37 @@ export default function threads(options: Options = {}): Plugin {
       });
       const ms = Math.round(performance.now() - t0);
       const file = result.files.find(f => f.fileName.endsWith('program.ts'));
-      let js: string | null = null;
-      if (file) {
-        js = mod.toJavaScript(file, {}).code;
-        fs.mkdirSync(path.dirname(out), {recursive: true});
-        fs.writeFileSync(out, js);
-      }
       const ofProgram = (d: CheckDiagnostic) => d.file?.endsWith('program.ts');
+      const ownership = result.diagnostics.filter(ofProgram).map(asPlayground),
+        types = result.typeDiagnostics.filter(ofProgram).map(asPlayground);
+      let js: string | null = null;
+      // OXC refuses a program that does not parse: no JavaScript, and the
+      // errors say why (or, if none does, OXC). The page in WebAssembly does
+      // the same (playground/compiler.ts)
+      try {
+        if (file) {
+          js = mod.toJavaScript(file, {}).code;
+          fs.mkdirSync(path.dirname(out), {recursive: true});
+          fs.writeFileSync(out, js);
+        }
+      } catch (e: any) {
+        js = null;
+        if (types.length === 0)
+          ownership.push({
+            line: 1,
+            col: 1,
+            code: 'TS0',
+            message: String(e.message ?? e),
+          });
+      }
       return {
         js,
         compiler: 'threads-check',
         ms,
-        ownership: result.diagnostics.filter(ofProgram).map(asPlayground),
+        ownership,
         checker: 'threads-check',
         checkMs: ms,
-        types: result.typeDiagnostics.filter(ofProgram).map(asPlayground),
+        types,
       };
     } catch (e: any) {
       return {

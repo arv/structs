@@ -483,14 +483,16 @@ today:
   API. It edits each module's TypeScript, and OXC (Vite's, or its own) strips
   the types. With types only erased, programs still run, but shared structs are
   much slower (see [Performance](#compiled-or-with-the-types-only-erased)).
-- **The playground still compiles with a fork in the browser.** TypeScript 7.1's
-  API runs in Node only: it starts tsgo, and has no WebAssembly build. So the
-  playground's build compiles programs with a fork of TypeScript 7.0.2,
-  [arv/threads-checker](https://github.com/arv/threads-checker), built to
-  WebAssembly. Its dev server compiles with threads-check. The fork emits the
-  same code, and the Vite plugin still compiles with it when its `tsgo` option
-  names the fork's binary (build it with
-  `go build -o built/local/tsgo ./cmd/tsgo`).
+- **The playground compiles on stock TypeScript in the browser too.** TypeScript
+  7.1's API has no WebAssembly build, so the playground builds one: stock
+  TypeScript's API server, compiled to WebAssembly from the commit TypeScript's
+  npm package was built from. threads-check runs in a worker and talks to it
+  over shared memory, as it talks to a tsgo process on Node. Neither the
+  playground nor its deployment needs the fork,
+  [arv/threads-checker](https://github.com/arv/threads-checker), any more. The
+  Vite plugin still compiles with the fork when its `tsgo` option names the
+  fork's binary (build it with `go build -o built/local/tsgo ./cmd/tsgo`), and
+  CI still compares threads-check with it.
 - **The checker needs no fork either.** @arv/threads-check checks ownership on
   the same API.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**
@@ -540,8 +542,9 @@ or later on Node 24).
 vp install                  # Once, at the root
 vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
 vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
-vp run build-wasm           # The fork's compiler the playground's build runs in the browser (needs Go)
+vp run build-wasm           # tsgo in WebAssembly, which the playground's build compiles with in the browser (needs Go)
 vp build                    # The playground's production build
+vp run test-build           # The playground's build in Chrome: every program compiled in the browser and run, against the dev server
 vp run threads-site#dev     # The docs site, served as you edit it
 vp run threads-site#build   # The docs site's static build, into site/dist/
 vp fmt                      # Oxfmt, over the whole workspace

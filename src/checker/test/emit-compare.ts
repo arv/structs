@@ -71,7 +71,7 @@ const knownDifferences: Record<string, string> = {
   'emit/fixes.ts':
     "what the fork gets wrong (compile.test.ts tests each): an arrow whose concise body is a closure keeps its owned parameter's default (the fork drops it), defaults after one that moves into the body move too, so they still run left to right, an array that its index assigns is read (and held) before the index, a scalar element type's expression runs (the fork drops it), and a class's `extends` expression is lowered as a full expression (the fork leaves it as it is)",
   'playground/main.ts': computedImport,
-  'playground/compiler.ts': computedImport,
+  'playground/tsgo/tsgo-worker.ts': computedImport,
   'cases/layout/layout.ts': elementAssigned,
   'cases/threads/threads.ts':
     '`everyone` declared twice (a function and a const), an error: OXC refuses to strip the types of a file that redeclares a name, tsc emits it',

@@ -29,7 +29,11 @@
     "build-dist.ts",
     "src/**/*.ts",
     "playground/vite.config.ts",
-    "playground/build-wasm.ts"
+    "playground/build-wasm.ts",
+    "playground/test-build.ts",
+    "playground/tsgo/*.test.ts",
+    "playground/compiler.ts",
+    "playground/compiler.test.ts"
   ],
   "exclude": ["src/checker"],
   // a glob leaves out a .d.ts beside a .ts of its name: a page's API is checked

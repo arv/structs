@@ -1,10 +1,10 @@
 // The playground: edit a program in Monaco, with TypeScript's types from the
-// threads API; see the JavaScript it compiles to (with the tsgo fork, or with
+// threads API; see the JavaScript it compiles to (with threads-check, or with
 // its types only erased) and the ownership checker's errors; run it on the
 // page's pool of workers. The Vite plugin's dev server compiles (POST
 // /__threads/compile); the page imports the result as a module, and so do the
 // workers. Without a dev server (a static build, or ?wasm) the page compiles
-// itself, with the fork in WebAssembly (wasm.ts).
+// itself, with threads-check on tsgo in WebAssembly (wasm.ts).
 // first: the shared memory, before anything that uses it loads
 import '@arv/threads/heap';
 import {run, start, stop} from '@arv/threads/browser';
@@ -46,7 +46,7 @@ type Result = {
   compiled: {
     js: string | null;
     // what compiled it (the dev server's: threads-check, or the tsgo fork;
-    // in WebAssembly, the fork)
+    // in WebAssembly, threads-check)
     compiler?: string;
     ms: number;
     ownership: Diagnostic[];
@@ -265,7 +265,7 @@ function showJs() {
   if (mode() === 'compiled') {
     $('js-title').textContent = 'Compiled JavaScript';
     $('js-hint').textContent =
-      `by ${result.compiled.compiler ?? 'the tsgo fork'}${inBrowser ? ', in WebAssembly,' : ''} in ${result.compiled.ms} ms · marked: what the compiler added`;
+      `by ${result.compiled.compiler ?? 'the tsgo fork'}${inBrowser ? ', on tsgo in WebAssembly,' : ''} in ${result.compiled.ms} ms · marked: what the compiler added`;
     jsModel.setValue(result.compiled.js ?? '// nothing emitted');
   } else {
     $('js-title').textContent = 'JavaScript, types erased';

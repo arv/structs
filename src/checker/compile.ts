@@ -9,6 +9,7 @@ import {basename, isAbsolute, resolve} from 'node:path';
 import {decode, encode} from '@jridgewell/sourcemap-codec';
 import type {SourceMapMappings} from '@jridgewell/sourcemap-codec';
 import {transformSync} from 'oxc-transform';
+import type {RequestFileSystem} from 'typescript/proto';
 import {API} from 'typescript/sync';
 import {
   CheckError,
@@ -39,6 +40,10 @@ export interface CompileOptions {
   // also report the files' type errors (TypeScript's syntactic and semantic
   // diagnostics), as tsc and the fork's compile do
   types?: boolean;
+  // the project's files, sent with the request rather than read from disk
+  // (typescript/fs's createFileSystemWithLib makes one): for an API with no
+  // disk of its own, such as the playground's, in WebAssembly
+  fileSystem?: RequestFileSystem;
 }
 
 // A source map (version 3).
@@ -86,7 +91,7 @@ export function compile(
   try {
     let host: Host;
     try {
-      host = createHost(api, tsconfig);
+      host = createHost(api, tsconfig, options.fileSystem);
     } catch (e) {
       throw new CheckError(
         `cannot load the project ${tsconfigPath}: ${(e as Error).message}`,

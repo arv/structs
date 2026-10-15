@@ -11,6 +11,7 @@
     "build": "vp build",
     "preview": "vp preview",
     "build-wasm": "node build-wasm.ts",
+    "test-build": "node test-build.ts",
     "typecheck": "tsc --noEmit",
     "own-check": "node ../src/checker/cli.ts -p tsconfig.json --runtime @arv/threads"
   },
@@ -19,7 +20,11 @@
   },
   "devDependencies": {
     "@arv/threads-check": "workspace:*",
+    "@oxc-transform/binding-wasm32-wasip1": "0.153.0",
     "@types/node": "catalog:",
+    "buffer": "^6.0.3",
+    "pathe": "^2.0.3",
+    "playwright-core": "^1.64.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

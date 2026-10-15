@@ -1,11 +1,15 @@
 // Compiling in the page, where no dev server compiles (a static build, or
-// ?wasm): the tsgo fork in WebAssembly, in a worker (compiler.ts). And running
+// ?wasm): threads-check on tsgo in WebAssembly, in a worker (compiler.ts). And running
 // what it compiled: a program is a blob: module, whose imports of the runtime
 // read globalThis.__threads, the threads API, which this page sets; the pool's
 // workers load the same blob: URL, and set it too (threads-worker.ts).
 import * as api from '@arv/threads';
-import {helpersOf, registration, type Diagnostic} from '@arv/threads/compiled';
-import type {CompilerMessage, CompilerRequest} from './compiler.ts';
+import {helpersOf, registration} from '@arv/threads/compiled';
+import type {
+  Compiled,
+  CompilerMessage,
+  CompilerRequest,
+} from './compiler-messages.ts';
 
 declare global {
   var __threads: unknown;
@@ -14,15 +18,6 @@ globalThis.__threads = api;
 
 const RUNTIME = '@arv/threads';
 
-// what the compiler returns (cmd/wasm in arv/threads-checker)
-type Compiled = {
-  js: string | null;
-  erased: string | null;
-  ownership: Diagnostic[];
-  types: Diagnostic[];
-  ms: number;
-  checkMs: number;
-};
 // how the download goes
 export type Progress =
   | {loaded: number; total: number}
@@ -55,7 +50,7 @@ export function startCompiler(onProgress: (p: Progress) => void) {
     if (m.type === 'progress') onProgress(m);
     else if (m.type === 'ready') onProgress({ready: m.ms});
     else if (m.type === 'result') {
-      waiting.get(m.id)?.resolve(JSON.parse(m.json) as Compiled);
+      waiting.get(m.id)?.resolve(m.compiled);
       waiting.delete(m.id);
     } else if (m.id === null) gone(m.message);
     else {
@@ -71,7 +66,7 @@ export function startCompiler(onProgress: (p: Progress) => void) {
 }
 
 // source compiled as the dev server compiles it (vite-plugin-threads.ts), but
-// with `tsgo own check`'s ownership errors, and tsgo erasing the types
+// with tsgo, rather than node, erasing the types
 export async function compileInBrowser(source: string, types: string) {
   if (failure) throw failure;
   const id = ++next;
@@ -84,9 +79,10 @@ export async function compileInBrowser(source: string, types: string) {
     key: '',
     compiled: {
       js: c.js,
+      compiler: 'threads-check',
       ms: c.ms,
       ownership: c.ownership,
-      checker: 'tsgo own check, in WebAssembly',
+      checker: 'threads-check, on tsgo in WebAssembly',
       checkMs: c.checkMs,
       types: c.types,
       helpers: c.js ? Object.values(helpersOf(c.js, RUNTIME)) : [],

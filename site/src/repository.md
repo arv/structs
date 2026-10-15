@@ -35,8 +35,9 @@ names. You need Node 22.18 or later (24.11 or later on Node 24).
 vp install                  # Once, at the root
 vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
 vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
-vp run build-wasm           # The fork's compiler the playground's build runs in the browser (needs Go)
+vp run build-wasm           # tsgo in WebAssembly, which the playground's build compiles with in the browser (needs Go)
 vp build                    # The playground's production build
+vp run test-build           # The playground's build in Chrome: every program compiled in the browser and run, against the dev server
 vp run threads-site#dev     # The docs site, served as you edit it
 vp run threads-site#build   # The docs site's static build, into site/dist/
 vp fmt                      # Oxfmt, over the whole workspace

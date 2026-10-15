@@ -13,14 +13,16 @@ today:
   the types. With types only erased, programs still run, but shared structs are
   much slower (see
   [Performance](/performance/#compiled-or-with-the-types-only-erased)).
-- **The playground still compiles with a fork in the browser.** TypeScript 7.1's
-  API runs in Node only: it starts tsgo, and has no WebAssembly build. So the
-  playground's build compiles programs with a fork of TypeScript 7.0.2,
-  [arv/threads-checker](https://github.com/arv/threads-checker), built to
-  WebAssembly. Its dev server compiles with threads-check. The fork emits the
-  same code, and the Vite plugin still compiles with it when its `tsgo` option
-  names the fork's binary (build it with
-  `go build -o built/local/tsgo ./cmd/tsgo`).
+- **The playground compiles on stock TypeScript in the browser too.** TypeScript
+  7.1's API has no WebAssembly build, so the playground builds one: stock
+  TypeScript's API server, compiled to WebAssembly from the commit TypeScript's
+  npm package was built from. threads-check runs in a worker and talks to it
+  over shared memory, as it talks to a tsgo process on Node. Neither the
+  playground nor its deployment needs the fork,
+  [arv/threads-checker](https://github.com/arv/threads-checker), any more. The
+  Vite plugin still compiles with the fork when its `tsgo` option names the
+  fork's binary (build it with `go build -o built/local/tsgo ./cmd/tsgo`), and
+  CI still compares threads-check with it.
 - **The checker needs no fork either.** @arv/threads-check checks ownership on
   the same API.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**

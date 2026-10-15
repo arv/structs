@@ -1,5 +1,6 @@
 // What the Vite plugin (vite-plugin-threads.ts) and the playground's page, which
-// compiles with the fork in WebAssembly where there is no dev server, both do
+// compiles with threads-check on tsgo in WebAssembly where there is no dev
+// server, both do
 // with a compiled program's text. Plain string work: it runs in node and in a
 // browser.
 

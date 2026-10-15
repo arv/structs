@@ -462,6 +462,48 @@ export default function last() {}
       }
     });
 
+    it.skipIf(fork)(
+      'gives no JavaScript for a playground program that does not parse, and its errors',
+      async () => {
+        const root = project({
+          'index.html': INDEX,
+          'tsconfig.json': tsconfig(),
+          'src/main.ts': page('./app.ts'),
+          'src/app.ts': APP,
+        });
+        const server = await createServer({
+          ...config(root, {playground: true}),
+          server: {ws: false, watch: null},
+        });
+        await server.listen();
+        try {
+          const response = await fetch(
+            new URL('__threads/compile', server.resolvedUrls!.local[0]),
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                source: `export function main(): void {\n  const x = ;\n}\n`,
+              }),
+            },
+          );
+          const {compiled} = (await response.json()) as {
+            compiled: {
+              js: string | null;
+              ownership: {message: string}[];
+              types: {line: number; code: string}[];
+            };
+          };
+          expect(compiled.js).toBeNull();
+          expect(compiled.types).toContainEqual(
+            expect.objectContaining({line: 2, code: 'TS1109'}),
+          );
+          expect(compiled.ownership).toEqual([]);
+        } finally {
+          await server.close();
+        }
+      },
+    );
+
     it('compiles again for a change only to a source the fork compiled or Vite loaded', async () => {
       const root = project({
         'index.html': INDEX,
