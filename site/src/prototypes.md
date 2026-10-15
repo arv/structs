@@ -34,7 +34,7 @@ We tried two designs:
   N-body on 8 threads runs 4x faster than plain single-threaded JS. Programs are
   plain TypeScript, written against
   [threads.d.ts](https://github.com/arv/threads/blob/main/src/runtime/threads.d.ts).
-  A checker built on a fork of tsgo proves the ownership rules in CI, and a
+  A checker on TypeScript 7.1's API proves the ownership rules in CI, and a
   bundler plugin compiles shared structs to typed-array accesses.
 
 We measured on an Apple M5 Pro (6 fast and 12 slower cores) with node 24.18 and
@@ -237,17 +237,17 @@ names carry the ownership rules:
 Two tools add what the types can't say:
 
 - **The ownership checker,**
-  `tsgo own check -p tsconfig.json --ownRuntime <the runtime module>`, runs in
-  CI like a linter. It reports only ownership errors and leaves type errors to
-  tsc. The ownership errors are use after send, an alias of something sent, a
-  write to a shared value, and sending what the caller still holds.
+  `threads-check -p tsconfig.json --runtime @arv/threads`, runs in CI like a
+  linter. It reports only ownership errors and leaves type errors to tsc. The
+  ownership errors are use after send, an alias of something sent, a write to a
+  shared value, and sending what the caller still holds.
 - **The bundler plugin**
   ([runtime/vite-plugin-threads.ts](https://github.com/arv/threads/blob/main/src/runtime/vite-plugin-threads.ts),
-  for Vite) compiles each module with the tsgo fork. Struct fields become
-  typed-array accesses on shared memory, and struct references are counted.
-  Every module registers the functions threads may run, keyed by its path so
-  that the page's bundle and the workers' agree. The plugin also sets the
-  headers that make the page cross-origin isolated on the dev and preview
+  for Vite) compiles each module with threads-check's compiler. Struct fields
+  become typed-array accesses on shared memory, and struct references are
+  counted. Every module registers the functions threads may run, keyed by its
+  path so that the page's bundle and the workers' agree. The plugin also sets
+  the headers that make the page cross-origin isolated on the dev and preview
   servers.
 
 A page imports `@arv/threads/heap` first. That's the shared memory, which the

@@ -1,6 +1,6 @@
 {
   "name": "@arv/threads",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
   "homepage": "https://github.com/arv/threads#readme",
   "bugs": {

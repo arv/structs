@@ -1,5 +1,5 @@
 # Publishes @arv/threads and @arv/threads-check to npm when a version tag
-# (v0.1.0) is pushed: the tag must name the version both package.json files
+# (v0.2.0, say) is pushed: the tag must name the version both package.json files
 # have. The packages are checked and tested as CI does, packed as pnpm packs them
 # (prepack builds each one's dist/), and published with npm, with provenance (an
 # attestation, signed through GitHub's OIDC token, that this workflow built them

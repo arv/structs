@@ -1,7 +1,7 @@
 # The Docs Site
 
 These are the docs of [@arv/threads](../README.md), as a site. GitHub Pages
-publishes them at [arv.github.io/threads](https://arv.github.io/threads/), with
+publishes them at [threads.arv.tools](https://threads.arv.tools/), with
 [the playground](../playground) beside them at /playground/.
 
 The site is static, built by [Eleventy](https://www.11ty.dev) from the Markdown
@@ -16,9 +16,9 @@ vp run threads-site#build   # The docs site's static build, into site/dist/
 ```
 
 `BASE` names the path the site is served from, `/` by default. The Pages
-workflow ([pages.yml](../.github/workflows/pages.yml)) builds it with
-`BASE=/threads/` on arv.github.io, and every absolute link in the pages gets
-that path in front.
+workflow ([pages.yml](../.github/workflows/pages.yml)) builds it for the path
+the repository's Pages settings give it: `/` on threads.arv.tools, `/threads/`
+on arv.github.io. Every absolute link in the pages gets that path in front.
 
 `vp test` checks the site as well:
 

@@ -11,8 +11,7 @@ This is a prototype. It lives in the runtime
 ([own.ts](https://github.com/arv/threads/blob/main/src/runtime/own.ts),
 [runtime.ts](https://github.com/arv/threads/blob/main/src/runtime/runtime.ts))
 and in the compiler's emit (threads-check's
-[transform.ts](https://github.com/arv/threads/blob/main/src/checker/transform.ts),
-and the tsgo fork's).
+[transform.ts](https://github.com/arv/threads/blob/main/src/checker/transform.ts)).
 [refcount.ts](https://github.com/arv/threads/blob/main/src/refcount.ts) tests
 it, and
 [refcount-hand.ts](https://github.com/arv/threads/blob/main/src/refcount-hand.ts)

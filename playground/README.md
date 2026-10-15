@@ -9,8 +9,8 @@ API and the limits in [the README](../README.md).
 > Written iterating with Claude Code (Claude Opus 5.5).
 
 You can try it at
-[arv.github.io/threads/playground](https://arv.github.io/threads/playground/).
-It compiles everything right in your browser.
+[threads.arv.tools/playground](https://threads.arv.tools/playground/). It
+compiles everything right in your browser.
 
 ## Using the Playground
 
@@ -126,7 +126,7 @@ address.
 
 On every push to main, [the Pages workflow](../.github/workflows/pages.yml)
 builds it all and deploys it to GitHub Pages, at
-[arv.github.io/threads/playground/](https://arv.github.io/threads/playground/).
+[threads.arv.tools/playground/](https://threads.arv.tools/playground/).
 
 ### Cross-Origin Isolation
 

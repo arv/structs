@@ -35,17 +35,15 @@ export function main(threads: number) {
 
 > **Status: experimental.** The API, the checker, the compiler and the runtime
 > work, and they're tested. The compiler, which lays shared structs out in
-> shared memory, is part of @arv/threads-check, on stock TypeScript 7.1. Only
-> the playground's in-browser compiler is still a fork of TypeScript 7. See
+> shared memory, is part of @arv/threads-check, on stock TypeScript 7.1. See
 > [Status](#status).
 
 You can try it in the browser, with the compiled JavaScript side by side, in
-[the playground](https://arv.github.io/threads/playground/). Its source is in
+[the playground](https://threads.arv.tools/playground/). Its source is in
 [playground/](playground).
 
 This README, the tutorial and the design notes are also a docs site, at
-[arv.github.io/threads](https://arv.github.io/threads/). Its source is in
-[site/](site).
+[threads.arv.tools](https://threads.arv.tools/). Its source is in [site/](site).
 
 > **Disclaimer:** This project was mostly built by iterating with the help of
 > Claude Code (Claude Opus 5.5).
@@ -467,8 +465,8 @@ N-body 50 to 60 times slower:
 | N-body, 800 bodies in shared structs  | 29, 15, 8, 6      | 1820, 971, 498, 301 |
 | Mandelbrot on goroutines and channels | 712, 341, 180, 97 | 713, 349, 180, 99   |
 
-[The playground](https://arv.github.io/threads/playground/) runs every program
-both ways (Compiled and Types erased), so you can compare them yourself.
+[The playground](https://threads.arv.tools/playground/) runs every program both
+ways (Compiled and Types erased), so you can compare them yourself.
 
 ## Status
 

@@ -43,8 +43,7 @@ export function main(threads: number) {
 
 The API, the checker, the compiler and the runtime work, and they're tested. The
 compiler, which lays shared structs out in shared memory, is part of
-@arv/threads-check, on stock TypeScript 7.1. Only the playground's in-browser
-compiler is still a fork of TypeScript 7. See [Status](/status/).
+@arv/threads-check, on stock TypeScript 7.1. See [Status](/status/).
 
 :::
 
