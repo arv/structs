@@ -1,17 +1,14 @@
 # Publishes @arv/threads and @arv/threads-check to npm when a version tag
-# (v0.0.1) is pushed: the tag must name the version both package.json files
+# (v0.1.0) is pushed: the tag must name the version both package.json files
 # have. The packages are checked and tested as CI does, packed as pnpm packs them
 # (prepack builds each one's dist/), and published with npm, with provenance (an
 # attestation, signed through GitHub's OIDC token, that this workflow built them
 # from this commit).
 #
-# npm authenticates the publish by trusted publishing: each package on npmjs.com
-# names this repository and this workflow (release.yml) as its publisher, and
-# npm takes the job's OIDC token for it. A package's first version cannot be
-# published that way, as npm configures a trusted publisher on a package that
-# exists: with an NPM_TOKEN secret (a granular token that can publish @arv/*),
-# the job publishes with it instead, still with provenance. Once both packages
-# exist, configure their trusted publishers and delete the secret.
+# npm authenticates the publish by trusted publishing: each package's settings
+# on npmjs.com name this repository and this workflow (release.yml) as its
+# trusted publisher, and npm takes the job's OIDC token for it. No token or
+# secret is used.
 name: Release
 
 on:
@@ -56,12 +53,7 @@ jobs:
       # trusted publishing needs npm 11.5.1 or later
       - run: npm install --global npm@11
       - name: publish
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > "$HOME/.npmrc"
-          fi
           # a version npm has already is skipped, so a rerun after one package
           # published and the other failed publishes the other
           for t in "$RUNNER_TEMP"/packages/*.tgz; do
