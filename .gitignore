@@ -4,6 +4,8 @@
 # WebAssembly (vp run build-wasm)
 /playground/dist
 /playground/public/compiler
+# the docs site's build (vp run threads-site#build)
+/site/dist
 node_modules/
 .DS_Store
 # the packages as pnpm pack builds them (vp run build-dist)

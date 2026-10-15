@@ -43,6 +43,10 @@ You can try it in the browser, with the compiled JavaScript side by side, in
 [the playground](https://arv.github.io/threads/playground/). Its source is in
 [playground/](playground).
 
+This README, the tutorial and the design notes are also a docs site, at
+[arv.github.io/threads](https://arv.github.io/threads/). Its source is in
+[site/](site).
+
 > **Disclaimer:** This project was mostly built by iterating with the help of
 > Claude Code (Claude Opus 5.5).
 
@@ -512,6 +516,7 @@ Here's what's in it:
 | [src/runtime/](src/runtime)            | The runtime: the API, the shared heap, a page's side and the Vite plugin       |
 | [src/checker/](src/checker)            | The ownership checker (@arv/threads-check)                                     |
 | [playground/](playground)              | A page to write programs in, and see what they compile to and how they run     |
+| [site/](site)                          | The docs site, which GitHub Pages publishes with the playground                |
 | [TUTORIAL.md](TUTORIAL.md)             | Writing, checking and running a small program, and how each step works         |
 | [REFCOUNT.md](REFCOUNT.md)             | How shared structs and SharedArrays are reference counted and freed            |
 | [docs/prototype.md](docs/prototype.md) | The prototypes this grew out of in Porffor's threads work, and what they found |
@@ -520,16 +525,18 @@ Here's what's in it:
 
 The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`). It
 holds the code in [src/](src) at the root, the checker
-([src/checker/](src/checker)), and the [playground](playground). Vite+ brings
-Vite, Oxlint and a task runner, and it runs pnpm at the version that
-`packageManager` names. You need Node 22.18 or later (24.11 or later on Node
-24).
+([src/checker/](src/checker)), the [playground](playground), and the docs site
+([site/](site)). Vite+ brings Vite, Oxlint and a task runner, and it runs pnpm
+at the version that `packageManager` names. You need Node 22.18 or later (24.11
+or later on Node 24).
 
 ```sh
 vp install                  # Once, at the root
 vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
 vp run build-wasm           # The compiler the playground's build runs in the browser (needs Go)
 vp build                    # The playground's production build
+vp run threads-site#dev     # The docs site, served as you edit it
+vp run threads-site#build   # The docs site's static build, into site/dist/
 vp fmt                      # Oxfmt, over the whole workspace
 vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # Formatting, lint and types, as CI would

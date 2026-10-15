@@ -1,12 +1,13 @@
-# The playground on GitHub Pages, under /playground/ (arv.github.io/threads/,
-# or threads.arv.tools/ once the repository's Pages settings name that domain):
-# on every push to main, and by hand. It builds the tsgo fork
+# The docs and the playground on GitHub Pages: the docs (site/) at the root and
+# the playground under /playground/ (arv.github.io/threads/, or
+# threads.arv.tools/ once the repository's Pages settings name that domain): on
+# every push to main, and by hand. It builds the tsgo fork
 # (arv/threads-checker's main) twice, natively for the Vite plugin, which
 # compiles the page, and in WebAssembly for the page, which compiles the
-# programs; then the playground (vp build) for the site's path, and deploys it
-# with a page at the root that leads there. Pages sends no COOP and COEP
-# headers: the playground's service worker adds them
-# (playground/public/coi-sw.js).
+# programs; then the playground (vp build) and the docs (Eleventy) for the
+# site's path, and deploys them together. Pages sends no COOP and COEP headers:
+# the playground's service worker adds them (playground/public/coi-sw.js), for
+# the playground's path only.
 name: Pages
 
 on:
@@ -52,17 +53,14 @@ jobs:
         env:
           TSGO: ${{ github.workspace }}/threads-checker/built/local/tsgo
           BASE: ${{ steps.pages.outputs.base_path }}/playground/
+      - run: vp run build
+        working-directory: site
+        env:
+          BASE: ${{ steps.pages.outputs.base_path }}/
       - name: the site
         run: |
-          mkdir -p _site
+          cp -R site/dist _site
           cp -R playground/dist _site/playground
-          cat > _site/index.html <<'HTML'
-          <!doctype html>
-          <meta charset="utf-8" />
-          <title>Threads for JavaScript</title>
-          <meta http-equiv="refresh" content="0; url=playground/" />
-          <a href="playground/">The playground</a>
-          HTML
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
 
   deploy:
@@ -73,7 +71,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}playground/
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

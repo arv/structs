@@ -98,12 +98,16 @@
         color: var(--muted);
         font-size: 13px;
       }
+      #docs,
       #repo {
-        margin-left: auto;
         color: var(--muted);
         font-size: 13px;
         text-decoration: none;
       }
+      #docs {
+        margin-left: auto;
+      }
+      #docs:hover,
       #repo:hover {
         color: var(--accent);
         text-decoration: underline;
@@ -303,6 +307,9 @@
         Stop
       </button>
       <span id="status">Starting the workers…</span>
+      <!-- the docs, which Pages publishes at the site's root, beside the
+           playground -->
+      <a id="docs" href="../">Docs</a>
       <a id="repo" href="https://github.com/arv/threads"
         >arv/threads on GitHub</a
       >

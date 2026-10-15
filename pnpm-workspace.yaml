@@ -1,5 +1,6 @@
 packages:
   - playground
+  - site
   - src/checker
 # Vite+ (vp) is the toolchain: its core stands in for vite, for every package
 # that asks for vite

@@ -30,7 +30,12 @@ export default defineConfig({
   },
   test: {
     // tests sit next to what they test
-    include: ['src/**/*.test.ts', 'playground/*.test.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'playground/*.test.ts',
+      'site/*.test.ts',
+      'site/lib/*.test.ts',
+    ],
     // the playground's imports of the runtime, as its Vite config resolves
     // them
     alias: [
