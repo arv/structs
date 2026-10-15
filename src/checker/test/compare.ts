@@ -77,6 +77,14 @@ const knownDifferences: Record<
   string,
   {missing?: string[]; extra?: string[]; reason: string}
 > = {
+  'cases/edges': {
+    reason:
+      "until arv/threads-checker#3 reaches the fork's main, the fork takes a call to a module's own exported function or class for a call to a captured value; remove this then",
+    missing: [
+      "edges.ts(38,43): error TS96009: 'new Holder()' cannot be returned as 'Sending<T>': it may be referenced by the caller.",
+      "edges.ts(156,10): error TS96008: 'xs' cannot be sent: it is captured from an outer scope.",
+    ],
+  },
   'fork/ownLayoutStructUnionsErrors': {
     reason:
       'stock TypeScript reduces a union of struct types to the supertype (the fork does not), and does not parse `shared struct`; with the union reduced, threads-check reports the struct of the other layout where it is used as the supertype (96033), and the struct type of the other layout where it is used as that of the supertype, which the fork reports at the field it reads',
@@ -169,6 +177,8 @@ for (const test of [
   'ownLayoutChannelFieldsErrors',
   'ownAsyncGoroutines',
   'ownAsyncGoroutinesErrors',
+  'ownSharedExportedCalls',
+  'ownLayoutSelfReferential',
 ]) {
   const file = join(forkTests, `${test}.ts`);
   if (!existsSync(file)) continue;

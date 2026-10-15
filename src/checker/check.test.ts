@@ -27,6 +27,37 @@ const LAID_OUT =
 const YIELDED =
   "A value of type 'Node & Cell' cannot be yielded, or returned by a generator: it would be stored in an IteratorResult, an ordinary object, which the caller keeps past the generator's count of it.";
 
+// What threads-check reports on a project of the given files (by name, as
+// lines), which import the runtime as threads.
+function checkProgram(files: Record<string, string[]>): string[] {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'threads-check-')));
+  try {
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(dir, name), text.join('\n') + '\n');
+    }
+    writeFileSync(
+      join(dir, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'es2022',
+          module: 'esnext',
+          moduleResolution: 'bundler',
+          strict: true,
+          lib: ['es2022'],
+          noEmit: true,
+          paths: {threads: [join(checker, '../runtime/threads.d.ts')]},
+        },
+        include: ['*.ts'],
+      }),
+    );
+    return check(join(dir, 'tsconfig.json'), {runtime: 'threads', api}).map(d =>
+      formatDiagnostic(d, dir),
+    );
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+}
+
 describe('threads-check', () => {
   it('refuses a runtime no file imports: a mistyped --runtime', () => {
     expect(() =>
@@ -108,6 +139,60 @@ describe('threads-check', () => {
     } finally {
       rmSync(dir, {recursive: true, force: true});
     }
+  });
+
+  it("treats a module's own exported functions as code", () => {
+    // inside the module, an exported function's name resolves to a local
+    // symbol that only stands for the export: calling it keeps nothing, so
+    // what it was passed may still be returned as Sending<T>
+    expect(
+      checkProgram({
+        'bodies.ts': [
+          'import type { Sending } from "threads";',
+          'export type Body = { x: number; vx: number; m: number };',
+          'declare function makeBodies(): Sending<Body[]>;',
+          'export function move(mine: Body[]) {',
+          '  for (const b of mine) b.x += b.vx;',
+          '}',
+          'export class Mover {',
+          '  static move(mine: Body[]) { move(mine); }',
+          '}',
+          'export function step(): Sending<Body[]> {',
+          '  const bodies = makeBodies();',
+          '  move(bodies);',
+          '  Mover.move(bodies);',
+          '  return bodies;',
+          '}',
+          'export function giveBack(xs: Body[]): Sending<Body[]> {',
+          '  move(xs);',
+          '  return xs;',
+          '}',
+        ],
+      }),
+    ).toEqual([
+      "bodies.ts(18,10): error TS96009: 'xs' cannot be returned as 'Sending<T>': it may be referenced by the caller.",
+    ]);
+  });
+
+  it('accepts a struct holding a SharedArray of itself', () => {
+    // the element type is the struct its own struct(...) call declares
+    expect(
+      checkProgram({
+        'tree.ts': [
+          'import { f64, ref, SharedArray, struct } from "threads";',
+          'export interface Tree { value: number; children: SharedArray<Tree> | null }',
+          'export const Tree = struct<Tree>({ value: f64, children: ref<SharedArray<Tree>>() });',
+          'export function grow(t: Tree, n: number) {',
+          '  t.children = new SharedArray(Tree, n);',
+          '  t.children[0].value = t.value + 1;',
+          '  return t.children.length;',
+          '}',
+          'export function bad(xs: SharedArray<{ v: number }>) {}',
+        ],
+      }),
+    ).toEqual([
+      'tree.ts(9,25): error TS96016: The elements of a SharedArray must be numbers, booleans, strings or a shared struct.',
+    ]);
   });
 
   for (const name of readdirSync(cases).sort()) {

@@ -2,7 +2,6 @@ edges.ts(18,5): error TS96001: 'local' cannot be used here: it was sent to 'send
 edges.ts(24,19): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
 edges.ts(25,19): error TS96021: A value of type 'Node' cannot be stored in an ordinary array or object: reference counting cannot see it there. Use a SharedArray or a shared struct field, or a place typed 'unknown', which holds a handle.
 edges.ts(37,39): error TS96007: 'this.#items' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
-edges.ts(38,43): error TS96009: 'new Holder()' cannot be returned as 'Sending<T>': it may be referenced by the caller.
 edges.ts(48,7): error TS96001: 'xs' cannot be used here: it was sent to 'Owner' on line 47.
 edges.ts(51,7): error TS96005: 'ys' was consumed by 'Owner' on line 50.
 edges.ts(59,7): error TS96001: 'mine' cannot be used here: it was sent to 'spawn' on line 58.
@@ -23,4 +22,3 @@ edges.ts(128,7): error TS96002: 'xs' cannot be used here: it may have been sent 
 edges.ts(130,18): error TS96007: 'o[k]!' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 edges.ts(136,10): error TS96003: 'ys' cannot be used here: it shares objects with 'zs', which was sent to 'send' on line 135.
 edges.ts(145,21): error TS96009: 'mine' cannot be returned as 'Sending<T>': it may be referenced by the caller.
-edges.ts(156,10): error TS96008: 'xs' cannot be sent: it is captured from an outer scope.

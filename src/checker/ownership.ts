@@ -849,9 +849,12 @@ class Analyzer {
 
   computeIsSharedSymbol(symbol: TsSymbol): boolean {
     const host = this.c.host;
-    let target: TsSymbol | undefined = symbol;
-    if (symbol.flags & SymbolFlags.Alias) {
-      target = host.resolveAlias(symbol);
+    // A module's own exported declarations resolve, inside the module, to a
+    // local symbol that only stands for the export: what it is (a function, a
+    // class) is on the exported symbol.
+    let target: TsSymbol | undefined = host.exportSymbolIfExported(symbol);
+    if (target.flags & SymbolFlags.Alias) {
+      target = host.resolveAlias(target);
       if (!target) return true;
     }
     if (

@@ -146,14 +146,14 @@ export function methods(c: Channel<number[]>, mine: number[]) {
   });
 }
 
-// The fork resolves a reference to an exported function or class to its local export symbol, whose
-// value it takes for a captured one: the result of calling it cannot be sent (a false positive,
-// kept for parity).
+// A reference to the module's own exported function or class resolves to its local export symbol,
+// which stands for the exported one: the function is code, not a captured value, and the result of
+// calling it can be sent.
 export function makeArray(): number[] { return [1]; }
 function makeLocal(): number[] { return [1]; }
 export function callsExported(c: Channel<number[]>) {
   const xs = makeArray();
-  c.send(xs);                                 // error (the fork's): captured from an outer scope
+  c.send(xs);                                 // fine
   const ys = makeLocal();
   c.send(ys);                                 // fine
 }
