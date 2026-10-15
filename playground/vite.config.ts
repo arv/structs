@@ -1,7 +1,6 @@
 // `vp dev` . The plugin compiles the page and the programs with threads-check
 // (../src/checker, on stock TypeScript 7.1), and the playground's programs on
-// request; with `TSGO=<the tsgo fork>/built/local/tsgo` the fork compiles
-// them instead. "@arv/threads" is the runtime in ../src/runtime. A build (vp
+// request. "@arv/threads" is the runtime in ../src/runtime. A build (vp
 // build, after vp run build-wasm) compiles the programs in the browser instead,
 // with threads-check in a worker (compiler.ts), on tsgo in WebAssembly, and is
 // served from threads.arv.tools/playground/ (BASE names another path)
@@ -55,14 +54,13 @@ export default ({
     command === 'build' || isPreview
       ? (process.env.BASE ?? '/playground/')
       : '/',
-  // threads-check (../src/checker) compiles, or the fork with TSGO, and
-  // threads-check reports the ownership errors; and the compiler's workers
+  // threads-check (../src/checker) compiles, and reports the ownership
+  // errors; and the compiler's workers
   // get the API in the browser (on the dev server, where workers are served
   // like any module, too)
   plugins: lazyPlugins(() => [
     apiInBrowser(),
     threads({
-      tsgo: process.env.TSGO,
       playground: true,
       checker: here('../src/checker/index.ts'),
     }),

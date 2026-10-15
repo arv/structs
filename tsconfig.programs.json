@@ -7,9 +7,6 @@
   // which is
   //   node src/checker/cli.ts compile -p tsconfig.programs.json \
   //     --runtime @arv/threads
-  // (the tsgo fork compiles them the same way, with `using` lowered for its
-  // target: <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime
-  // @arv/threads)
   "compilerOptions": {
     "target": "es2022",
     "module": "esnext",

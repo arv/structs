@@ -4,11 +4,11 @@
 // Code written against these types is ordinary TypeScript: tsc, editors,
 // linters and formatters accept it as it is. Two tools add what the types
 // cannot say:
-//   - the ownership checker (@arv/threads-check, or the tsgo fork's
-//     `tsgo own check`) runs in CI like a linter and proves the rules below:
-//     nothing is used after it is sent, and shared values never change;
-//   - the bundler plugin (@arv/threads/vite) compiles with threads-check (or
-//     the tsgo fork): shared structs and SharedArrays become typed-array
+//   - the ownership checker (@arv/threads-check) runs in CI like a linter and
+//     proves the rules below: nothing is used after it is sent, and shared
+//     values never change;
+//   - the bundler plugin (@arv/threads/vite) compiles with threads-check:
+//     shared structs and SharedArrays become typed-array
 //     accesses on shared memory, their references are counted, and each
 //     module registers the functions threads run.
 //

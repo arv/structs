@@ -1,8 +1,8 @@
-// Corners of the lowering, compiled by both compilers and compared
-// (emit-compare.ts): owned locals in a loop's head and under a label,
-// parameters with defaults, logical assignments, strings, channel fields,
-// booleans, i32 and u8 elements, atomics, closures that capture, concise
-// bodies that need temporaries, continue in a quiescent loop, a receive loop.
+// Corners of the lowering (compile.test.ts compiles them): owned locals in a
+// loop's head and under a label, parameters with defaults, logical
+// assignments, strings, channel fields, booleans, i32 and u8 elements,
+// atomics, closures that capture, concise bodies that need temporaries,
+// continue in a quiescent loop, a receive loop.
 import {
   atomic,
   bool,

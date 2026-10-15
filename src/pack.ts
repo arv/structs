@@ -9,12 +9,10 @@
 //   - threads-check reports a value used after it was sent, and nothing in the
 //     page's project, and `threads-check compile` compiles it;
 //   - tsc checks a module that imports every entry against their declarations;
-//   - the Vite plugin, with no tsgo option, compiles the page's struct program
-//     with threads-check;
+//   - the Vite plugin compiles the page's struct program with threads-check;
 //   - the page runs its main on a pool of workers in Chrome (Playwright), from
-//     Vite's dev server with the plugin and from Vite's build with it: with
-//     threads-check, and with $TSGO (the tsgo fork's binary) with the fork too.
-//   vp run test-pack    (TSGO=<threads-checker>/built/local/tsgo)
+//     Vite's dev server with the plugin and from Vite's build with it.
+//   vp run test-pack
 import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -27,7 +25,6 @@ import {stripVTControlCharacters} from 'node:util';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-pack-'));
 const app = path.join(work, 'app');
-const tsgo = process.env.TSGO;
 
 const run = (command: string, args: string[], cwd: string) =>
   execFileSync(command, args, {
@@ -161,7 +158,7 @@ import '@arv/threads/heap';
 import threads, {type Options} from '@arv/threads/vite';
 import {API, check, compile, formatDiagnostic, toJavaScript} from '@arv/threads-check';
 
-const options: Options = {tsgo: 'tsgo', tsconfig: 'tsconfig.json', args: []};
+const options: Options = {tsconfig: 'tsconfig.json', checker: null};
 export const plugin = [threads(options).name, threads().name];
 export const api = [start, stop, helpersOf, API, check, compile, toJavaScript, formatDiagnostic];
 export type Types = [Shared<{x: number}>, Diagnostic];
@@ -172,9 +169,9 @@ write(
   'vite.config.js',
   `import threads from '@arv/threads/vite';
 
-// threads-check compiles, or with TSGO set the fork
+// threads-check compiles
 export default {
-  plugins: [threads(process.env.TSGO ? {tsgo: process.env.TSGO} : {})],
+  plugins: [threads()],
 };
 `,
 );
@@ -216,7 +213,6 @@ import {fileURLToPath} from 'node:url';
 for (const entry of process.argv.slice(2))
   assert(fs.existsSync(fileURLToPath(import.meta.resolve(entry))), entry);
 const {default: threads} = await import('@arv/threads/vite');
-assert.equal(threads({tsgo: 'tsgo'}).name, 'threads');
 assert.equal(threads().name, 'threads');
 const {helpersOf} = await import('@arv/threads/compiled');
 assert.equal(helpersOf('', '@arv/threads').register, undefined);
@@ -226,7 +222,7 @@ assert.equal(typeof compile, 'function');
 assert.equal(typeof API, 'function');
 `,
 );
-// the Vite plugin with no tsgo option: threads-check compiles the struct
+// the Vite plugin: threads-check compiles the struct
 // program (its layout lowered, main registered by the module's key), and
 // Vite bundles it
 write(
@@ -249,7 +245,7 @@ const js = [output]
 assert.match(js, /register\\w*\\("app\\.ts", \\{[^}]*\\bmain\\b/);
 assert.match(js, /F64\\w*\\[/);
 assert.doesNotMatch(js, /\\bbodies\\[i\\]\\.x\\b/);
-console.log('the plugin, with no tsgo option, compiled app.ts');
+console.log('the plugin compiled app.ts');
 `,
 );
 // CI's pnpm would want a lockfile
@@ -313,93 +309,84 @@ console.log('tsc: the declarations check');
 
 console.log(run(process.execPath, ['build.js'], app).trim());
 
-// the page in Chrome, compiled by threads-check, and by the fork with TSGO
-const compilers: [string, string | undefined][] = [
-  ['threads-check', undefined],
-];
-if (tsgo) compilers.push(['the tsgo fork', tsgo]);
-else console.log('TSGO is not set: the page is not compiled by the fork');
-for (const [compiler, tsgo] of compilers) {
-  const env = {...process.env, TSGO: tsgo ?? ''};
-  const {chromium} = await import('playwright-core');
-  const browser = await chromium.launch({channel: 'chrome'});
-  // the page at url shows what its main returned, once it has run on the pool
-  const shows = async (url: string, what: string) => {
-    const page = await browser.newPage();
-    const errors: string[] = [];
-    page.on('pageerror', e => errors.push(e.message));
-    let text: string | null;
-    try {
-      await page.goto(url);
-      await page.waitForFunction(
-        () => document.body?.textContent?.startsWith('result'),
-        null,
-        {timeout: 30_000},
-      );
-      text = await page.evaluate(() => document.body.textContent);
-    } catch (e) {
-      return fail(`${what}: ${(e as Error).message}\n${errors.join('\n')}`);
-    } finally {
-      await page.close();
-    }
-    if (text !== 'result 4950') fail(`${what}: the page shows ${text}`);
-    console.log(
-      `${what}, compiled by ${compiler}, in Chrome ${browser.version()}: ${text}`,
-    );
-  };
+// the page in Chrome, compiled by threads-check
+const {chromium} = await import('playwright-core');
+const browser = await chromium.launch({channel: 'chrome'});
+// the page at url shows what its main returned, once it has run on the pool
+const shows = async (url: string, what: string) => {
+  const page = await browser.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  let text: string | null;
   try {
-    // the dev server
-    const dev = spawn(
-      process.execPath,
-      ['node_modules/vite/bin/vite.js', '--port', '0'],
-      {cwd: app, env, stdio: ['ignore', 'pipe', 'inherit']},
+    await page.goto(url);
+    await page.waitForFunction(
+      () => document.body?.textContent?.startsWith('result'),
+      null,
+      {timeout: 30_000},
     );
-    try {
-      const url = await new Promise<string>((resolve, reject) => {
-        let out = '';
-        dev.stdout.on('data', chunk => {
-          out += chunk;
-          const m = /Local:\s+(http\S+)/.exec(stripVTControlCharacters(out));
-          if (m) resolve(m[1]);
-        });
-        dev.on('exit', code => reject(new Error(`vite: ${code} ${out}`)));
-      });
-      await shows(url, 'vite dev');
-    } finally {
-      dev.kill();
-    }
-    // the build, served cross-origin isolated, as a production server must
-    execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], {
-      cwd: app,
-      env,
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
-    const dist = path.join(app, 'dist');
-    const server = http.createServer((req, res) => {
-      const file = path.join(dist, new URL(req.url!, 'http://x').pathname);
-      if (
-        !file.startsWith(dist) ||
-        !fs.statSync(file, {throwIfNoEntry: false})?.isFile()
-      ) {
-        res.writeHead(404).end();
-        return;
-      }
-      res.writeHead(200, {
-        'content-type': file.endsWith('.js') ? 'text/javascript' : 'text/html',
-        'cross-origin-opener-policy': 'same-origin',
-        'cross-origin-embedder-policy': 'require-corp',
-      });
-      res.end(fs.readFileSync(file));
-    });
-    await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
-    try {
-      const {port} = server.address() as AddressInfo;
-      await shows(`http://127.0.0.1:${port}/index.html`, 'vite build');
-    } finally {
-      server.close();
-    }
+    text = await page.evaluate(() => document.body.textContent);
+  } catch (e) {
+    return fail(`${what}: ${(e as Error).message}\n${errors.join('\n')}`);
   } finally {
-    await browser.close();
+    await page.close();
   }
+  if (text !== 'result 4950') fail(`${what}: the page shows ${text}`);
+  console.log(
+    `${what}, compiled by threads-check, in Chrome ${browser.version()}: ${text}`,
+  );
+};
+try {
+  // the dev server
+  const dev = spawn(
+    process.execPath,
+    ['node_modules/vite/bin/vite.js', '--port', '0'],
+    {cwd: app, stdio: ['ignore', 'pipe', 'inherit']},
+  );
+  try {
+    const url = await new Promise<string>((resolve, reject) => {
+      let out = '';
+      dev.stdout.on('data', chunk => {
+        out += chunk;
+        const m = /Local:\s+(http\S+)/.exec(stripVTControlCharacters(out));
+        if (m) resolve(m[1]);
+      });
+      dev.on('exit', code => reject(new Error(`vite: ${code} ${out}`)));
+    });
+    await shows(url, 'vite dev');
+  } finally {
+    dev.kill();
+  }
+  // the build, served cross-origin isolated, as a production server must
+  execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], {
+    cwd: app,
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  const dist = path.join(app, 'dist');
+  const server = http.createServer((req, res) => {
+    const file = path.join(dist, new URL(req.url!, 'http://x').pathname);
+    if (
+      !file.startsWith(dist) ||
+      !fs.statSync(file, {throwIfNoEntry: false})?.isFile()
+    ) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': file.endsWith('.js') ? 'text/javascript' : 'text/html',
+      'cross-origin-opener-policy': 'same-origin',
+      'cross-origin-embedder-policy': 'require-corp',
+    });
+    res.end(fs.readFileSync(file));
+  });
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const {port} = server.address() as AddressInfo;
+    await shows(`http://127.0.0.1:${port}/index.html`, 'vite build');
+  } finally {
+    server.close();
+  }
+} finally {
+  await browser.close();
 }
 fs.rmSync(work, {recursive: true, force: true});

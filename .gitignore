@@ -1,4 +1,5 @@
-# the tsgo fork's emit (build/ts), and bench.ts's work (build/bench)
+# the programs threads-check compiles (build/ts), and bench.ts's work
+# (build/bench)
 /build
 # the playground's production build (vp build), and the compiler it runs in
 # WebAssembly (vp run build-wasm)

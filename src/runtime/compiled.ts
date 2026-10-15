@@ -4,7 +4,7 @@
 // with a compiled program's text. Plain string work: it runs in node and in a
 // browser.
 
-// The runtime helpers the fork's emit imports, by the names the runtime exports
+// The runtime helpers compiled code imports, by the names the runtime exports
 // them as. It imports each under a name of its own, the same with two leading
 // underscores (`retain as __retain`), or with a number too where a module
 // declares or uses that name itself (`retain as __retain_1`).
@@ -69,8 +69,8 @@ export function keyRegistration(code: string, runtime: string, key: string) {
   return `${code.slice(0, at)}${register}(${JSON.stringify(key)}, {${code.slice(at + call.length)}`;
 }
 
-// The functions code the fork emitted registers (in its register call, its
-// last statement), or null where it registers none.
+// The functions compiled code registers (in its register call, its last
+// statement), or null where it registers none.
 export function registeredIn(code: string, runtime: string) {
   const register = helpersOf(code, runtime).register;
   if (!register) return null;
@@ -86,11 +86,11 @@ export function registeredIn(code: string, runtime: string) {
 
 // What a program with its types only erased needs at its end: the one line
 // that registers its top-level functions, which is how a thread finds the one
-// it runs; and how many lines that is. Which functions are the fork's to say,
-// as its emit of the program (`compiled`) adds the line itself: the fork's
-// parser, which runs wherever this does (in node, and in a browser as
-// WebAssembly), knows a declaration at the top level from a function
-// anywhere else. Nothing where the fork registers nothing, or emitted
+// it runs; and how many lines that is. Which functions are the compiler's to
+// say, as its output for the program (`compiled`) adds the line itself:
+// threads-check, which runs wherever this does (in node, and in a browser on
+// tsgo in WebAssembly), knows a declaration at the top level from a function
+// anywhere else. Nothing where the compiler registers nothing, or emitted
 // nothing.
 export function registration(
   source: string,
@@ -111,22 +111,3 @@ export type Diagnostic = {
   code: string;
   message: string;
 };
-
-// `file(line,col): error TS1234: message` lines, with their indented
-// continuations
-export function diagnostics(text: string | undefined) {
-  const out: Diagnostic[] = [];
-  for (const line of String(text ?? '').split('\n')) {
-    const m = /^[^()\n]*\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(line);
-    if (m)
-      out.push({
-        line: Number(m[1]),
-        col: Number(m[2]),
-        code: m[3],
-        message: m[4],
-      });
-    else if (out.length !== 0 && /^\s+\S/.test(line))
-      out.at(-1)!.message += ` ${line.trim()}`;
-  }
-  return out;
-}

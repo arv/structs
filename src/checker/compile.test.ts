@@ -1,7 +1,6 @@
 // compile (compile.ts, transform.ts): what it emits for the corners of the
 // lowering (test/emit), the source map back to the original, the types
-// stripped, and threads-check compile writing a project. vp run compare-emit
-// compares all of it with the fork's emit, where there is a fork.
+// stripped, and threads-check compile writing a project.
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';

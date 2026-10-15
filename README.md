@@ -186,14 +186,12 @@ export default {
 };
 ```
 
-| Option       | Default           | What it does                                                                                                                                                                                                  |
-| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig`   | `'tsconfig.json'` | The project that threads-check compiles, relative to Vite's root.                                                                                                                                             |
-| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from.                                                                                                                                                             |
-| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does.                                                                                     |
-| `checker`    | `null`            | The path of threads-check's entry module, if it's not the @arv/threads-check installed beside the plugin.                                                                                                     |
-| `tsgo`       | `undefined`       | The tsgo fork's binary (see [Status](#status)). When set, the fork compiles instead of threads-check, and the plugin serves what it emits.                                                                    |
-| `args`       | `[]`              | Used with `tsgo`. More arguments for tsgo. They come after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir`, `--sourceMap`, `--noEmit false`, `--noEmitOnError false` and `--tsBuildInfoFile`. |
+| Option       | Default           | What it does                                                                                                              |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig`   | `'tsconfig.json'` | The project that threads-check compiles, relative to Vite's root.                                                         |
+| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from.                                                                         |
+| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does. |
+| `checker`    | `null`            | The path of threads-check's entry module, if it's not the @arv/threads-check installed beside the plugin.                 |
 
 threads-check compiles each module of that project. The plugin hands Vite each
 one's TypeScript with the compiler's edits, and a source map, and Vite strips
@@ -487,14 +485,12 @@ today:
   7.1's API has no WebAssembly build, so the playground builds one: stock
   TypeScript's API server, compiled to WebAssembly from the commit TypeScript's
   npm package was built from. threads-check runs in a worker and talks to it
-  over shared memory, as it talks to a tsgo process on Node. Neither the
-  playground nor its deployment needs the fork,
-  [arv/threads-checker](https://github.com/arv/threads-checker), any more. The
-  Vite plugin still compiles with the fork when its `tsgo` option names the
-  fork's binary (build it with `go build -o built/local/tsgo ./cmd/tsgo`), and
-  CI still compares threads-check with it.
+  over shared memory, as it talks to a tsgo process on Node.
 - **The checker needs no fork either.** @arv/threads-check checks ownership on
-  the same API.
+  the same API. Nothing here builds, runs or needs the fork of TypeScript it
+  replaced, [arv/threads-checker](https://github.com/arv/threads-checker), any
+  more: the compiler, the checker, the Vite plugin, the playground and CI all
+  run on stock TypeScript.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**
   Structs, SharedArrays and maps are reference counted, and `collectCycles()`
   frees cycles of them, stopping every thread for a moment. Nothing calls it on
@@ -540,7 +536,7 @@ or later on Node 24).
 
 ```sh
 vp install                  # Once, at the root
-vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
+vp dev                      # The playground
 vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
 vp run build-wasm           # tsgo in WebAssembly, which the playground's build compiles with in the browser (needs Go)
 vp build                    # The playground's production build
@@ -552,7 +548,7 @@ vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # Formatting, lint and types, as CI would
 vp test                     # The unit tests, as CI would
 vp run -r build-dist        # Each package's dist/, as pnpm pack builds it
-vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome; with TSGO, compiled by the fork too
+vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome
 vp run -r typecheck         # tsc in every package
 ```
 

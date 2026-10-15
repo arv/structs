@@ -1,9 +1,8 @@
 # On every push to main and every pull request: vp check (formatting, lint and
 # types) and vp test (the unit tests, the programs threads-check compiles, and
 # the Vite plugin compiling with threads-check), as they run locally, the
-# packages as npm installs them, the playground's static build compiling in
-# Chrome, and the tsgo fork (arv/threads-checker) on the programs, the Vite
-# plugin and the packages, with threads-check compared with it
+# programs threads-check compiles run on node, the packages as npm installs
+# them, and the playground's static build compiling in Chrome
 name: CI
 
 on:
@@ -40,6 +39,20 @@ jobs:
           node-version: '24'
           cache: true
       - run: vp test
+      # the programs (tsconfig.programs.json), compiled by threads-check into
+      # build/ts, on node: each runs to the end, and N-body reaches the same
+      # energy on every thread count
+      - run: vp run build-programs
+      - name: the programs on node
+        run: |
+          for f in build/ts/*.js; do
+            echo "== $f"
+            out=$(node src/run.ts "$f" --threads=1,2,4)
+            echo "$out"
+            case $f in
+              *nbody*) test "$(echo "$out" | grep -c 'kinetic energy 59093.195871')" = 3 ;;
+            esac
+          done
       # packed, installed in a project of their own, and loaded by node; the
       # page, which the plugin compiles with threads-check, runs in Chrome (the
       # runner's), from Vite's dev server and its build
@@ -66,65 +79,3 @@ jobs:
         working-directory: playground
       - run: vp run test-build
         working-directory: playground
-
-  # the tsgo fork, built from arv/threads-checker's main: its ownership check
-  # and its emit of the programs (tsconfig.programs.json), the emitted programs
-  # on node, threads-check compared with it (vp run compare), the Vite plugin's
-  # tests, and the packages as npm installs them, with a page the plugin
-  # compiles with it (vp run test-pack)
-  fork:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: arv/threads-checker
-          path: threads-checker
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: threads-checker/go.mod
-          cache-dependency-path: threads-checker/go.sum
-      - run: go build -o built/local/tsgo ./cmd/tsgo
-        working-directory: threads-checker
-      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
-        with:
-          node-version: '24'
-          cache: true
-      - name: tsgo own check
-        run:
-          threads-checker/built/local/tsgo own check -p tsconfig.programs.json
-          --ownRuntime @arv/threads
-      - name: tsgo (emit build/ts)
-        run:
-          threads-checker/built/local/tsgo -p tsconfig.programs.json
-          --ownRuntime @arv/threads
-      # each runs to the end, and N-body reaches the same energy on every
-      # thread count
-      - name: the programs on node
-        run: |
-          for f in build/ts/*.js; do
-            echo "== $f"
-            out=$(node src/run.ts "$f" --threads=1,2,4)
-            echo "$out"
-            case $f in
-              *nbody*) test "$(echo "$out" | grep -c 'kinetic energy 59093.195871')" = 3 ;;
-            esac
-          done
-      - run: vp run --filter @arv/threads-check compare
-        env:
-          TSGO_FORK: ${{ github.workspace }}/threads-checker
-      # threads-check's compile, file by file, against the fork's emit
-      - run: vp run --filter @arv/threads-check compare-emit
-        env:
-          TSGO_FORK: ${{ github.workspace }}/threads-checker
-      # they build projects with threads-check and with the fork: the test
-      # job, which has no fork, skips the fork's
-      - run: vp test src/runtime/vite-plugin-threads.test.ts
-        env:
-          TSGO_FORK: ${{ github.workspace }}/threads-checker
-      # packed, installed in a project of their own, and loaded by node; the
-      # page runs in Chrome (the runner's), from Vite's dev server and its
-      # build
-      - run: vp run test-pack
-        env:
-          TSGO: ${{ github.workspace }}/threads-checker/built/local/tsgo

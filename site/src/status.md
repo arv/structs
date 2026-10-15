@@ -17,14 +17,12 @@ today:
   7.1's API has no WebAssembly build, so the playground builds one: stock
   TypeScript's API server, compiled to WebAssembly from the commit TypeScript's
   npm package was built from. threads-check runs in a worker and talks to it
-  over shared memory, as it talks to a tsgo process on Node. Neither the
-  playground nor its deployment needs the fork,
-  [arv/threads-checker](https://github.com/arv/threads-checker), any more. The
-  Vite plugin still compiles with the fork when its `tsgo` option names the
-  fork's binary (build it with `go build -o built/local/tsgo ./cmd/tsgo`), and
-  CI still compares threads-check with it.
+  over shared memory, as it talks to a tsgo process on Node.
 - **The checker needs no fork either.** @arv/threads-check checks ownership on
-  the same API.
+  the same API. Nothing here builds, runs or needs the fork of TypeScript it
+  replaced, [arv/threads-checker](https://github.com/arv/threads-checker), any
+  more: the compiler, the checker, the Vite plugin, the playground and CI all
+  run on stock TypeScript.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**
   Structs, SharedArrays and maps are reference counted, and `collectCycles()`
   frees cycles of them, stopping every thread for a moment. Nothing calls it on

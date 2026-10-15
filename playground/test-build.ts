@@ -8,8 +8,8 @@
 // from each run (its lines in any order, as threads print them, and its
 // timings left out). It prints how long each compile took in the page.
 //   vp run build-wasm && vp run test-build
-//   --compare=<dir>   also time the compiles of another static build (the
-//                     tsgo fork's, say), served the same way
+//   --compare=<dir>   also time the compiles of another static build (an
+//                     older one, say), served the same way
 //   --only=<text>     the programs whose names include it
 //   --threads=1,2     the thread counts each run runs with
 import fs from 'node:fs';

@@ -33,8 +33,6 @@
   },
   "scripts": {
     "build-dist": "node -e \"fs.rmSync('dist', {recursive: true, force: true})\" && tsc -p tsconfig.dist.json",
-    "compare": "node test/compare.ts",
-    "compare-emit": "node test/emit-compare.ts",
     "prepack": "pnpm run build-dist",
     "typecheck": "tsc -p tsconfig.json"
   },

@@ -88,9 +88,7 @@ vp install                                                 # at the repository's
 vp dev                                                     # here, or at the root
 ```
 
-Open the address Vite prints, and you're ready to go. To compile with the fork
-instead, start the dev server with `TSGO` pointing at its binary
-(`TSGO=/path/to/threads-checker/built/local/tsgo vp dev`).
+Open the address Vite prints, and you're ready to go.
 
 ### Checking the Programs
 
@@ -201,7 +199,7 @@ M5 Pro. Times are in milliseconds, on 1, 2, 4 and 8 threads:
 | `index.html`, `main.ts`  | The page, built on [Monaco](https://github.com/microsoft/monaco-editor)                                                     |
 | `boot.ts`                | The page's entry: it isolates the page, then loads `main.ts`                                                                |
 | `programs/`              | The page's programs                                                                                                         |
-| `vite.config.ts`         | The dev server, with the runtime's Vite plugin, which compiles with threads-check (or the fork) and runs the checker        |
+| `vite.config.ts`         | The dev server, with the runtime's Vite plugin, which compiles with threads-check and runs the checker                      |
 | `wasm.ts`, `compiler.ts` | Compiling in the browser: the page's side, and the worker that runs threads-check                                           |
 | `tsgo/`                  | tsgo in WebAssembly: its entry point (`main.go`), its worker, and the API client's channel to it, on pipes in shared memory |
 | `build-wasm.ts`          | Builds tsgo, in WebAssembly, into `public/compiler/`                                                                        |

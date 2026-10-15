@@ -1,7 +1,6 @@
 // threads-check on the programs of test/cases: each reports what
-// test/expected/cases-<name>.txt says, which `vp run compare --update` writes
-// from the tsgo fork's `own check` (compare.ts compares with the fork itself
-// when it is there).
+// test/expected/cases-<name>.txt says, which began as the tsgo fork's
+// `own check` output and is edited by hand as the rules change.
 import {
   mkdtempSync,
   readdirSync,
@@ -210,9 +209,8 @@ describe('threads-check', () => {
   }
 });
 
-// What threads-check reports and the fork does not, yet (compare.ts compares
-// the two on test/cases alone): programs in test/diverging, each with what it
-// should report
+// What threads-check reports and the fork did not: programs in
+// test/diverging, each with what it should report
 describe('threads-check, where it differs from the fork', () => {
   it('refuses a counted value yielded, or returned by a generator', () => {
     // the fork has no rule for yield: the value lands in an IteratorResult,

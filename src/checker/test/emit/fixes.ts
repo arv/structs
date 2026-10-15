@@ -1,5 +1,5 @@
 // What threads-check compiles differently from the fork, which gets these
-// wrong (compile.test.ts tests them, and emit-compare.ts knows they differ).
+// wrong (compile.test.ts tests them).
 import {f64, SharedArray, struct, type Struct} from 'threads';
 
 const Node = struct({value: f64});

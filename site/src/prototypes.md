@@ -86,15 +86,13 @@ DevTools' Performance panel.
 [src/presets/](https://github.com/arv/threads/tree/main/src/presets), run on
 plain V8. These are the programs that Porffor's playground has as presets.
 
-The TypeScript programs (`*.ts`) go through three tools. Stock tsc checks them,
-the ownership checker checks them too, and the tsgo fork compiles them. The fork
-is [arv/threads-checker](https://github.com/arv/threads-checker), and you build
-it with `go build -o built/local/tsgo ./cmd/tsgo`:
+The TypeScript programs (`*.ts`) go through two tools. Stock tsc checks them,
+and threads-check checks their ownership and compiles them:
 
 ```sh
-vp run typecheck                                               # types: stock TypeScript
-<threads-checker>/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads   # ownership, for CI
-<threads-checker>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads            # emit build/ts
+vp run typecheck                                                           # types: stock TypeScript
+node src/checker/cli.ts -p tsconfig.programs.json --runtime @arv/threads   # ownership
+vp run build-programs                                                      # ownership, and emit build/ts
 node src/run.ts build/ts/nbody-struct.js
 ```
 
@@ -118,7 +116,7 @@ Here's what each file is for:
 | `runtime/chan.ts`                                                            | Go-style goroutines and channels on own and shared values.                                                                                                                |
 | `runtime/maps.ts`                                                            | SharedMap and SharedSet.                                                                                                                                                  |
 | `runtime/heap.ts`, `browser.ts`, `threads-worker.ts`                         | A page's side: its shared memory, `start()` and `await run(f, ...args)`, and its pool of Web Workers.                                                                     |
-| `runtime/vite-plugin-threads.ts`                                             | The bundler plugin. It compiles with threads-check (or the fork), registers thread functions, serves the playground's compiles and sets cross-origin isolation.           |
+| `runtime/vite-plugin-threads.ts`                                             | The bundler plugin. It compiles with threads-check, registers thread functions, serves the playground's compiles and sets cross-origin isolation.                         |
 | `runtime/compiled.ts`                                                        | What the plugin and the playground's page both do with compiled code.                                                                                                     |
 | [`checker/`](https://github.com/arv/threads/tree/main/src/checker)           | threads-check, the ownership checker and the compiler, built on TypeScript 7.1's API.                                                                                     |
 | `nbody-own.ts`                                                               | N-body, written by hand for own and shared values.                                                                                                                        |

@@ -23,14 +23,12 @@ export default {
 };
 ```
 
-| Option       | Default           | What it does                                                                                                                                                                                                  |
-| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig`   | `'tsconfig.json'` | The project that threads-check compiles, relative to Vite's root.                                                                                                                                             |
-| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from.                                                                                                                                                             |
-| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does.                                                                                     |
-| `checker`    | `null`            | The path of threads-check's entry module, if it's not the @arv/threads-check installed beside the plugin.                                                                                                     |
-| `tsgo`       | `undefined`       | The tsgo fork's binary (see [Status](/status/)). When set, the fork compiles instead of threads-check, and the plugin serves what it emits.                                                                   |
-| `args`       | `[]`              | Used with `tsgo`. More arguments for tsgo. They come after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir`, `--sourceMap`, `--noEmit false`, `--noEmitOnError false` and `--tsBuildInfoFile`. |
+| Option       | Default           | What it does                                                                                                              |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig`   | `'tsconfig.json'` | The project that threads-check compiles, relative to Vite's root.                                                         |
+| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from.                                                                         |
+| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does. |
+| `checker`    | `null`            | The path of threads-check's entry module, if it's not the @arv/threads-check installed beside the plugin.                 |
 
 threads-check compiles each module of that project. The plugin hands Vite each
 one's TypeScript with the compiler's edits, and a source map, and Vite strips

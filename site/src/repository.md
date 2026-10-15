@@ -33,7 +33,7 @@ names. You need Node 22.18 or later (24.11 or later on Node 24).
 
 ```sh
 vp install                  # Once, at the root
-vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
+vp dev                      # The playground
 vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
 vp run build-wasm           # tsgo in WebAssembly, which the playground's build compiles with in the browser (needs Go)
 vp build                    # The playground's production build
@@ -45,7 +45,7 @@ vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # Formatting, lint and types, as CI would
 vp test                     # The unit tests, as CI would
 vp run -r build-dist        # Each package's dist/, as pnpm pack builds it
-vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome; with TSGO, compiled by the fork too
+vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome
 vp run -r typecheck         # tsc in every package
 ```
 
