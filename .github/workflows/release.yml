@@ -1,0 +1,75 @@
+# Publishes @arv/threads and @arv/threads-check to npm when a version tag
+# (v0.0.1) is pushed: the tag must name the version both package.json files
+# have. The packages are checked and tested as CI does, packed as pnpm packs them
+# (prepack builds each one's dist/), and published with npm, with provenance (an
+# attestation, signed through GitHub's OIDC token, that this workflow built them
+# from this commit).
+#
+# npm authenticates the publish by trusted publishing: each package on npmjs.com
+# names this repository and this workflow (release.yml) as its publisher, and
+# npm takes the job's OIDC token for it. A package's first version cannot be
+# published that way, as npm configures a trusted publisher on a package that
+# exists: with an NPM_TOKEN secret (a granular token that can publish @arv/*),
+# the job publishes with it instead, still with provenance. Once both packages
+# exist, configure their trusted publishers and delete the secret.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token, for trusted publishing and provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: '24'
+          cache: true
+      - name: the tag names both packages' version
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          for p in package.json src/checker/package.json; do
+            v=$(node -p "require('./$p').version")
+            if [ "$v" != "$tag" ]; then
+              echo "::error::$p has version $v, the tag $GITHUB_REF_NAME"
+              exit 1
+            fi
+          done
+      - run: vp check
+      - run: vp test
+      - name: pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/packages"
+          pnpm pack --pack-destination "$RUNNER_TEMP/packages"
+          pnpm -C src/checker pack --pack-destination "$RUNNER_TEMP/packages"
+          ls -l "$RUNNER_TEMP/packages"
+      # trusted publishing needs npm 11.5.1 or later
+      - run: npm install --global npm@11
+      - name: publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > "$HOME/.npmrc"
+          fi
+          # a version npm has already is skipped, so a rerun after one package
+          # published and the other failed publishes the other
+          for t in "$RUNNER_TEMP"/packages/*.tgz; do
+            spec=$(tar -xOzf "$t" package/package.json |
+              node -p "const p = JSON.parse(require('fs').readFileSync(0)); p.name + '@' + p.version")
+            if npm view "$spec" version >/dev/null 2>&1; then
+              echo "$spec is on npm already: skipped"
+              continue
+            fi
+            npm publish "$t" --access public --provenance
+          done

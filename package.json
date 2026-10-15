@@ -1,7 +1,6 @@
 {
   "name": "@arv/threads",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.0.1",
   "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
   "homepage": "https://github.com/arv/threads#readme",
   "bugs": {
@@ -39,6 +38,10 @@
       "default": "./dist/vite-plugin-threads.js"
     },
     "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build-dist": "node build-dist.ts",

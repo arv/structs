@@ -129,9 +129,9 @@ npm install @arv/threads
 npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
 ```
 
-Neither is on npm yet. Until they are, pack them from this repository
-(`pnpm pack` builds each package first) and install the tarballs; what you
-import is the same:
+To try what main has before it is released, pack the packages from this
+repository (`pnpm pack` builds each package first) and install the tarballs;
+what you import is the same:
 
 ```sh
 git clone https://github.com/arv/threads.git && cd threads
@@ -139,8 +139,8 @@ pnpm install
 pnpm pack --pack-destination ~/threads-packages
 pnpm -C src/checker pack --pack-destination ~/threads-packages
 cd /path/to/your/app
-npm install ~/threads-packages/arv-threads-0.1.0.tgz
-npm install --save-dev vite ~/threads-packages/arv-threads-check-0.1.0.tgz
+npm install ~/threads-packages/arv-threads-0.0.1.tgz
+npm install --save-dev vite ~/threads-packages/arv-threads-check-0.0.1.tgz
 ```
 
 @arv/threads needs [Vite](https://vite.dev) 8, or [Vite+](https://viteplus.dev),
@@ -456,6 +456,14 @@ vp run -r typecheck         # tsc in every package
 
 The code is TypeScript, and node runs it as it is, its types stripped. Tests sit
 next to what they test (`*.test.ts`), and run on Vitest.
+
+A release is a version tag: set the same `version` in package.json and
+src/checker/package.json, merge that, and push `vX.Y.Z` on it. The Release
+workflow ([.github/workflows/release.yml](.github/workflows/release.yml))
+checks, tests and packs both packages and publishes them to npm with provenance,
+by trusted publishing (each package on npmjs.com names this repository's
+release.yml as its publisher), or, for a package's first version, with an
+`NPM_TOKEN` secret.
 
 `vp` is Vite+'s [global CLI](https://viteplus.dev/guide/). Without it,
 `pnpm install` installs, and `pnpm vp <command>` runs the rest, with the
