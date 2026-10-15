@@ -27,8 +27,16 @@ npx @arv/threads-check -p tsconfig.json --runtime @arv/threads
 app.ts(23,16): error TS96007: 'order' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
 ```
 
-The checker needs no fork. @arv/threads-check runs on stock TypeScript 7.1's
-API.
+To compile a project without Vite, for Node say, `threads-check compile` writes
+each of its files as JavaScript, into the tsconfig's `outDir` or the one you
+name. It reports the same errors as a check, and type errors too:
+
+```sh
+npx @arv/threads-check compile -p tsconfig.json --runtime @arv/threads --outDir build
+```
+
+The checker and the compiler need no fork. @arv/threads-check runs on stock
+TypeScript 7.1's API.
 
 The checker reads the source, so it reports the same errors whether a program is
 compiled or runs with its types only erased (see

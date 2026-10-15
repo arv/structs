@@ -1,6 +1,9 @@
 # On every push to main and every pull request: vp check (formatting, lint and
-# types) and vp test (the unit tests), as they run locally, and the tsgo fork
-# (arv/threads-checker) on the programs, the Vite plugin and the packages
+# types) and vp test (the unit tests, the programs threads-check compiles, and
+# the Vite plugin compiling with threads-check), as they run locally, the
+# packages as npm installs them, and the tsgo fork (arv/threads-checker) on the
+# programs, the Vite plugin and the packages, with threads-check compared with
+# it
 name: CI
 
 on:
@@ -37,6 +40,10 @@ jobs:
           node-version: '24'
           cache: true
       - run: vp test
+      # packed, installed in a project of their own, and loaded by node; the
+      # page, which the plugin compiles with threads-check, runs in Chrome (the
+      # runner's), from Vite's dev server and its build
+      - run: vp run test-pack
 
   # the tsgo fork, built from arv/threads-checker's main: its ownership check
   # and its emit of the programs (tsconfig.programs.json), the emitted programs
@@ -84,8 +91,12 @@ jobs:
       - run: vp run --filter @arv/threads-check compare
         env:
           TSGO_FORK: ${{ github.workspace }}/threads-checker
-      # they build projects with the fork: the test job, which has none,
-      # skips them
+      # threads-check's compile, file by file, against the fork's emit
+      - run: vp run --filter @arv/threads-check compare-emit
+        env:
+          TSGO_FORK: ${{ github.workspace }}/threads-checker
+      # they build projects with threads-check and with the fork: the test
+      # job, which has no fork, skips the fork's
       - run: vp test src/runtime/vite-plugin-threads.test.ts
         env:
           TSGO_FORK: ${{ github.workspace }}/threads-checker

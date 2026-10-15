@@ -7,11 +7,13 @@
 //     loads what it runs: the Vite plugin, @arv/threads/compiled and
 //     threads-check's API;
 //   - threads-check reports a value used after it was sent, and nothing in the
-//     page's project;
+//     page's project, and `threads-check compile` compiles it;
 //   - tsc checks a module that imports every entry against their declarations;
-//   - with $TSGO (the tsgo fork's binary), the page runs its main on a pool of
-//     workers in Chrome (Playwright), from Vite's dev server with the plugin
-//     and from Vite's build with it.
+//   - the Vite plugin, with no tsgo option, compiles the page's struct program
+//     with threads-check;
+//   - the page runs its main on a pool of workers in Chrome (Playwright), from
+//     Vite's dev server with the plugin and from Vite's build with it: with
+//     threads-check, and with $TSGO (the tsgo fork's binary) with the fork too.
 //   vp run test-pack    (TSGO=<threads-checker>/built/local/tsgo)
 import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -157,11 +159,11 @@ import {start, stop} from '@arv/threads/browser';
 import {helpersOf, type Diagnostic} from '@arv/threads/compiled';
 import '@arv/threads/heap';
 import threads, {type Options} from '@arv/threads/vite';
-import {API, check, formatDiagnostic} from '@arv/threads-check';
+import {API, check, compile, formatDiagnostic, toJavaScript} from '@arv/threads-check';
 
 const options: Options = {tsgo: 'tsgo', tsconfig: 'tsconfig.json', args: []};
-export const plugin = threads(options).name;
-export const api = [start, stop, helpersOf, API, check, formatDiagnostic];
+export const plugin = [threads(options).name, threads().name];
+export const api = [start, stop, helpersOf, API, check, compile, toJavaScript, formatDiagnostic];
 export type Types = [Shared<{x: number}>, Diagnostic];
 `,
 );
@@ -170,7 +172,10 @@ write(
   'vite.config.js',
   `import threads from '@arv/threads/vite';
 
-export default {plugins: [threads({tsgo: process.env.TSGO})]};
+// threads-check compiles, or with TSGO set the fork
+export default {
+  plugins: [threads(process.env.TSGO ? {tsgo: process.env.TSGO} : {})],
+};
 `,
 );
 write(
@@ -212,11 +217,39 @@ for (const entry of process.argv.slice(2))
   assert(fs.existsSync(fileURLToPath(import.meta.resolve(entry))), entry);
 const {default: threads} = await import('@arv/threads/vite');
 assert.equal(threads({tsgo: 'tsgo'}).name, 'threads');
+assert.equal(threads().name, 'threads');
 const {helpersOf} = await import('@arv/threads/compiled');
 assert.equal(helpersOf('', '@arv/threads').register, undefined);
-const {check, API} = await import('@arv/threads-check');
+const {check, compile, API} = await import('@arv/threads-check');
 assert.equal(typeof check, 'function');
+assert.equal(typeof compile, 'function');
 assert.equal(typeof API, 'function');
+`,
+);
+// the Vite plugin with no tsgo option: threads-check compiles the struct
+// program (its layout lowered, main registered by the module's key), and
+// Vite bundles it
+write(
+  'build.js',
+  `import assert from 'node:assert';
+import {build} from 'vite';
+import threads from '@arv/threads/vite';
+
+const output = await build({
+  configFile: false,
+  logLevel: 'silent',
+  plugins: [threads()],
+  build: {minify: false, write: false},
+});
+const js = [output]
+  .flat()
+  .flatMap(o => o.output)
+  .map(chunk => chunk.code ?? '')
+  .join('\\n');
+assert.match(js, /register\\w*\\("app\\.ts", \\{[^}]*\\bmain\\b/);
+assert.match(js, /F64\\w*\\[/);
+assert.doesNotMatch(js, /\\bbodies\\[i\\]\\.x\\b/);
+console.log('the plugin, with no tsgo option, compiled app.ts');
 `,
 );
 // CI's pnpm would want a lockfile
@@ -242,6 +275,29 @@ if (clean.status !== 0)
 if (mistake.status !== 1 || !/error TS96001: 'order'/.test(mistake.stdout))
   fail(`threads-check: ${mistake.status} ${mistake.stdout}${mistake.stderr}`);
 console.log(`threads-check: ${mistake.stdout.trim()}`);
+const compiled = spawnSync(
+  path.join(app, 'node_modules', '.bin', 'threads-check'),
+  [
+    'compile',
+    '-p',
+    'tsconfig.json',
+    '--runtime',
+    '@arv/threads',
+    '--outDir',
+    'out',
+  ],
+  {cwd: app, encoding: 'utf8'},
+);
+if (
+  compiled.status !== 0 ||
+  !/__register\(import\.meta\.url, \{[^}]*\bmain\b/.test(
+    fs.readFileSync(path.join(app, 'out/app.js'), 'utf8'),
+  )
+)
+  fail(
+    `threads-check compile: ${compiled.status} ${compiled.stdout}${compiled.stderr}`,
+  );
+console.log('threads-check compile: out/app.js registers main');
 
 run(
   process.execPath,
@@ -255,10 +311,16 @@ run(
 );
 console.log('tsc: the declarations check');
 
-if (!tsgo) {
-  console.log('TSGO is not set: no page built, and none in Chrome');
-} else {
-  const env = {...process.env, TSGO: tsgo};
+console.log(run(process.execPath, ['build.js'], app).trim());
+
+// the page in Chrome, compiled by threads-check, and by the fork with TSGO
+const compilers: [string, string | undefined][] = [
+  ['threads-check', undefined],
+];
+if (tsgo) compilers.push(['the tsgo fork', tsgo]);
+else console.log('TSGO is not set: the page is not compiled by the fork');
+for (const [compiler, tsgo] of compilers) {
+  const env = {...process.env, TSGO: tsgo ?? ''};
   const {chromium} = await import('playwright-core');
   const browser = await chromium.launch({channel: 'chrome'});
   // the page at url shows what its main returned, once it has run on the pool
@@ -281,7 +343,9 @@ if (!tsgo) {
       await page.close();
     }
     if (text !== 'result 4950') fail(`${what}: the page shows ${text}`);
-    console.log(`${what}, in Chrome ${browser.version()}: ${text}`);
+    console.log(
+      `${what}, compiled by ${compiler}, in Chrome ${browser.version()}: ${text}`,
+    );
   };
   try {
     // the dev server

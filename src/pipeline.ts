@@ -2,7 +2,7 @@
 // they cost: an unbuffered ping-pong, a buffered producer and consumer, two
 // producers merged with select, and big arrays sent as copies and as
 // SharedArrays, which move by address.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+//   vp run build-programs
 //   node src/run.ts build/ts/pipeline.js
 import {Channel, go, log, select, SharedArray} from '@arv/threads';
 

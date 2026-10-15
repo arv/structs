@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-// the module a program names: a path (such as a module the tsgo fork emitted,
+// the module a program names: a path (such as a module threads-check compiled,
 // build/ts/nbody-ts.js), or one in this directory by name (nbody-own)
 export const findProgram: (program: string) => string = program =>
   /\.[jt]s$/.test(program) && fs.existsSync(path.resolve(program))

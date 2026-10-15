@@ -8,9 +8,9 @@
 //               (<program>-own.ts), on node
 //   own-chrome  the same, on Web Workers in Chrome
 //   ts-node     the program in TypeScript, moving and sharing objects
-//               (<program>-ts.ts), as the tsgo fork emitted it
-//               (build/ts/<program>-ts.js: compile first, see
-//               tsconfig.programs.json), on node
+//               (<program>-ts.ts), as threads-check compiled it
+//               (build/ts/<program>-ts.js: compile first, vp run
+//               build-programs), on node
 //   ts-chrome   the same, on Web Workers in Chrome
 //   cells-node  own and shared values with the hot data in a shared typed-array
 //               cell (<program>-cells.ts)

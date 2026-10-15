@@ -51,6 +51,7 @@ import {
   getFunctionFlags,
   isAssignmentTarget,
   isBindingPattern,
+  isClassExtends,
   isExpression,
   isFunctionExpressionOrArrowFunction,
   isFunctionLike,
@@ -916,6 +917,14 @@ export function getConversion(c: Own, expr: Node): Conversion {
 // other elements).
 export function computeConversions(c: Own, file: SourceFile): void {
   const visit = (node: Node): boolean => {
+    // a class's `extends E<T>` runs E: its type arguments are types
+    if (isClassExtends(node)) {
+      visit(node.expression);
+      forEachChild(node, child => {
+        if (child !== node.expression) checkTypeReferences(c, child);
+      });
+      return false;
+    }
     if (isTypeNode(node)) {
       // Type references are checked as the checker checks them
       // (checkTypeReferenceNode).

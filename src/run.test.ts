@@ -1,9 +1,13 @@
-// The hand-written programs on node worker threads (run.ts): every thread
-// count computes the same thing.
+// The programs on node worker threads (run.ts): the hand-written ones, and
+// those threads-check compiles (tsconfig.programs.json, as `threads-check
+// compile` writes them): every thread count computes the same thing.
 import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {stripVTControlCharacters} from 'node:util';
-import {describe, expect, it} from 'vite-plus/test';
+import {afterAll, describe, expect, it} from 'vite-plus/test';
 
 // runs a program (run.ts)
 const spawnRun = (args: string[]) => {
@@ -131,4 +135,65 @@ describe('programs on threads', () => {
       "grow: bad reads 0, collections freed some, main's kept ring whole: true",
     );
   }, 60_000);
+});
+
+describe('the programs threads-check compiles', () => {
+  const repo = fileURLToPath(new URL('..', import.meta.url));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-programs-'));
+  // the compile, as the scripts run it: threads-check compile -p
+  // tsconfig.programs.json --runtime @arv/threads, into a directory of its
+  // own (the programs import @arv/threads, which run.ts's workers resolve
+  // wherever they are)
+  const compiled = (() => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        path.join(repo, 'src/checker/cli.ts'),
+        'compile',
+        '-p',
+        path.join(repo, 'tsconfig.programs.json'),
+        '--runtime',
+        '@arv/threads',
+        '--outDir',
+        out,
+      ],
+      {encoding: 'utf8', timeout: 60_000},
+    );
+    if (r.status !== 0)
+      throw new Error(
+        `threads-check compile: ${r.status} ${r.stdout}${r.stderr}`,
+      );
+    return out;
+  })();
+  afterAll(() => fs.rmSync(out, {recursive: true, force: true}));
+  const program = (name: string) => path.join(compiled, `${name}.js`);
+
+  for (const name of [
+    'nbody-ts',
+    'nbody-struct',
+    'nbody-chan',
+    'nbody-chan-struct',
+  ])
+    it(`${name} reaches the same energy on 1, 2 and 4 threads`, () => {
+      const lines = run(program(name), '--threads=1,2,4')
+        .split('\n')
+        .filter(l => l.startsWith('threads'));
+      expect(lines).toHaveLength(3);
+      for (const line of lines) expect(line).toContain(ENERGY);
+    }, 60_000);
+
+  it('reference counting frees what nothing refers to, and no reader reads freed memory', () => {
+    const out = run(program('refcount'), '--threads=2,4');
+    expect(out).toMatch(
+      /churn: sum \d+, blocks allocated 200000, freed 200000/,
+    );
+    for (const race of out.match(/race, \d+ readers: errors \d+/g) ?? [])
+      expect(race).toMatch(/errors 0$/);
+    expect(out.match(/race, /g)).toHaveLength(2);
+  }, 60_000);
+
+  for (const name of ['tutorial', 'pipeline', 'mandelbrot-chan'])
+    it(`${name} runs to its end on 1 and 2 threads`, () => {
+      expect(run(program(name), '--threads=1,2').length).toBeGreaterThan(0);
+    }, 60_000);
 });

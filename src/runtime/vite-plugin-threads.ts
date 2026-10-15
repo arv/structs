@@ -2,17 +2,19 @@
 // (threads.d.ts):
 //
 //   import threads from '@arv/threads/vite';
-//   export default {
-//     plugins: [threads({tsgo: '/path/to/threads-checker/built/local/tsgo'})],
-//   };
+//   export default {plugins: [threads()]};
 //
-// - compiles the project's TypeScript with the tsgo fork, which lays shared
-//   structs and SharedArrays out in shared memory, counts their references and
-//   registers the functions threads run, and serves that output for each .ts
-//   or .tsx module (type errors are left to tsc, ownership errors to `tsgo own
-//   check` ). The project is `tsconfig` (tsconfig.json by default; the app's,
-//   tsconfig.app.json say, where tsconfig.json only references others), as
-//   create-vite writes it, noEmit and all;
+// - compiles the project's TypeScript with threads-check (@arv/threads-check,
+//   on stock TypeScript 7.1), which lays shared structs and SharedArrays out
+//   in shared memory, counts their references and registers the functions
+//   threads run, and hands each .ts or .tsx module's TypeScript, with those
+//   edits and a source map, on to Vite, which strips the types (type errors
+//   are left to tsc, ownership errors to threads-check). The project is
+//   `tsconfig` (tsconfig.json by default; the app's, tsconfig.app.json say,
+//   where tsconfig.json only references others), as create-vite writes it,
+//   noEmit and all. With `tsgo` (the tsgo fork's binary) the fork compiles
+//   instead, as it did before threads-check could, and the plugin serves its
+//   JavaScript;
 // - keys each module's registered functions by its path in the project rather
 //   than import.meta.url, so the page's bundle and the workers' agree on them;
 // - makes virtual:threads/modules, the modules a pool worker
@@ -21,17 +23,21 @@
 //   SharedArrayBuffer needs, on the dev and preview servers. A production
 //   server must send them too;
 // - with `playground: true` , compiles programs the page sends it (POST
-//   /__threads/compile) two ways: with the fork, and with the types only erased
-//   (node's type stripping, plus the one line the runtime needs, registering
-//   the module's top-level functions). The page imports either as
-//   virtual:threads/playground/<key>.js or <key>.erased.js. Dev server only.
-//   With `checker` (the path of threads-check's entry module) the ownership
-//   errors come from threads-check, on stock TypeScript 7.1, instead of the
-//   fork's `own check` .
+//   /__threads/compile) two ways: compiled (by threads-check, or the fork),
+//   and with the types only erased (node's type stripping, plus the one line
+//   the runtime needs, registering the module's top-level functions). The
+//   page imports either as virtual:threads/playground/<key>.js or
+//   <key>.erased.js. Dev server only. The ownership errors come from
+//   threads-check (or, with `tsgo` and no `checker`, the fork's `own check`).
+//
+// threads-check is the one installed beside the plugin (an optional peer
+// dependency of @arv/threads), or the module `checker` names: the path of its
+// entry module (in this repository, src/checker/index.ts, which node runs
+// with its types stripped).
 import {execFile, execFileSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import {stripTypeScriptTypes} from 'node:module';
+import {createRequire, stripTypeScriptTypes} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
@@ -76,10 +82,12 @@ export interface Options {
   playground?: boolean;
   checker?: string | null;
 }
-// A playground program compiled by the fork: its JavaScript, its ownership and
-// type errors, and how long that took.
+// A playground program compiled: its JavaScript, its ownership and type
+// errors, and how long that took.
 type Compiled = {
   js: string | null;
+  // what compiled it: threads-check, or the tsgo fork
+  compiler: string;
   ms: number;
   ownership: Diagnostic[];
   checker: string;
@@ -91,12 +99,50 @@ type Compiled = {
 // how many lines that added.
 type Erased = {js: string | null; error: string | null; added: number};
 // What threads-check's entry module exports, as this plugin uses it.
+type CheckDiagnostic = Omit<Diagnostic, 'code'> & {file?: string; code: number};
 type ThreadsCheck = {
-  API: new (options: {cwd: string}) => unknown;
+  API: new (options: {cwd: string}) => {close(): void};
   check(
     config: string,
     options: {runtime: string; api: unknown},
-  ): (Omit<Diagnostic, 'code'> & {file?: string; code: number})[];
+  ): CheckDiagnostic[];
+  compile(
+    config: string,
+    options: {runtime: string; api: unknown; check?: boolean; types?: boolean},
+  ): {
+    files: {
+      fileName: string;
+      code: string;
+      map: SourceMap;
+      registered: string[];
+    }[];
+    diagnostics: CheckDiagnostic[];
+    typeDiagnostics: CheckDiagnostic[];
+    compilerOptions: Record<string, unknown>;
+  };
+  toJavaScript(
+    file: unknown,
+    options: {
+      verbatimModuleSyntax?: boolean;
+      rewriteRelativeImportExtensions?: boolean;
+    },
+  ): {code: string};
+  formatDiagnostic(d: CheckDiagnostic, cwd?: string): string;
+};
+type SourceMap = {
+  version: number;
+  sources: string[];
+  sourcesContent?: (string | null)[];
+  names: string[];
+  mappings: string;
+};
+// A module threads-check compiled: its source as compiled, and its
+// TypeScript with the edits.
+type CompiledModule = {
+  source: string;
+  code: string;
+  map: SourceMap;
+  registers: boolean;
 };
 
 export default function threads(options: Options = {}): Plugin {
@@ -108,8 +154,6 @@ export default function threads(options: Options = {}): Plugin {
     playground = false,
     checker = null,
   } = options;
-  if (!tsgo)
-    throw new Error("threads: the tsgo option names the tsgo fork's binary");
   let root: string,
     project: string,
     rootDir: string,
@@ -129,18 +173,53 @@ export default function threads(options: Options = {}): Plugin {
           node.type === 'ExportAllDeclaration') &&
         node.source?.value === runtime,
     );
-  // whether the fork's last compile emitted the project, so that what it did
-  // not emit is not the project's
+  // whether the last compile compiled the project, so that what it did not
+  // compile is not the project's; and how many compiles have run (for tests)
   let emittedProject = false;
+  let compiles = 0;
 
-  // threads-check, loaded once, with one TypeScript API session for every
-  // check: node imports its TypeScript sources directly (type stripping)
+  // the entry module of the @arv/threads-check installed beside the plugin,
+  // or in the project
+  const installedThreadsCheck = (): string | null => {
+    // (by a name in a variable, which tsc does not resolve: the plugin does
+    // without it where tsgo compiles)
+    const name = '@arv/threads-check';
+    try {
+      return fileURLToPath(import.meta.resolve(name));
+    } catch {}
+    try {
+      return createRequire(path.join(root, 'package.json')).resolve(name);
+    } catch {}
+    return null;
+  };
+
+  // threads-check, loaded once: the module `checker` names (node imports its
+  // TypeScript sources directly, with their types stripped), or the package
+  // installed beside the plugin, or in the project
+  let threadsCheckModule: Promise<ThreadsCheck> | null = null;
+  const loadThreadsCheck = () =>
+    (threadsCheckModule ??= (async () => {
+      if (checker) return import(pathToFileURL(checker).href);
+      const resolved = installedThreadsCheck();
+      if (resolved) return import(pathToFileURL(resolved).href);
+      throw new Error(
+        "threads: @arv/threads-check compiles the project, and it is not installed: npm install --save-dev @arv/threads-check (or name the tsgo fork's binary with the plugin's tsgo option)",
+      );
+    })());
+  // one TypeScript API session for the playground's compiles and checks
   let threadsCheck: {mod: ThreadsCheck; api: unknown} | null = null;
+  async function playgroundThreadsCheck(): Promise<{
+    mod: ThreadsCheck;
+    api: unknown;
+  }> {
+    if (!threadsCheck) {
+      const mod = await loadThreadsCheck();
+      threadsCheck = {mod, api: new mod.API({cwd: playgroundDir})};
+    }
+    return threadsCheck;
+  }
   async function ownershipWithThreadsCheck(config: string) {
-    threadsCheck ??= await import(pathToFileURL(checker!).href).then(mod => ({
-      mod,
-      api: new mod.API({cwd: playgroundDir}),
-    }));
+    await playgroundThreadsCheck();
     const t0 = performance.now();
     try {
       const found = threadsCheck!.mod.check(config, {
@@ -176,20 +255,31 @@ export default function threads(options: Options = {}): Plugin {
   }
 
   // what a compiled program depends on besides its source: the runtime's types,
-  // the fork's binary and threads-check's sources (a changed runtime file
+  // the fork's binary or threads-check's sources (a changed runtime file
   // restarts the server, and with it this)
   let fingerprint: string | null = null;
   const fingerprintOf = () => {
     const hash = crypto
       .createHash('sha1')
       .update(fs.readFileSync(path.join(RUNTIME_DIR, 'threads.d.ts')));
-    const checkerDir = checker && path.dirname(checker);
+    // threads-check's modules: those beside the one `checker` names, or the
+    // installed package's (and its package.json, which has its version)
+    const entry =
+      tsgo && !checker ? null : (checker ?? installedThreadsCheck());
+    const checkerDir = entry && path.dirname(entry);
+    let packageDir = checkerDir;
+    while (packageDir && !fs.existsSync(path.join(packageDir, 'package.json')))
+      packageDir =
+        path.dirname(packageDir) === packageDir
+          ? null
+          : path.dirname(packageDir);
     for (const file of [
-      tsgo,
+      ...(tsgo ? [tsgo] : []),
+      ...(packageDir ? [path.join(packageDir, 'package.json')] : []),
       ...(checkerDir
         ? fs
             .readdirSync(checkerDir)
-            .filter(name => name.endsWith('.ts'))
+            .filter(name => /\.(ts|js|json)$/.test(name))
             .map(name => path.join(checkerDir, name))
         : []),
     ]) {
@@ -210,7 +300,7 @@ export default function threads(options: Options = {}): Plugin {
     const key = `p${crypto
       .createHash('sha1')
       .update(
-        `4\0${checker ? 'threads-check' : 'fork'}\0${fingerprint}\0${source}`,
+        `5\0${tsgo ? 'fork' : 'threads-check'}\0${checker || !tsgo ? 'threads-check' : 'fork'}\0${fingerprint}\0${source}`,
       )
       .digest('hex')
       .slice(0, 12)}`;
@@ -238,31 +328,10 @@ export default function threads(options: Options = {}): Plugin {
         files: ['program.ts'],
       }),
     );
-    const t0 = performance.now();
-    const fork = ['-p', config, '--ownRuntime', runtime, '--pretty', 'false'];
-    const emitting = exec(tsgo!, fork, {cwd: dir}).catch(e => e);
-    const ownership = checker
-      ? // synchronous: it runs while the fork emits
-        await ownershipWithThreadsCheck(config)
-      : await exec(tsgo!, ['own', 'check', ...fork], {cwd: dir})
-          .catch(e => e)
-          .then(r => ({
-            checker: 'tsgo own check',
-            ms: Math.round(performance.now() - t0),
-            diagnostics: diagnostics(r.stdout),
-          }));
-    const emitted = await emitting;
     const out = path.join(dir, 'out', 'program.js');
-    const compiled: Compiled = {
-      js: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : null,
-      ms: Math.round(performance.now() - t0),
-      ownership: ownership.diagnostics,
-      checker: ownership.checker,
-      checkMs: ownership.ms,
-      types: diagnostics(emitted.stdout).filter(
-        d => !d.code.startsWith('TS960'),
-      ),
-    };
+    const compiled: Compiled = tsgo
+      ? await compileWithFork(config, dir, out)
+      : await compileWithThreadsCheck(config, out);
     compiled.helpers = compiled.js
       ? Object.values(helpersOf(compiled.js, runtime))
       : [];
@@ -279,9 +348,147 @@ export default function threads(options: Options = {}): Plugin {
     return result;
   }
 
+  // a playground program compiled by the fork, and checked by it (or by
+  // threads-check, with `checker`)
+  async function compileWithFork(
+    config: string,
+    dir: string,
+    out: string,
+  ): Promise<Compiled> {
+    const t0 = performance.now();
+    const fork = ['-p', config, '--ownRuntime', runtime, '--pretty', 'false'];
+    const emitting = exec(tsgo!, fork, {cwd: dir}).catch(e => e);
+    const ownership = checker
+      ? // synchronous: it runs while the fork emits
+        await ownershipWithThreadsCheck(config)
+      : await exec(tsgo!, ['own', 'check', ...fork], {cwd: dir})
+          .catch(e => e)
+          .then(r => ({
+            checker: 'tsgo own check',
+            ms: Math.round(performance.now() - t0),
+            diagnostics: diagnostics(r.stdout),
+          }));
+    const emitted = await emitting;
+    return {
+      js: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : null,
+      compiler: 'the tsgo fork',
+      ms: Math.round(performance.now() - t0),
+      ownership: ownership.diagnostics,
+      checker: ownership.checker,
+      checkMs: ownership.ms,
+      types: diagnostics(emitted.stdout).filter(
+        d => !d.code.startsWith('TS960'),
+      ),
+    };
+  }
+
+  // a playground program compiled and checked by threads-check, its types
+  // stripped by OXC
+  async function compileWithThreadsCheck(
+    config: string,
+    out: string,
+  ): Promise<Compiled> {
+    const {mod, api} = await playgroundThreadsCheck();
+    const t0 = performance.now();
+    const asPlayground = (d: CheckDiagnostic) => ({
+      line: d.line,
+      col: d.col,
+      code: `TS${d.code}`,
+      message: d.message,
+    });
+    try {
+      const result = mod.compile(config, {
+        runtime,
+        api,
+        check: true,
+        types: true,
+      });
+      const ms = Math.round(performance.now() - t0);
+      const file = result.files.find(f => f.fileName.endsWith('program.ts'));
+      let js: string | null = null;
+      if (file) {
+        js = mod.toJavaScript(file, {}).code;
+        fs.mkdirSync(path.dirname(out), {recursive: true});
+        fs.writeFileSync(out, js);
+      }
+      const ofProgram = (d: CheckDiagnostic) => d.file?.endsWith('program.ts');
+      return {
+        js,
+        compiler: 'threads-check',
+        ms,
+        ownership: result.diagnostics.filter(ofProgram).map(asPlayground),
+        checker: 'threads-check',
+        checkMs: ms,
+        types: result.typeDiagnostics.filter(ofProgram).map(asPlayground),
+      };
+    } catch (e: any) {
+      return {
+        js: null,
+        compiler: 'threads-check',
+        ms: 0,
+        ownership: [
+          {
+            line: 1,
+            col: 1,
+            code: 'TS0',
+            message: `threads-check failed: ${e.message ?? e}`,
+          },
+        ],
+        checker: 'threads-check',
+        checkMs: 0,
+        types: [],
+      };
+    }
+  }
+
+  // the project's modules as threads-check compiles them, by file (the
+  // threads-check path)
+  let compiledModules = new Map<string, CompiledModule>();
+  async function compileProject() {
+    compiles++;
+    const mod = await loadThreadsCheck();
+    emittedProject = false;
+    compiledModules = new Map();
+    registering = [];
+    const api = new mod.API({cwd: root});
+    let result: ReturnType<ThreadsCheck['compile']>;
+    try {
+      result = mod.compile(project, {runtime, api});
+    } catch (e: any) {
+      throw new Error(
+        `threads: threads-check cannot compile ${project}: ${e.message ?? e}`,
+      );
+    } finally {
+      api.close();
+    }
+    // the tsconfig's own errors
+    if (result.diagnostics.length > 0)
+      throw new Error(
+        `threads: threads-check cannot compile ${project}:\n${result.diagnostics.map(d => mod.formatDiagnostic(d, root)).join('\n')}`,
+      );
+    for (const file of result.files) {
+      if (!isSource(file.fileName)) continue;
+      const fileName = path.resolve(file.fileName);
+      compiledModules.set(fileName, {
+        source:
+          file.map.sourcesContent?.[0] ?? fs.readFileSync(fileName, 'utf8'),
+        code: file.code,
+        map: file.map,
+        registers: file.registered.length > 0,
+      });
+      if (file.registered.length > 0) registering.push(fileName);
+    }
+    if (compiledModules.size === 0)
+      throw new Error(
+        `threads: threads-check compiled nothing for ${project}, and reported no error: a solution-style tsconfig (references, and "files": []) compiles nothing itself. Name the app's (tsconfig.app.json, say) with the plugin's tsconfig option`,
+      );
+    emittedProject = true;
+  }
+
   // the project's sources as the fork emits them; ordinary type errors do not
   // stop the emit
   function emit() {
+    compiles++;
     fs.rmSync(outDir, {recursive: true, force: true});
     emittedProject = false;
     let failed: string | null = null;
@@ -356,6 +563,9 @@ export default function threads(options: Options = {}): Plugin {
       );
     emittedProject = true;
   }
+  // whether the last compile compiled a source (threads-check or the fork)
+  const compiledSource = (file: string) =>
+    tsgo ? !!emitted(file) : compiledModules.has(path.resolve(file));
   // what the fork emitted for a source, if it did
   const emitted = (file: string) => {
     const ext = path.extname(file),
@@ -394,6 +604,12 @@ export default function threads(options: Options = {}): Plugin {
   return {
     name: 'threads',
     enforce: 'pre',
+    // how many times the project was compiled
+    api: {
+      get compiles() {
+        return compiles;
+      },
+    },
     config: user => ({
       // the dev server serves the project and the runtime (its pool worker
       // script among them)
@@ -444,8 +660,9 @@ export default function threads(options: Options = {}): Plugin {
         }
       });
     },
-    buildStart() {
-      emit();
+    async buildStart() {
+      if (tsgo) emit();
+      else await compileProject();
     },
     resolveId(id) {
       if (id === MODULES) return MODULES_ID;
@@ -469,6 +686,7 @@ export default function threads(options: Options = {}): Plugin {
       if (id === MODULES_ID) {
         return `export default {\n${registering.map(f => `  ${JSON.stringify(moduleKey(f))}: () => import(${JSON.stringify(f)}),`).join('\n')}\n};\n`;
       }
+      if (!tsgo) return; // threads-check's code goes through transform
       const file = id.split('?')[0];
       if (!isSource(file) || SPECIAL_QUERY.test(id)) return;
       const out = emitted(file);
@@ -500,6 +718,43 @@ export default function threads(options: Options = {}): Plugin {
       }
       return {code, map};
     },
+    // a source threads-check compiled: its TypeScript with the edits, for
+    // Vite to strip the types of (this plugin's transform runs before Vite's
+    // own)
+    async transform(code, id) {
+      if (tsgo) return;
+      const file = id.split('?')[0];
+      if (!isSource(file) || SPECIAL_QUERY.test(id) || file.startsWith('\0'))
+        return;
+      let compiled = compiledModules.get(path.resolve(file));
+      // a source that changed since (its change not yet seen): compiled again
+      if (compiled && compiled.source !== code) {
+        await compileProject();
+        compiled = compiledModules.get(path.resolve(file));
+        if (compiled && compiled.source !== code)
+          this.error(
+            `threads: ${path.relative(root, file)} reached the plugin changed from what is on disk, which threads-check compiled: put the threads plugin before the plugin that changes it`,
+          );
+      }
+      if (!compiled) {
+        // a module threads-check did not compile runs with its types only
+        // erased, and its functions not registered: a module that imports the
+        // runtime cannot (one the tsconfig leaves out, or one reached through
+        // an alias of Vite's that its paths do not have)
+        if (
+          !file.startsWith(RUNTIME_DIR + path.sep) &&
+          importsRuntime(file, code)
+        )
+          this.error(
+            `threads: ${path.relative(root, file)} was not compiled by threads-check -p ${path.relative(root, project)}: add it to the tsconfig's include or files (or mirror the alias in paths)`,
+          );
+        return;
+      }
+      return {
+        code: keyRegistration(compiled.code, runtime, moduleKey(file)),
+        map: {...compiled.map, sources: [file]},
+      };
+    },
     // a source changed, appeared or went: the fork compiles the whole project
     // again, and what any module compiles to may have changed with it (a
     // struct's layout is in every read of its fields), so every module is
@@ -514,7 +769,7 @@ export default function threads(options: Options = {}): Plugin {
     // compiled the project last (after a compile that failed, nothing was
     // compiled); one that appeared may be what a module failed to import, and
     // one that went a module the workers' table names
-    hotUpdate({type, file, server}) {
+    async hotUpdate({type, file, server}) {
       if (this.environment.name !== 'client') return [];
       if (file.startsWith(RUNTIME_DIR + path.sep)) {
         void server.restart();
@@ -524,13 +779,14 @@ export default function threads(options: Options = {}): Plugin {
       if (
         type === 'update' &&
         emittedProject &&
-        !emitted(file) &&
+        !compiledSource(file) &&
         Object.values(server.environments).every(
           env => !env.moduleGraph.getModulesByFile(file)?.size,
         )
       )
         return;
-      emit();
+      if (tsgo) emit();
+      else await compileProject();
       for (const env of Object.values(server.environments)) {
         env.moduleGraph.invalidateAll();
         env.hot.send({type: 'full-reload', path: '*'});

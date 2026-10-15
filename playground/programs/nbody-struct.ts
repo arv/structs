@@ -1,6 +1,6 @@
 // The N-body preset (src/presets/nbody.js) with its bodies in a SharedArray of
-// shared structs: the preset's own code, nearly, with typed layouts. The tsgo
-// fork lays `Body` out as 7 numbers in the shared heap and compiles
+// shared structs: the preset's own code, nearly, with typed layouts. The
+// compiler lays `Body` out as 7 numbers in the shared heap and compiles
 // `bodies[i].x` to a typed-array read, so threads share the bodies with no
 // copying: each thread writes only its own slice, and the barriers order the
 // reads and the writes.

@@ -1,11 +1,15 @@
 {
   // the programs in plain TypeScript on threads (they import its API,
-  // src/runtime/threads.d.ts, as @arv/threads): the tsgo fork checks their ownership and
-  // compiles them to build/ts/*.js for the runtime (run them with src/run.ts or
-  // src/chrome.ts):
-  //   <fork>/built/local/tsgo own check -p tsconfig.programs.json \
-  //     --ownRuntime @arv/threads
-  //   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+  // src/runtime/threads.d.ts, as @arv/threads): threads-check checks their
+  // ownership and compiles them to build/ts/*.js for the runtime (run them with
+  // src/run.ts or src/chrome.ts):
+  //   vp run build-programs
+  // which is
+  //   node src/checker/cli.ts compile -p tsconfig.programs.json \
+  //     --runtime @arv/threads
+  // (the tsgo fork compiles them the same way, with `using` lowered for its
+  // target: <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime
+  // @arv/threads)
   "compilerOptions": {
     "target": "es2022",
     "module": "esnext",

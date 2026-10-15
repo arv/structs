@@ -29,8 +29,8 @@ All told, 23 MB of JSON text crosses in about 7 ms.
 ## Compiled, or With the Types Only Erased
 
 The compiler is what makes shared structs fast. But a program also runs with its
-types only erased, by Node's type stripping for example. (The Vite plugin needs
-the compiler for now.) All it needs is the one line the compiler would add:
+types only erased, by Node's type stripping for example. (The Vite plugin always
+compiles.) All it needs is the one line the compiler would add:
 `register(import.meta.url, {main, ...})`, imported from @arv/threads. That line
 registers the module's top-level functions, so that a thread finds the one it
 runs.

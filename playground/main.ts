@@ -45,6 +45,9 @@ type Result = {
   key: string;
   compiled: {
     js: string | null;
+    // what compiled it (the dev server's: threads-check, or the tsgo fork;
+    // in WebAssembly, the fork)
+    compiler?: string;
     ms: number;
     ownership: Diagnostic[];
     checker: string;
@@ -262,7 +265,7 @@ function showJs() {
   if (mode() === 'compiled') {
     $('js-title').textContent = 'Compiled JavaScript';
     $('js-hint').textContent =
-      `by the tsgo fork${inBrowser ? ', in WebAssembly,' : ''} in ${result.compiled.ms} ms · marked: what the compiler added`;
+      `by ${result.compiled.compiler ?? 'the tsgo fork'}${inBrowser ? ', in WebAssembly,' : ''} in ${result.compiled.ms} ms · marked: what the compiler added`;
     jsModel.setValue(result.compiled.js ?? '// nothing emitted');
   } else {
     $('js-title').textContent = 'JavaScript, types erased';

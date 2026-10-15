@@ -45,6 +45,7 @@
   },
   "scripts": {
     "build-dist": "node build-dist.ts",
+    "build-programs": "node src/checker/cli.ts compile -p tsconfig.programs.json --runtime @arv/threads",
     "prepack": "pnpm run build-dist",
     "test-pack": "node src/pack.ts",
     "typecheck": "tsc -p tsconfig.json"
@@ -57,9 +58,13 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@arv/threads-check": "workspace:^",
     "vite": ">=8"
   },
   "peerDependenciesMeta": {
+    "@arv/threads-check": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

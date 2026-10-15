@@ -8,13 +8,11 @@ points, splits them across threads, and counts which of three centers each point
 is nearest to.
 
 It's plain TypeScript written against [threads.d.ts](src/runtime/threads.d.ts).
-Three tools work on it:
+Two tools work on it:
 
 - **Stock tsc** checks its types.
-- **The ownership checker** checks its ownership.
-- **The tsgo fork**
-  ([arv/threads-checker](https://github.com/arv/threads-checker)) compiles it to
-  run on [threads.ts](src/runtime/threads.ts).
+- **threads-check** ([src/checker/](src/checker)) checks its ownership, and
+  compiles it to run on [threads.ts](src/runtime/threads.ts).
 
 If you'd like the ideas behind all this first, see [README.md](README.md).
 
@@ -22,8 +20,6 @@ If you'd like the ideas behind all this first, see [README.md](README.md).
 
 You'll need a few things installed:
 
-- **The tsgo fork, built.** In a clone of it, run
-  `go build -o built/local/tsgo ./cmd/tsgo`.
 - **TypeScript.**
 - **Node 22.18 or later.** It runs TypeScript files as they are.
 - **`playwright-core`**, but only if you also want to run the program in Chrome.
@@ -123,16 +119,17 @@ Here's what each call does:
 Now let's check the program and compile it. There are three commands:
 
 ```sh
-tsc -p tsconfig.json --noEmit                                       # types
-/path/to/threads-checker/built/local/tsgo own check -p tsconfig.programs.json --ownRuntime @arv/threads
-/path/to/threads-checker/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+tsc -p tsconfig.json --noEmit                                                     # types
+node src/checker/cli.ts -p tsconfig.programs.json --runtime @arv/threads          # ownership
+node src/checker/cli.ts compile -p tsconfig.programs.json --runtime @arv/threads  # into build/ts
 ```
 
 - **The first** is stock TypeScript, checking types.
 - **The second** is the ownership checker. It runs in CI like a linter: it
   reports only ownership errors, and it exits with status 1 if there are any.
-- **The third** compiles the program to `build/ts`. A web page uses the bundler
-  plugin instead (see [README.md](README.md)).
+- **The third** compiles the program to `build/ts` (`vp run build-programs` is
+  the same). It reports the same errors as the second, and type errors too. A
+  web page uses the bundler plugin instead (see [README.md](README.md)).
 
 The ownership checker follows each value's region through the function. A
 value's region is the set of objects reachable from it. The checker rejects

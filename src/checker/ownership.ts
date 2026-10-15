@@ -499,8 +499,8 @@ interface Captures {
   usesThis: boolean;
 }
 
-const ReturnKind = {Ordinary: 0, Sending: 1, Shared: 2} as const;
-type ReturnKind = (typeof ReturnKind)[keyof typeof ReturnKind];
+export const ReturnKind = {Ordinary: 0, Sending: 1, Shared: 2} as const;
+export type ReturnKind = (typeof ReturnKind)[keyof typeof ReturnKind];
 
 interface Target {
   labels: string[];
@@ -597,7 +597,7 @@ function isMemberAccess(node: Node): boolean {
   );
 }
 
-class Analyzer {
+export class Analyzer {
   readonly c: Own;
   nextRegion = 0;
   readonly results = new Map<Node, FunctionResult>();

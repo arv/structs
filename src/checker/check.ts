@@ -70,6 +70,42 @@ function checkProgram(
   tsconfig: string,
   runtime: string,
 ): Diagnostic[] {
+  const program = loadProgram(host, tsconfig, runtime);
+  const {own: c, files: checked} = program;
+  // (The fork runs these checks after checking each file; the API's checker
+  // answers questions in the order they are asked, and its diagnostics come
+  // from other checkers, so there is no checking a file first here.)
+  for (const file of checked) {
+    checkOwnership(c, file);
+    computeConversions(c, file);
+    checkRefCounts(c, file);
+  }
+  return finish(program);
+}
+
+// A program loaded for the analysis: its source files (prefetched), the
+// state of the analysis, and whether its modules are ES modules (which the
+// runtime's helpers are imported into).
+export interface LoadedProgram {
+  host: Host;
+  own: Own;
+  files: SourceFile[];
+  // the files of packages among them
+  external: ReadonlySet<string>;
+  esModule: boolean;
+  // the project's own files that are CommonJS modules: all of them with a
+  // CommonJS module kind, a .cts or .cjs, or with module node16 to nodenext,
+  // one its package.json makes CommonJS
+  commonJS: ReadonlySet<string>;
+  diagnostics: Diagnostic[];
+}
+
+export function loadProgram(
+  host: Host,
+  tsconfig: string,
+  runtime: string,
+  {runtimeRequired = true}: {runtimeRequired?: boolean} = {},
+): LoadedProgram {
   const {api, program} = host;
   const diagnostics: Diagnostic[] = [];
 
@@ -83,7 +119,8 @@ function checkProgram(
   const moduleKind =
     compilerOptions.module ||
     (target >= 2 /* ES2015 */ ? ModuleKind.ES2015 : ModuleKind.CommonJS);
-  if (moduleKind < ModuleKind.ES2015)
+  const esModule = moduleKind >= ModuleKind.ES2015;
+  if (!esModule)
     diagnostics.push(optionDiagnostic(host, tsconfig, 'ownRuntime'));
 
   // The program's files, but for the default library and the declaration files
@@ -104,6 +141,10 @@ function checkProgram(
   const files = api
     .batch(...wanted.map(name => program.getSourceFile.gen(name)))
     .filter((f): f is SourceFile => !!f);
+  // the sources packages ship (a .ts in node_modules): analyzed, not emitted
+  const external = new Set(
+    names.filter((_, i) => metadata[i]?.isFromExternalLibrary),
+  );
 
   // The files the runtime specifier resolves to, from any file that imports it.
   const runtimeFiles = new Map<string, SourceFile>();
@@ -123,23 +164,41 @@ function checkProgram(
   const checked = files.filter(f => !f.isDeclarationFile);
   // nothing imports the runtime by that name: the check would find nothing,
   // and pass. a mistyped --runtime, most likely, which must not pass
-  if (checked.length !== 0 && runtimeFiles.size === 0)
+  if (runtimeRequired && checked.length !== 0 && runtimeFiles.size === 0)
     throw new CheckError(
       `no file of the project imports the runtime as '${runtime}', so there is nothing to check: --runtime names the module the programs import it from (@arv/threads, say)`,
     );
-  const c = new Own(host, runtime, [...runtimeFiles.values()], checked);
-  // (The fork runs these checks after checking each file; the API's checker
-  // answers questions in the order they are asked, and its diagnostics come
-  // from other checkers, so there is no checking a file first here.)
+  const nodeModules =
+    moduleKind >= ModuleKind.Node16 && moduleKind <= ModuleKind.NodeNext;
+  const commonJS = new Set(
+    names.filter(
+      (name, i) =>
+        !metadata[i]?.isFromExternalLibrary &&
+        !/\.d\.([^./]+\.)?[cm]?ts$/i.test(name) &&
+        (!esModule ||
+          /\.c[jt]sx?$/i.test(name) ||
+          (nodeModules &&
+            metadata[i]?.impliedNodeFormat === ModuleKind.CommonJS)),
+    ),
+  );
+  const own = new Own(host, runtime, [...runtimeFiles.values()], checked);
   for (const file of checked) host.prefetch(file);
-  for (const file of checked) {
-    checkOwnership(c, file);
-    computeConversions(c, file);
-    checkRefCounts(c, file);
-  }
+  return {
+    host,
+    own,
+    files: checked,
+    external,
+    esModule,
+    commonJS,
+    diagnostics,
+  };
+}
 
-  const byFile = new Map(checked.map(f => [f.fileName as string, f]));
-  for (const d of c.diagnostics) {
+// The diagnostics of a program, sorted, but for those a comment suppresses.
+export function finish(program: LoadedProgram): Diagnostic[] {
+  const diagnostics = [...program.diagnostics];
+  const byFile = new Map(program.files.map(f => [f.fileName as string, f]));
+  for (const d of program.own.diagnostics) {
     const file = byFile.get(d.file!);
     if (!file || !isSuppressed(file, d.start)) diagnostics.push(d);
   }
@@ -190,7 +249,7 @@ function optionDiagnostic(
 // A diagnostic of the API as the checker's, as tsc prints it plain: the message
 // and its chain, each link on a line of its own, indented, and no related
 // information.
-function fromApi(d: TsDiagnostic): Diagnostic {
+export function fromApi(d: TsDiagnostic): Diagnostic {
   const flatten = (d: TsDiagnostic, indent: number): string =>
     (indent ? '\n' + '  '.repeat(indent) : '') +
     d.text +
@@ -237,7 +296,7 @@ function isSuppressed(file: SourceFile, pos: number): boolean {
 }
 
 // compiler.SortAndDeduplicateDiagnostics: by file, position, code and message.
-function sortAndDeduplicate(diagnostics: Diagnostic[]): Diagnostic[] {
+export function sortAndDeduplicate(diagnostics: Diagnostic[]): Diagnostic[] {
   const sorted = [...diagnostics].sort(
     (a, b) =>
       compare(a.file ?? '', b.file ?? '') ||

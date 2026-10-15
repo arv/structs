@@ -4,8 +4,8 @@
   // typecheck): the runtime, the prototype's scripts and programs, and the
   // tests. Node runs them as they are, their types stripped. The playground's
   // page has its own (playground/tsconfig.json), tsconfig.programs.json is what
-  // the tsgo fork compiles, and tsconfig.dist.json what the package ships
-  // compiled
+  // threads-check compiles for the scripts (vp run build-programs), and
+  // tsconfig.dist.json what the package ships compiled
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",

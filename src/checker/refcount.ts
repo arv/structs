@@ -156,7 +156,10 @@ function reportBlocking(
   else c.error(node, Messages.BlockingCallNoAlternative, name);
 }
 
-function isAmbientHandle(c: Own, handle: NodeHandle | undefined): boolean {
+export function isAmbientHandle(
+  c: Own,
+  handle: NodeHandle | undefined,
+): boolean {
   if (!handle) return false;
   if (/\.d\.([^./]+\.)?[cm]?ts$/i.test(handle.path)) return true;
   const decl = c.host.declarationOf(handle);
@@ -184,7 +187,7 @@ export function getChannelElementType(
 
 // Reports whether a for-of statement receives counted values from a channel:
 // its variable owns each.
-function isChannelReceiveLoop(c: Own, loop: Node): boolean {
+export function isChannelReceiveLoop(c: Own, loop: Node): boolean {
   return (
     loop.kind === K.ForOfStatement &&
     isCellType(c, getChannelElementType(c, c.host.typeOf(loop.expression)))
@@ -193,14 +196,14 @@ function isChannelReceiveLoop(c: Own, loop: Node): boolean {
 
 // The function that declares a variable or parameter; undefined for a module's
 // variables.
-function declaringFunction(decl: Node): Node | undefined {
+export function declaringFunction(decl: Node): Node | undefined {
   if (decl.kind === K.Parameter) return decl.parent as Node;
   return getContainingFunction(decl);
 }
 
 // The variable or parameter (with an identifier name) that an identifier in an
 // expression refers to.
-function referencedVariable(c: Own, id: Node): TsSymbol | undefined {
+export function referencedVariable(c: Own, id: Node): TsSymbol | undefined {
   if (id.kind !== K.Identifier || !isOwnReferencePosition(id)) return undefined;
   let symbol = c.host.resolvedSymbol(id);
   if (!symbol) return undefined;
@@ -220,10 +223,14 @@ function referencedVariable(c: Own, id: Node): TsSymbol | undefined {
 
 // The counted variables that functions other than the declaring one refer to,
 // and the references from methods and classes (getOwnCaptureInfo).
-function getCaptureInfo(c: Own, file: SourceFile): CaptureInfo {
+export function getCaptureInfo(c: Own, file: SourceFile): CaptureInfo {
   let info = c.captures.get(file);
   if (info) return info;
-  const result: CaptureInfo = {captured: new Set(), members: []};
+  const result: CaptureInfo = {
+    captured: new Set(),
+    captures: new Map(),
+    members: [],
+  };
   c.captures.set(file, result);
   // the functions and classes around the current node, innermost last
   const scopes: Node[] = [];
@@ -266,8 +273,15 @@ function recordCapture(
     switch (scope.kind) {
       case K.ArrowFunction:
       case K.FunctionExpression:
-      case K.FunctionDeclaration:
+      case K.FunctionDeclaration: {
+        // the declarations it holds (`__capture`), in the order of their
+        // first reference
+        const decl = c.host.valueDeclaration(symbol)!;
+        const held = info.captures.get(scope);
+        if (!held) info.captures.set(scope, [decl]);
+        else if (!held.includes(decl)) held.push(decl);
         break;
+      }
       default:
         member = true;
     }

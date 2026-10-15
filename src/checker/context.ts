@@ -55,6 +55,10 @@ export const isArrayKind = (kind: CellKind): boolean =>
 export interface CaptureInfo {
   // symbols referenced from a function other than the declaring one
   captured: Set<unknown>;
+  // per function, arrow function or function declaration: the declarations of
+  // the counted locals of other functions it refers to, in the order of their
+  // first reference (what `__capture` holds)
+  captures: Map<Node, Node[]>;
   // references to counted locals of another function from a method or a class
   members: Node[];
 }

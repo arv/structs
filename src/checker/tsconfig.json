@@ -14,5 +14,11 @@
     "skipLibCheck": true
   },
   "include": ["*.ts", "test/**/*.ts"],
-  "exclude": ["test/cases", "test/diverging", "test/config-errors"]
+  "exclude": [
+    "test/cases",
+    "test/diverging",
+    "test/config-errors",
+    "test/emit",
+    "test/run"
+  ]
 }

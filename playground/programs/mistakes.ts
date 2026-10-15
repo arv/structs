@@ -1,5 +1,5 @@
 // Mistakes the ownership checker catches. Stock TypeScript accepts this
-// program; `tsgo own check` reports each mistake. Run it anyway: the first goes
+// program; threads-check reports each mistake. Run it anyway: the first goes
 // through unnoticed, and the runtime's safety net stops the second, a use after
 // move.
 import {

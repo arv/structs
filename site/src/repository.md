@@ -9,7 +9,7 @@ Here's what's in it:
 |                                                                                 |                                                                                |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | [src/runtime/](https://github.com/arv/threads/tree/main/src/runtime)            | The runtime: the API, the shared heap, a page's side and the Vite plugin       |
-| [src/checker/](https://github.com/arv/threads/tree/main/src/checker)            | The ownership checker (@arv/threads-check)                                     |
+| [src/checker/](https://github.com/arv/threads/tree/main/src/checker)            | The ownership checker and the compiler (@arv/threads-check)                    |
 | [playground/](https://github.com/arv/threads/tree/main/playground)              | A page to write programs in, and see what they compile to and how they run     |
 | [site/](https://github.com/arv/threads/tree/main/site)                          | The docs site, which GitHub Pages publishes with the playground                |
 | [TUTORIAL.md](https://github.com/arv/threads/blob/main/TUTORIAL.md)             | Writing, checking and running a small program, and how each step works         |
@@ -33,8 +33,9 @@ names. You need Node 22.18 or later (24.11 or later on Node 24).
 
 ```sh
 vp install                  # Once, at the root
-vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
-vp run build-wasm           # The compiler the playground's build runs in the browser (needs Go)
+vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
+vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
+vp run build-wasm           # The fork's compiler the playground's build runs in the browser (needs Go)
 vp build                    # The playground's production build
 vp run threads-site#dev     # The docs site, served as you edit it
 vp run threads-site#build   # The docs site's static build, into site/dist/
@@ -43,7 +44,7 @@ vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # Formatting, lint and types, as CI would
 vp test                     # The unit tests, as CI would
 vp run -r build-dist        # Each package's dist/, as pnpm pack builds it
-vp run test-pack            # The packages packed and installed in a project; with TSGO, a page on them in Chrome
+vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome; with TSGO, compiled by the fork too
 vp run -r typecheck         # tsc in every package
 ```
 

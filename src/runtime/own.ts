@@ -874,7 +874,7 @@ export interface StructType<T = unknown> {
 // low half, 0 for "" (see storeStr); i an i32 in the low half; c a channel's
 // address in the low half, 0 for null, with no count (a channel is never
 // freed). compiled code has c where uncompiled code, which cannot tell a
-// channel from a struct, has r. compiled with the tsgo fork's typed layout, a
+// channel from a struct, has r. compiled with the typed layout, a
 // struct value is the block's address and `p.a` is `__F64[(p >> 3) + 1]` (see
 // newStruct). where one flows into `any` or `unknown` the compiler boxes it
 // (__box): the handle is an instance of the class this returns, an object whose

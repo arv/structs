@@ -198,7 +198,7 @@ export function isAtomicCallValid(c: Own, call: Node): boolean | undefined {
 
 // The operation of the runtime's `atomic` a call calls (`atomic.add(...)` ,
 // `threads.atomic["add"](...)` and the like), or "".
-function getAtomicOperation(c: Own, call: Node): string {
+export function getAtomicOperation(c: Own, call: Node): string {
   const callee = skipParentheses(call.expression);
   const op = memberName(callee);
   if (!atomicOperations.has(op)) return '';

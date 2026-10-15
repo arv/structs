@@ -4,7 +4,7 @@
 // the barriers' place: after each phase a goroutine reports on `done` and waits
 // for main on its `next` , which is Go's way (share memory, and order it with
 // channels). Nothing is copied.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+//   vp run build-programs
 //   node src/run.ts build/ts/nbody-chan-struct.js
 import {
   Channel,

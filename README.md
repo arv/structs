@@ -33,11 +33,11 @@ export function main(threads: number) {
 }
 ```
 
-> **Status: experimental.** The API, the checker and the runtime work, and
-> they're tested. But the compiler that lays shared structs out in shared memory
-> is a fork of TypeScript 7,
-> [arv/threads-checker](https://github.com/arv/threads-checker), and you have to
-> build it yourself. See [Status](#status).
+> **Status: experimental.** The API, the checker, the compiler and the runtime
+> work, and they're tested. The compiler, which lays shared structs out in
+> shared memory, is part of @arv/threads-check, on stock TypeScript 7.1. Only
+> the playground's in-browser compiler is still a fork of TypeScript 7. See
+> [Status](#status).
 
 You can try it in the browser, with the compiled JavaScript side by side, in
 [the playground](https://arv.github.io/threads/playground/). Its source is in
@@ -145,11 +145,12 @@ for (let k = 0; k < 10_000; k++) go(request, replica, (k % 1000) + 1, answers); 
 
 ## Install
 
-Install the runtime, and add Vite and the ownership checker as dev dependencies:
+Install the runtime, and add Vite and threads-check (the ownership checker and
+the compiler) as dev dependencies:
 
 ```sh
 npm install @arv/threads
-npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
+npm install --save-dev vite @arv/threads-check   # Vite, and the checker and compiler
 ```
 
 @arv/threads needs:
@@ -172,42 +173,43 @@ production, your server also needs to send two headers.
 
 ### 1. The Vite Plugin
 
-The Vite plugin compiles your TypeScript and registers the functions that
-threads run. It also sets the cross-origin isolation headers that
-`SharedArrayBuffer` needs on the dev and preview servers.
+The Vite plugin compiles your TypeScript with @arv/threads-check, and registers
+the functions that threads run. It also sets the cross-origin isolation headers
+that `SharedArrayBuffer` needs on the dev and preview servers.
 
 ```js
 // vite.config.ts
 import threads from '@arv/threads/vite';
 
 export default {
-  plugins: [threads({tsgo: '/path/to/threads-checker/built/local/tsgo'})],
+  plugins: [threads()],
 };
 ```
 
-| Option       | Default           | What it does                                                                                                                                                                                |
-| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsgo`       | (required)        | The tsgo fork's binary (see [Status](#status)).                                                                                                                                             |
-| `tsconfig`   | `'tsconfig.json'` | The project the fork compiles, relative to Vite's root.                                                                                                                                     |
-| `args`       | `[]`              | More arguments for tsgo. They come after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir`, `--sourceMap`, `--noEmit false`, `--noEmitOnError false` and `--tsBuildInfoFile`. |
-| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from (tsgo's `--ownRuntime`).                                                                                                                   |
-| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does.                                                                   |
-| `checker`    | `null`            | Used with `playground`. The path of threads-check's entry module, which then reports the ownership errors instead of `tsgo own check`.                                                      |
+| Option       | Default           | What it does                                                                                                                                                                                                  |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig`   | `'tsconfig.json'` | The project that threads-check compiles, relative to Vite's root.                                                                                                                                             |
+| `runtime`    | `'@arv/threads'`  | The module that programs import the runtime from.                                                                                                                                                             |
+| `playground` | `false`           | When true, the dev server compiles programs that the page sends it (`POST /__threads/compile`), as the playground's does.                                                                                     |
+| `checker`    | `null`            | The path of threads-check's entry module, if it's not the @arv/threads-check installed beside the plugin.                                                                                                     |
+| `tsgo`       | `undefined`       | The tsgo fork's binary (see [Status](#status)). When set, the fork compiles instead of threads-check, and the plugin serves what it emits.                                                                    |
+| `args`       | `[]`              | Used with `tsgo`. More arguments for tsgo. They come after the plugin's own: `-p`, `--ownRuntime`, `--outDir`, `--rootDir`, `--sourceMap`, `--noEmit false`, `--noEmitOnError false` and `--tsBuildInfoFile`. |
 
-The plugin serves what the fork emits for each module of that project. It leaves
-any other module to Vite, which erases its types and registers none of its
-functions, so no thread can run them. The project needs to:
+threads-check compiles each module of that project. The plugin hands Vite each
+one's TypeScript with the compiler's edits, and a source map, and Vite strips
+the types. It leaves any other module to Vite, which erases its types and
+registers none of its functions, so no thread can run them. The project needs
+to:
 
 - Include the page's modules and the modules its threads run, all under the
-  tsconfig's directory (the plugin's `--rootDir`).
+  tsconfig's directory.
 - Resolve imports the way a bundler does (`"module": "esnext"`,
   `"moduleResolution": "bundler"`), so that `@arv/threads` is the API's
   declarations.
-- Emit JavaScript, whatever its tsconfig says. The plugin passes
-  `--noEmit false`, so a project with `"noEmit": true`, as Vite's templates
-  have, needs nothing more. But a tsconfig.json made only of references (also
-  from Vite's templates) compiles nothing, so name the project itself
-  (`tsconfig: 'tsconfig.app.json'`).
+- Be the app's project. `"noEmit": true`, as Vite's templates have, is fine:
+  threads-check compiles whatever the tsconfig says. But a tsconfig.json made
+  only of references (also from Vite's templates) compiles nothing, so name the
+  project itself (`tsconfig: 'tsconfig.app.json'`).
 
 Thread modules may be `.ts`, `.mts` or `.tsx`.
 
@@ -253,6 +255,14 @@ npx @arv/threads-check -p tsconfig.json --runtime @arv/threads
 
 ```
 app.ts(23,16): error TS96007: 'order' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
+```
+
+To compile a project without Vite, for Node say, `threads-check compile` writes
+each of its files as JavaScript, into the tsconfig's `outDir` or the one you
+name. It reports the same errors as a check, and type errors too:
+
+```sh
+npx @arv/threads-check compile -p tsconfig.json --runtime @arv/threads --outDir build
 ```
 
 ### In Production
@@ -440,8 +450,8 @@ All told, 23 MB of JSON text crosses in about 7 ms.
 ### Compiled, or With the Types Only Erased
 
 The compiler is what makes shared structs fast. But a program also runs with its
-types only erased, by Node's type stripping for example. (The Vite plugin needs
-the compiler for now.) All it needs is the one line the compiler would add:
+types only erased, by Node's type stripping for example. (The Vite plugin always
+compiles.) All it needs is the one line the compiler would add:
 `register(import.meta.url, {main, ...})`, imported from @arv/threads. That line
 registers the module's top-level functions, so that a thread finds the one it
 runs.
@@ -467,16 +477,22 @@ both ways (Compiled and Types erased), so you can compare them yourself.
 @arv/threads is experimental, and it has real limits. Here's where things stand
 today:
 
-- **The compiler is a fork.** A fork of TypeScript 7.0.2,
-  [arv/threads-checker](https://github.com/arv/threads-checker), compiles shared
-  structs and SharedArrays to typed-array reads and writes (`b.x` becomes
-  `__F64[(b >> 3) + 1]`), and counts their references. It isn't on npm. Build it
-  with `go build -o built/local/tsgo ./cmd/tsgo`, and name the binary in the
-  plugin's `tsgo` option. With types only erased, programs still run, but shared
-  structs are much slower (see
-  [Performance](#compiled-or-with-the-types-only-erased)).
-- **The checker needs no fork.** @arv/threads-check runs on stock TypeScript
-  7.1's API.
+- **The compiler needs no fork.** @arv/threads-check compiles shared structs and
+  SharedArrays to typed-array reads and writes (`b.x` becomes
+  `__F64[(b >> 3) + 1]`), and counts their references, on stock TypeScript 7.1's
+  API. It edits each module's TypeScript, and OXC (Vite's, or its own) strips
+  the types. With types only erased, programs still run, but shared structs are
+  much slower (see [Performance](#compiled-or-with-the-types-only-erased)).
+- **The playground still compiles with a fork in the browser.** TypeScript 7.1's
+  API runs in Node only: it starts tsgo, and has no WebAssembly build. So the
+  playground's build compiles programs with a fork of TypeScript 7.0.2,
+  [arv/threads-checker](https://github.com/arv/threads-checker), built to
+  WebAssembly. Its dev server compiles with threads-check. The fork emits the
+  same code, and the Vite plugin still compiles with it when its `tsgo` option
+  names the fork's binary (build it with
+  `go build -o built/local/tsgo ./cmd/tsgo`).
+- **The checker needs no fork either.** @arv/threads-check checks ownership on
+  the same API.
 - **Shared memory is a fixed 256 MB, and not everything in it is freed.**
   Structs, SharedArrays and maps are reference counted, and `collectCycles()`
   frees cycles of them, stopping every thread for a moment. Nothing calls it on
@@ -504,7 +520,7 @@ Here's what's in it:
 |                                        |                                                                                |
 | -------------------------------------- | ------------------------------------------------------------------------------ |
 | [src/runtime/](src/runtime)            | The runtime: the API, the shared heap, a page's side and the Vite plugin       |
-| [src/checker/](src/checker)            | The ownership checker (@arv/threads-check)                                     |
+| [src/checker/](src/checker)            | The ownership checker and the compiler (@arv/threads-check)                    |
 | [playground/](playground)              | A page to write programs in, and see what they compile to and how they run     |
 | [site/](site)                          | The docs site, which GitHub Pages publishes with the playground                |
 | [TUTORIAL.md](TUTORIAL.md)             | Writing, checking and running a small program, and how each step works         |
@@ -514,7 +530,7 @@ Here's what's in it:
 ### Development
 
 The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`). It
-holds the code in [src/](src) at the root, the checker
+holds the code in [src/](src) at the root, the checker and compiler
 ([src/checker/](src/checker)), the [playground](playground), and the docs site
 ([site/](site)). Vite+ brings Vite, Oxlint and a task runner, and it runs pnpm
 at the version that `packageManager` names. You need Node 22.18 or later (24.11
@@ -522,8 +538,9 @@ or later on Node 24).
 
 ```sh
 vp install                  # Once, at the root
-vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo for the compiled JavaScript
-vp run build-wasm           # The compiler the playground's build runs in the browser (needs Go)
+vp dev                      # The playground; TSGO=<threads-checker>/built/local/tsgo to compile with the fork
+vp run build-programs       # The programs the scripts run (tsconfig.programs.json), into build/ts/
+vp run build-wasm           # The fork's compiler the playground's build runs in the browser (needs Go)
 vp build                    # The playground's production build
 vp run threads-site#dev     # The docs site, served as you edit it
 vp run threads-site#build   # The docs site's static build, into site/dist/
@@ -532,7 +549,7 @@ vp lint                     # Oxlint, type-aware, over the whole workspace
 vp check                    # Formatting, lint and types, as CI would
 vp test                     # The unit tests, as CI would
 vp run -r build-dist        # Each package's dist/, as pnpm pack builds it
-vp run test-pack            # The packages packed and installed in a project; with TSGO, a page on them in Chrome
+vp run test-pack            # The packages packed and installed in a project, and a page on them in Chrome; with TSGO, compiled by the fork too
 vp run -r typecheck         # tsc in every package
 ```
 

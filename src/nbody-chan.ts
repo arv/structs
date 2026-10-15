@@ -4,7 +4,7 @@
 // No barrier and no shared mutable state: the channels order everything.
 // Messages are tagged with the sender, so the positions keep body order and the
 // arithmetic is the preset's.
-//   <fork>/built/local/tsgo -p tsconfig.programs.json --ownRuntime @arv/threads
+//   vp run build-programs
 //   node src/run.ts build/ts/nbody-chan.js
 import {
   Channel,

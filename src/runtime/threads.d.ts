@@ -7,10 +7,10 @@
 //   - the ownership checker (@arv/threads-check, or the tsgo fork's
 //     `tsgo own check`) runs in CI like a linter and proves the rules below:
 //     nothing is used after it is sent, and shared values never change;
-//   - the bundler plugin (@arv/threads/vite) compiles with the tsgo fork:
-//     shared structs and SharedArrays become typed-array accesses on shared
-//     memory, their references are counted, and each module registers the
-//     functions threads run.
+//   - the bundler plugin (@arv/threads/vite) compiles with threads-check (or
+//     the tsgo fork): shared structs and SharedArrays become typed-array
+//     accesses on shared memory, their references are counted, and each
+//     module registers the functions threads run.
 //
 // Every value a thread touches is one of three kinds:
 //   - owned, the default: an ordinary object only one thread can reach.

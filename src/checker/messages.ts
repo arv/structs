@@ -141,6 +141,10 @@ export const Messages = {
     code: 96038,
     text: "Field '{0}' is marked with a value whose kind the checker cannot tell: a Field of a number may be an f64, an i32 or a u8. Mark it with one of them, or with a const that holds one.",
   },
+  CommonJSInput: {
+    code: 96039,
+    text: "'{0}' is a CommonJS module: threads-check compiles ES modules only.",
+  },
 } as const;
 
 export type Message = (typeof Messages)[keyof typeof Messages];

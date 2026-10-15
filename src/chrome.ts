@@ -27,7 +27,8 @@ import type {BrowserType} from 'playwright-core';
 import {findProgram, runtimeModule} from './program.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// the repository: its pages are under src/, what the tsgo fork emits in build/
+// the repository: its pages are under src/, what threads-check compiles in
+// build/
 const repo = path.resolve(here, '..');
 
 const loadChromium = async (): Promise<BrowserType> => {

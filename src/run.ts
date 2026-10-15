@@ -3,8 +3,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 // runs a program on worker threads sharing one SharedArrayBuffer heap
 //   node src/run.ts <program> [options]
 //   <program>: a program in this directory by name (nbody-own, nbody-cells...),
-//   or the path of a module, such as one the tsgo fork emitted
-//   (build/ts/nbody-ts.js)
+//   or the path of a module, such as one threads-check compiled (vp run
+//   build-programs: build/ts/nbody-ts.js)
 //   --threads=1,2,4,8   the thread counts the program runs its work with
 //   --stats             print the runtime's counters and the number of workers
 //                       started (to stderr) at exit

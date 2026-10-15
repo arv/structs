@@ -1,4 +1,4 @@
-// Reference counting (REFCOUNT.md) as the tsgo fork emits it: the compiler
+// Reference counting (REFCOUNT.md) as the compiler emits it: the compiler
 // counts the references to shared structs, so a block is freed (and its memory
 // reused) when nothing refers to it any more. churn: builds and drops a
 // 1000-node list 200 times on one thread; the heap stops growing once the free

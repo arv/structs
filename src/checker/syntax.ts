@@ -24,6 +24,18 @@ export function forEachChild(
   return stop;
 }
 
+// Reports whether a node is a class's `extends E<T>`, whose E runs (it is a
+// type node, as an interface's or an `implements` clause's is).
+export function isClassExtends(node: Node): boolean {
+  const parent = node.parent as Node | undefined;
+  return (
+    node.kind === K.ExpressionWithTypeArguments &&
+    parent?.kind === K.HeritageClause &&
+    parent.token === K.ExtendsKeyword &&
+    isClassLike(parent.parent as Node)
+  );
+}
+
 export function isTypeNode(node: Node): boolean {
   const kind = node.kind;
   return (

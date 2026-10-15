@@ -1,8 +1,8 @@
 // The N-body preset (src/presets/nbody.js) in plain TypeScript on threads.ts.
-// The tsgo fork checks it (no ownership errors) and emits plain JavaScript for
-// the runtime. Each thread owns its slice of the bodies; every step it shares a
-// snapshot of its positions, and the others read their own copies. The hot
-// loops are plain TypeScript on plain objects.
+// The checker finds no ownership errors, and the compiler emits plain
+// JavaScript for the runtime. Each thread owns its slice of the bodies; every
+// step it shares a snapshot of its positions, and the others read their own
+// copies. The hot loops are plain TypeScript on plain objects.
 import {
   Condition,
   i32,

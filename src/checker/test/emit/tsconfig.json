@@ -1,0 +1,14 @@
+{
+  // programs for vp run compare-emit only (no expected diagnostics): the
+  // corners of the lowering that the programs and cases reach little
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2022"],
+    "noEmit": true,
+    "paths": {"threads": ["../../../runtime/threads.d.ts"]}
+  },
+  "include": ["*.ts"]
+}

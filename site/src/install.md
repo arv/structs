@@ -1,14 +1,16 @@
 ---
 title: Install
 description:
-  The runtime from npm, and Vite and the ownership checker as dev dependencies.
+  The runtime from npm, and Vite and threads-check (the ownership checker and
+  the compiler) as dev dependencies.
 ---
 
-Install the runtime, and add Vite and the ownership checker as dev dependencies:
+Install the runtime, and add Vite and threads-check (the ownership checker and
+the compiler) as dev dependencies:
 
 ```sh
 npm install @arv/threads
-npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
+npm install --save-dev vite @arv/threads-check   # Vite, and the checker and compiler
 ```
 
 ## What It Needs

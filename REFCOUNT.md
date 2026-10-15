@@ -2,7 +2,8 @@
 
 > **Status:** This is a prototype. It lives in the runtime
 > ([own.ts](src/runtime/own.ts), [runtime.ts](src/runtime/runtime.ts)) and in
-> the tsgo fork's emit. [refcount.ts](src/refcount.ts) tests it, and
+> the compiler's emit (threads-check's [transform.ts](src/checker/transform.ts),
+> and the tsgo fork's). [refcount.ts](src/refcount.ts) tests it, and
 > [refcount-hand.ts](src/refcount-hand.ts) is the same test written by hand. The
 > playground's "Reference counting under a race" runs it in a browser
 > ([programs/refcount.ts](playground/programs/refcount.ts)). Shared structs,
