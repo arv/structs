@@ -65,9 +65,10 @@ A release is a version tag:
 The Release workflow
 ([.github/workflows/release.yml](https://github.com/arv/threads/blob/main/.github/workflows/release.yml))
 checks, tests and packs both packages. Then it publishes them to npm with
-provenance, by trusted publishing: each package on npmjs.com names this
-repository's release.yml as its publisher. A package's first version is
-published with an `NPM_TOKEN` secret instead.
+provenance, by trusted publishing: each package's settings on npmjs.com name
+this repository and release.yml as its trusted publisher, so no token is needed.
+A new trusted publisher setting expires unless a publish succeeds within 48
+hours, so add it just before the tag it's for.
 
 ## License
 

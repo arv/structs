@@ -11,20 +11,6 @@ npm install @arv/threads
 npm install --save-dev vite @arv/threads-check   # Vite, and the ownership checker
 ```
 
-To try what's on main before it's released, pack the packages from this
-repository and install the tarballs. `pnpm pack` builds each package first, and
-you import the packages the same way:
-
-```sh
-git clone https://github.com/arv/threads.git && cd threads
-pnpm install
-pnpm pack --pack-destination ~/threads-packages
-pnpm -C src/checker pack --pack-destination ~/threads-packages
-cd /path/to/your/app
-npm install ~/threads-packages/arv-threads-0.0.1.tgz
-npm install --save-dev vite ~/threads-packages/arv-threads-check-0.0.1.tgz
-```
-
 ## What It Needs
 
 @arv/threads needs:
