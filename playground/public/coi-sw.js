@@ -1,7 +1,7 @@
 // Makes the playground cross-origin isolated, which SharedArrayBuffer needs, on
 // a host that cannot send the headers for it: this service worker adds them to
-// every response it passes on. index.html registers it only when the page is
-// not isolated already.
+// every response it passes on. boot.ts registers it only when the page is not
+// isolated already.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', e => {

@@ -348,24 +348,6 @@
       </h2>
       <pre id="output" aria-live="polite"></pre>
     </section>
-    <script>
-      // SharedArrayBuffer needs a cross-origin isolated page. A host that
-      // cannot send the headers for it gets them from a service worker
-      // (public/coi-sw.js), and the page loads once more, under it
-      if (
-        !crossOriginIsolated &&
-        isSecureContext &&
-        'serviceWorker' in navigator &&
-        !sessionStorage.getItem('coi-reloaded')
-      )
-        navigator.serviceWorker.register('coi-sw.js').then(
-          () => {
-            sessionStorage.setItem('coi-reloaded', '1');
-            location.reload();
-          },
-          e => console.error('threads: no service worker', e),
-        );
-    </script>
-    <script type="module" src="./main.ts"></script>
+    <script type="module" src="./boot.ts"></script>
   </body>
 </html>

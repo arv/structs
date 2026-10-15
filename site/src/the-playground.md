@@ -186,6 +186,7 @@ M5 Pro. Times are in milliseconds, on 1, 2, 4 and 8 threads:
 | Path                     | What It Is                                                                                        |
 | ------------------------ | ------------------------------------------------------------------------------------------------- |
 | `index.html`, `main.ts`  | The page, built on [Monaco](https://github.com/microsoft/monaco-editor)                           |
+| `boot.ts`                | The page's entry: it isolates the page, then loads `main.ts`                                      |
 | `programs/`              | The page's programs                                                                               |
 | `vite.config.ts`         | The dev server, with the runtime's Vite plugin, which compiles with the fork and runs the checker |
 | `wasm.ts`, `compiler.ts` | Compiling in the browser: the page's side, and the worker that runs the compiler                  |
