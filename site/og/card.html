@@ -1,0 +1,157 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        width: 1200px;
+        height: 630px;
+        box-sizing: border-box;
+        padding: 72px 80px;
+        background: #09090b;
+        color: #fafafa;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Helvetica Neue',
+          sans-serif;
+        display: grid;
+        grid-template-columns: 1fr 470px;
+        gap: 56px;
+        align-items: center;
+        background-image: radial-gradient(
+          circle at 85% 20%,
+          rgba(72, 190, 244, 0.16),
+          transparent 55%
+        );
+      }
+      .left {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .brand svg {
+        width: 84px;
+        height: 84px;
+      }
+      h1 {
+        font-size: 64px;
+        letter-spacing: -0.02em;
+        margin: 0;
+        font-weight: 700;
+      }
+      p {
+        font-size: 35px;
+        line-height: 1.3;
+        color: #d4d4d8;
+        margin: 0;
+      }
+      p b {
+        color: #48bef4;
+        font-weight: 600;
+      }
+      .url {
+        font-size: 28px;
+        color: #a1a1aa;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      pre {
+        margin: 0;
+        padding: 30px 32px;
+        background: #171717;
+        border: 1px solid #27272a;
+        border-radius: 16px;
+        font:
+          21px/1.55 ui-monospace,
+          'SF Mono',
+          Menlo,
+          monospace;
+        color: #d4d4d4;
+        white-space: pre;
+      }
+      .k {
+        color: #c586c0;
+      }
+      .f {
+        color: #dcdcaa;
+      }
+      .t {
+        color: #4ec9b0;
+      }
+      .c {
+        color: #6a9955;
+      }
+      .n {
+        color: #b5cea8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="left">
+      <div class="brand">
+        <svg
+          viewBox="0 0 32 32"
+          fill="none"
+          stroke-width="2.6"
+          stroke-linecap="round"
+        >
+          <mask
+            id="a"
+            maskUnits="userSpaceOnUse"
+            x="0"
+            y="0"
+            width="32"
+            height="32"
+          >
+            <rect width="32" height="32" fill="white" />
+            <path d="M23 4c0 6-14 6-14 12" stroke="black" stroke-width="6" />
+          </mask>
+          <mask
+            id="b"
+            maskUnits="userSpaceOnUse"
+            x="0"
+            y="0"
+            width="32"
+            height="32"
+          >
+            <rect width="32" height="32" fill="white" />
+            <path d="M23 16c0 6-14 6-14 12" stroke="black" stroke-width="6" />
+          </mask>
+          <path
+            stroke="#fafafa"
+            d="M9 4c0 6 14 6 14 12s-14 6-14 12"
+            mask="url(#a)"
+          />
+          <path
+            stroke="#48bef4"
+            d="M23 4c0 6-14 6-14 12s14 6 14 12"
+            mask="url(#b)"
+          />
+        </svg>
+        <h1>@arv/structs</h1>
+      </div>
+      <p>
+        The TC39 <b>structs proposal</b> for JavaScript today: shared structs,
+        Mutex and Condition, on Web Workers.
+      </p>
+      <div class="url">threads.arv.tools</div>
+    </div>
+    <pre><span class="k">shared struct</span> <span class="f">Counter</span> {
+  count = <span class="n">0</span>;
+  lock = <span class="k">new</span> Atomics.<span class="f">Mutex</span>();
+}
+
+<span class="k">using</span> _ = Atomics.Mutex.<span class="f">lock</span>(c.lock);
+c.count++; <span class="c">// on any worker</span></pre>
+  </body>
+</html>

@@ -138,6 +138,31 @@ heap words that `Atomics.wait` and `Atomics.notify` work on. Blocking where an
 agent cannot (a browser's main thread) is a TypeError, as the spec says
 (`AgentCanSuspend`).
 
+### Mutex and Condition
+
+`Atomics.Mutex` and `Atomics.Condition` are shared structs with no fields, so
+they can be stored in another shared struct's fields and sent to workers. A lock
+gives an `UnlockToken`, which `using` unlocks at the end of its block. A
+Condition waits with that token: it unlocks the Mutex while it waits and locks
+it again before it returns.
+
+```js
+shared struct Queue {
+  items = new SharedArray(16);
+  size = 0;
+  lock = new Atomics.Mutex();
+  changed = new Atomics.Condition();
+}
+
+// on a worker: wait until there is something to take
+{
+  using token = Atomics.Mutex.lock(queue.lock);
+  Atomics.Condition.waitFor(queue.changed, token, Infinity, () => queue.size > 0);
+  // take an item, then tell the others
+  Atomics.Condition.notify(queue.changed);
+}
+```
+
 ### TypeScript
 
 `compile` type checks a project as TypeScript sees it with each struct spelled
@@ -210,6 +235,8 @@ fields as `undefined`. Spread it instead: `console.log({...s})`.
 | [src/compiler/project.ts](src/compiler/project.ts)     | TypeScript projects: type checking                       |
 | [src/compiler/fast.ts](src/compiler/fast.ts)           | Direct field access where the types allow it             |
 | [src/register.ts](src/register.ts)                     | Node's load hook                                         |
+| [playground/](playground)                              | The playground: edit, compile and run in the browser     |
+| [site/](site)                                          | These docs as a site, built by Eleventy                  |
 
 The compiler parses with TypeScript 7's API (the same parser in both modes),
 edits with magic-string, and strips types with OXC.

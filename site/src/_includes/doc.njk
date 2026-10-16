@@ -1,0 +1,171 @@
+<!doctype html>
+{#- A page of the docs, laid out as the Zero docs' are: the navbar on top, the
+    sections on the left, the page in the middle with Previous and Next under
+    it, and "On this page" on the right -#}
+{%- set entries = content | toc -%}
+{%- set links = page.url | pager -%}
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if page.url == "/" %}Structs Docs{% else %}{{ navTitle or title }} | Structs Docs{% endif %}</title>
+    {%- if description %}
+    <meta name="description" content="{{ description }}" />
+    {%- endif %}
+    <meta property="og:title" content="{% if page.url == "/" %}Structs Docs{% else %}{{ navTitle or title }} | Structs Docs{% endif %}" />
+    {%- if description %}
+    <meta property="og:description" content="{{ description }}" />
+    {%- endif %}
+    <meta property="og:url" content="https://threads.arv.tools{{ page.url }}" />
+    <meta property="og:image" content="https://threads.arv.tools/assets/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // the theme before the first paint: the one picked, or the system's
+      (() => {
+        let theme = 'system';
+        try {
+          theme = localStorage.getItem('theme') ?? 'system';
+        } catch {}
+        const dark =
+          theme === 'dark' ||
+          (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.add(dark ? 'dark' : 'light');
+      })();
+    </script>
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/site.css" />
+    <link rel="search-index" href="/search-index.json" />
+    <script type="module" src="/assets/site.js"></script>
+  </head>
+  <body>
+    <nav class="inner-docs-nav">
+      <button type="button" class="icon-button menu-button" aria-label="Menu" data-open-menu>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 12H3M17 18H3M21 6H3" /></svg>
+      </button>
+      <a href="/" class="logo" aria-label="Structs Docs, home">
+        {#- two threads twisted: the blue one over at the top crossing, the
+            other over at the bottom, each mask cutting the gap the strand
+            on top leaves in the one under it (as assets/icon.svg) #}
+        <svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <mask id="logo-under-blue" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+            <rect width="32" height="32" fill="white" />
+            <path d="M23 4c0 6-14 6-14 12" stroke="black" stroke-width="6" />
+          </mask>
+          <mask id="logo-under-black" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+            <rect width="32" height="32" fill="white" />
+            <path d="M23 16c0 6-14 6-14 12" stroke="black" stroke-width="6" />
+          </mask>
+          <path d="M9 4c0 6 14 6 14 12s-14 6-14 12" mask="url(#logo-under-blue)" />
+          <path class="logo-accent" d="M23 4c0 6-14 6-14 12s14 6 14 12" mask="url(#logo-under-black)" />
+        </svg>
+        <span class="logo-text">structs</span>
+        <span class="logo-docs">docs</span>
+      </a>
+      <div class="nav-end">
+        <a href="/playground/" class="nav-link">Playground</a>
+        <button type="button" class="search-trigger" data-open-search aria-label="Search docs">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+          <span class="search-placeholder">Search docs</span>
+          <kbd class="search-kbd"><span class="search-kbd-mod">⌘</span>K</kbd>
+        </button>
+      </div>
+    </nav>
+
+    <div class="layout">
+      <aside class="leftbar" aria-label="Docs">
+        {% include "menu.njk" %}
+      </aside>
+
+      <main class="doc">
+        <article class="prose">
+          <h1>{{ title }}</h1>
+          {%- if description %}
+          <p class="description">{{ description }}</p>
+          {%- endif %}
+          <!-- content -->
+          {{ content | safe }}
+          <!-- /content -->
+        </article>
+
+        {%- if links.prev or links.next %}
+        <nav class="pagination" aria-label="Previous and next">
+          <div>
+            {%- if links.prev %}
+            <a class="pagination-card" href="{{ links.prev.url }}" rel="prev">
+              <span class="pagination-label">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                Previous
+              </span>
+              <span class="pagination-title">{{ links.prev.title }}</span>
+            </a>
+            {%- endif %}
+          </div>
+          <div>
+            {%- if links.next %}
+            <a class="pagination-card next" href="{{ links.next.url }}" rel="next">
+              <span class="pagination-label">
+                Next
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+              </span>
+              <span class="pagination-title">{{ links.next.title }}</span>
+            </a>
+            {%- endif %}
+          </div>
+        </nav>
+        {%- endif %}
+      </main>
+
+      <aside class="toc" aria-label="On this page">
+        <div class="toc-inner">
+          {%- if entries.length %}
+          <h3>On this page</h3>
+          <ul class="toc-links">
+            {%- for entry in entries %}
+            <li><a href="#{{ entry.id }}" class="toc-level-{{ entry.level }}">{{ entry.text }}</a></li>
+            {%- endfor %}
+          </ul>
+          <div class="toc-divider"></div>
+          {%- endif %}
+          {%- if page.inputPath.endsWith(".md") %}
+          <a class="edit-link" href="{{ repository }}/blob/{{ branch }}/site/{{ page.inputPath | replace('./', '') }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+            Edit this page on GitHub
+          </a>
+          {%- endif %}
+        </div>
+      </aside>
+    </div>
+
+    <dialog class="sheet" aria-label="Menu" data-menu>
+      <div class="sheet-header">
+        <h2>Docs</h2>
+        <button type="button" class="icon-button" aria-label="Close" data-close>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+      </div>
+      {% include "menu.njk" %}
+    </dialog>
+
+    <dialog class="search-dialog" aria-label="Search" data-search>
+      <div class="search-input-row">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+        <input
+          type="search"
+          role="combobox"
+          placeholder="Type to search..."
+          aria-label="Search the docs"
+          aria-controls="search-results"
+          aria-expanded="false"
+          aria-autocomplete="list"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="button" class="icon-button" aria-label="Close" data-close>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <ul id="search-results" class="search-results" role="listbox" aria-label="Results"></ul>
+      <p class="search-empty" hidden>No results found.</p>
+    </dialog>
+  </body>
+</html>

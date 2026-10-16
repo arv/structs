@@ -1,0 +1,20 @@
+{
+  // the site's build (eleventy.config.ts and lib/) and its tests, which Node
+  // runs as they are, their types stripped. The page's scripts (src/assets/)
+  // are plain JavaScript, served as they are: the tests import them, and
+  // their types are inferred
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "lib": ["es2024"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "allowJs": true
+  },
+  "include": ["eleventy.config.ts", "*.test.ts", "lib/**/*.ts", "og/*.ts"]
+}

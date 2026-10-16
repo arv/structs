@@ -1,0 +1,32 @@
+---
+title: Sharing Across Agents
+description:
+  Workers that share the heap, and messages between them that carry shared
+  objects as themselves.
+---
+
+The proposal leaves sharing across agents to the host. `@arv/structs/agent`
+starts workers that attach to the same heap: `worker_threads` in Node, module
+Web Workers in a browser. Messages sent through it carry shared objects as
+themselves, and everything else as `postMessage` copies it.
+
+```js
+// main.js
+import {startWorker} from '@arv/structs/agent';
+const w = startWorker(new URL('./worker.js', import.meta.url));
+w.postMessage({tally, n: 1000});
+
+// worker.js
+import {parent} from '@arv/structs/agent';
+parent.onmessage = ({tally, n}) => {
+  /* tally is the main thread's struct */
+};
+```
+
+`run(url, name, ...args)` calls the function a module exports as `name` on a new
+worker and settles with what it returns. A module can run its own functions with
+`run(import.meta.url, ...)`.
+
+[examples/counter](https://github.com/arv/threads/tree/tc39-proposal/examples/counter)
+has four workers counting to a million under a Mutex, with a Condition saying
+when they are done.

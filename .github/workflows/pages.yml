@@ -1,0 +1,69 @@
+# The docs and the playground on GitHub Pages: the docs (site/) at the root and
+# the playground under /playground/ (arv.github.io/threads/, or
+# threads.arv.tools/ once the repository's Pages settings name that domain): on
+# every push to main, and by hand. It builds tsgo in WebAssembly for the page,
+# which compiles the programs with @arv/structs's compiler on it: stock
+# TypeScript, at the commit the compiler's typescript package was built from
+# (vp run build-wasm fetches it); then the playground (vp build) and the docs
+# (Eleventy) for the site's path, and deploys them together. Pages sends no COOP and COEP headers:
+# the playground's service worker adds them (playground/public/coi-sw.js), for
+# the playground's path only.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # the site's path: /threads on arv.github.io, nothing on a custom domain
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      # the Go TypeScript's go.mod asks for (a newer one, it downloads)
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: '24'
+          cache: true
+      - run: vp run build-wasm
+        working-directory: playground
+      - run: vp build
+        working-directory: playground
+        env:
+          BASE: ${{ steps.pages.outputs.base_path }}/playground/
+      - run: vp run build
+        working-directory: site
+        env:
+          BASE: ${{ steps.pages.outputs.base_path }}/
+      - name: the site
+        run: |
+          cp -R site/dist _site
+          cp -R playground/dist _site/playground
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

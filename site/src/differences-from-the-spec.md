@@ -1,0 +1,37 @@
+---
+title: Differences from the Spec
+description:
+  Where JavaScript can't do what the spec says, or where the spec text looks
+  like an oversight, and what this implementation does instead.
+---
+
+Where JavaScript can't do what the spec says, or where the spec text looks like
+an oversight, this implementation does something else:
+
+- **Memory is never reclaimed.** Shared objects and interned strings live until
+  the process ends. There is no collector across agents.
+- **Symbols.** Only registered (`Symbol.for`) and well-known symbols can be
+  shared, as values or as field keys, because other agents don't have the
+  others. `Reflect.canBeShared` returns false for the rest.
+- **`[[GetOwnProperty]]` reports shared fields as writable.** The spec says not
+  writable, but its own `[[DefineOwnProperty]]` asserts writable, and a Proxy
+  can't report a writable target property as non-writable.
+- **Constructors are classes.** A shared struct's constructor has a `prototype`
+  object (with a null prototype; its instances still have none). A struct with
+  no `extends` has a hidden root function as its constructor's `[[Prototype]]`,
+  not `Function.prototype`.
+- **Arguments.** The spec evaluates the arguments of `new S(...)` and of
+  `super(...)` but never passes them to the initializer. Here they are passed.
+- **Static methods are not brand-checked.** The spec's `DefineMethod` would wrap
+  them too, which would make them impossible to call.
+- **Computed instance field keys** are evaluated when the static elements start,
+  not in element order.
+- **`super.x` in a shared struct's initializers** looks at the parent
+  constructor. In the spec their home object is null, and `super.x` throws.
+- **Mutexes aren't fair.** A woken waiter competes with newcomers, where the
+  spec has a waiter queue.
+
+::: note Logging a shared struct in Node
+Node's `console.log` shows a Proxy's target, so it prints a shared struct's
+fields as `undefined`. Spread it instead: `console.log({...s})`.
+:::
