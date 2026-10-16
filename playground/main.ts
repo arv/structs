@@ -319,7 +319,60 @@ function updateRun() {
 }
 
 // ---- running: main(workers) on a worker, which may block; its workers'
-// console output comes up to the page ----
+// console output comes up to the page, with the 256-color backgrounds
+// Mandelbrot draws with ----
+const BASIC = [
+  '#000',
+  '#800000',
+  '#008000',
+  '#808000',
+  '#000080',
+  '#800080',
+  '#008080',
+  '#c0c0c0',
+  '#808080',
+  '#f00',
+  '#0f0',
+  '#ff0',
+  '#00f',
+  '#f0f',
+  '#0ff',
+  '#fff',
+];
+function xterm(n: number): string {
+  if (n < 16) return BASIC[n]!;
+  if (n < 232) {
+    const c = n - 16,
+      v = (k: number) => (k === 0 ? 0 : 55 + k * 40);
+    return `rgb(${v(Math.floor(c / 36))},${v(Math.floor(c / 6) % 6)},${v(c % 6)})`;
+  }
+  const g = 8 + (n - 232) * 10;
+  return `rgb(${g},${g},${g})`;
+}
+function ansiToHtml(text: string): string {
+  let html = '',
+    open = false;
+  // (the escape codes are what these look for)
+  // oxlint-disable-next-line eslint/no-control-regex
+  for (const part of text.split(/(\x1b\[[\d;]*m)/)) {
+    // oxlint-disable-next-line eslint/no-control-regex
+    const m = /^\x1b\[([\d;]*)m$/.exec(part);
+    if (!m) {
+      html += escapeHtml(part);
+      continue;
+    }
+    if (open) {
+      html += '</span>';
+      open = false;
+    }
+    const bg = /^48;5;(\d+)$/.exec(m[1]!);
+    if (bg) {
+      html += `<span style="background:${xterm(Number(bg[1]))}">`;
+      open = true;
+    }
+  }
+  return open ? `${html}</span>` : html;
+}
 function print(html: string) {
   output.insertAdjacentHTML('beforeend', html);
   output.scrollTop = output.scrollHeight;
@@ -328,7 +381,7 @@ function print(html: string) {
 // what a warm-up run prints)
 let quiet = false;
 onLog(text => {
-  if (!quiet && !text.startsWith('[vite]')) print(`${escapeHtml(text)}\n`);
+  if (!quiet && !text.startsWith('[vite]')) print(`${ansiToHtml(text)}\n`);
 });
 
 // the worker counts to run main with: "1,2,4,8" (at most 64 each)

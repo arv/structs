@@ -101,7 +101,8 @@ Each program exports `main(n)`, which runs on `n` workers where it uses any:
 - `Atomics.Mutex`: workers counting together
 - `Atomics.Condition`: a bounded queue between producers and a consumer
 - `Atomics` on fields: claiming work with `compareExchange`
-- Mandelbrot: rows claimed by workers, which scales with them
+- Mandelbrot: rows claimed by workers, which scales with them, and the picture
+  in 256 colors
 - N-body: a thousand bodies split among workers, kept in step by a barrier built
   from a Mutex and a Condition
 - N-body: direct field access against the Proxy
