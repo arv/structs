@@ -1,5 +1,5 @@
 // `vp dev`: the playground, whose programs the dev server compiles (POST
-// /__structs/compile) with @arv/structs's compiler on TypeScript's native
+// /__structs/compile) with the compiler (../src/compiler) on TypeScript's native
 // API. A build (vp build, after vp run build-wasm) compiles them in the
 // browser instead, on tsgo in WebAssembly (compiler.ts), and is served from
 // /playground/ (BASE names another path). Both send the COOP and COEP

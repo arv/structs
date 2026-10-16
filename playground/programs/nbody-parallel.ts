@@ -5,7 +5,7 @@
 // 1, 2, 4 and 8: the energy comes out the same, faster. (Warm up, which is on,
 // runs it once first, so that each worker has optimized its hot code.)
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 const N = 1000, STEPS = 50, DT = 0.001, SOFTENING = 0.01;
 

@@ -121,14 +121,10 @@ ts.typescriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: true,
 });
-ts.typescriptDefaults.addExtraLib(
-  `declare module '@arv/structs' {\n${apiTypes}\n}`,
-  'file:///node_modules/@arv/structs/index.d.ts',
-);
-ts.typescriptDefaults.addExtraLib(
-  `declare module '@arv/structs/agent' {\n${agentTypes}\n}`,
-  'file:///node_modules/@arv/structs/agent.d.ts',
-);
+// the runtime's types where the program finds them: its globals, and the
+// agent module it imports as ../../src/runtime/agent.ts
+ts.typescriptDefaults.addExtraLib(apiTypes, 'file:///src/runtime/api.d.ts');
+ts.typescriptDefaults.addExtraLib(agentTypes, 'file:///src/runtime/agent.ts');
 ts.javascriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: true,
@@ -150,7 +146,7 @@ const options: monaco.editor.IStandaloneEditorConstructionOptions = {
 const sourceModel = monaco.editor.createModel(
   programText(initial),
   'typescript',
-  monaco.Uri.parse('file:///program.ts'),
+  monaco.Uri.parse('file:///playground/programs/program.ts'),
 );
 const editor = monaco.editor.create($('source'), {
   ...options,
@@ -218,7 +214,7 @@ function showDiagnostics() {
       });
       return {
         severity: monaco.MarkerSeverity.Error,
-        source: '@arv/structs',
+        source: 'structs',
         message: d.message,
         startLineNumber: d.line,
         startColumn: d.col,
@@ -407,7 +403,7 @@ runButton.addEventListener('click', async () => {
   try {
     // a run on the most workers first, unshown, so that each worker has
     // optimized its hot code before the runs that are timed (the pool keeps
-    // them: see run in @arv/structs/agent)
+    // them: see run in src/runtime/agent.ts)
     if ($<HTMLInputElement>('warm').checked) {
       const most = Math.max(...counts);
       print(`<div class="step">warming up: main(${most})</div>`);

@@ -4,7 +4,7 @@
 // more workers draw it faster: run it on 1, 2, 4 and 8. Then main prints the
 // picture, a 256-color background per character.
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 const W = 80, H = 32, SAMPLES = 18, MAX_ITER = 2000;
 

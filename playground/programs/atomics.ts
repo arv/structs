@@ -1,7 +1,7 @@
 // Atomics on shared struct fields: compareExchange claims work without a
 // lock. Each worker takes the next chunk of a SharedArray, and sums it.
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 shared struct Work {
   next = 0;

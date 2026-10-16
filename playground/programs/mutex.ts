@@ -1,7 +1,7 @@
 // Atomics.Mutex: workers count together, each increment under the lock. An
 // UnlockToken unlocks it at the end of its `using` block.
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 shared struct Counter {
   count = 0;

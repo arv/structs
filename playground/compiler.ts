@@ -1,5 +1,5 @@
 // The playground's compiler where no dev server compiles (a static build, or
-// ?wasm): @arv/structs's compiler in a Web Worker, on TypeScript 7.1's API.
+// ?wasm): the compiler (../src/compiler) in a Web Worker, on TypeScript 7.1's API.
 // tsgo, which serves the API, is stock TypeScript compiled to WebAssembly, in
 // a worker of its own (tsgo/tsgo-worker.ts); this worker talks to it as the
 // API's client does to a tsgo process, synchronously, over pipes in shared

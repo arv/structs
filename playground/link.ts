@@ -1,11 +1,17 @@
 // A compiled program as a module the page and its workers can import: a
-// blob: module, whose imports of the runtime ("@arv/structs", ".../runtime",
-// ".../agent") read globalThis.__structs instead, which a worker run starts
-// sets (src/runtime/agent-worker.ts): a blob: module cannot resolve them.
+// blob: module, whose imports of the runtime by its path in the repository
+// (../../src/runtime/index.ts, emit.ts, agent.ts) read globalThis.__structs
+// instead, which a worker run starts sets (src/runtime/agent-worker.ts): a
+// blob: module cannot resolve them.
 
-// the specifier, its quote the `n`th group
+// the specifier, its quote the `n`th group, the module the next
 const specifier = (n: number) =>
-  `(["'])@arv\\/structs(?:\\/(runtime|agent))?\\${n}`;
+  `(["'])(?:\\.\\.?\\/)*src\\/runtime\\/(index|emit|agent)\\.ts\\${n}`;
+const runtimeModules: Record<string, string> = {
+  index: 'structs',
+  emit: 'runtime',
+  agent: 'agent',
+};
 
 export function link(code: string) {
   return code
@@ -15,12 +21,12 @@ export function link(code: string) {
         `\\bimport\\s*(\\{[^}]*\\}|\\*\\s*as\\s+[\\w$]+)\\s*from\\s*${specifier(2)}\\s*;?`,
         'g',
       ),
-      (_, what: string, _q: string, sub: string | undefined) =>
+      (_, what: string, _q: string, module: string) =>
         `const ${
           what.startsWith('*')
             ? what.replace(/^\*\s*as\s+/, '')
             : what.replace(/\bas\b/g, ':')
-        } = globalThis.__structs.${sub ?? 'structs'};`,
+        } = globalThis.__structs.${runtimeModules[module]};`,
     );
 }
 

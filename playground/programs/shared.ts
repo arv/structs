@@ -2,7 +2,7 @@
 // fields hold primitives and other shared objects only, and they have no
 // prototype and no methods.
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 shared struct Message {
   text = '';

@@ -1,7 +1,7 @@
 // Atomics.Condition: a bounded queue. Producers wait while it is full,
 // consumers while it is empty; each tells the other side when it changes it.
 
-import {run} from '@arv/structs/agent';
+import {run} from '../../src/runtime/agent.ts';
 
 shared struct Queue {
   items = new SharedArray<number>(4);

@@ -1,5 +1,7 @@
-// A playground program compiled: @arv/structs's compiler (../src/compiler) on a
-// project of one file, the program, with the runtime's types. The same on the
+// A playground program compiled: the compiler (../src/compiler) on a project
+// of one file, the program, with the runtime's types where the repository has
+// the runtime (the program is in playground/programs/, and imports the agent
+// module as ../../src/runtime/agent.ts). The same on the
 // dev server (vite.config.ts, on TypeScript's native API) and in the browser
 // (compiler.ts, on tsgo in WebAssembly): only the file system differs.
 
@@ -10,12 +12,14 @@ import agentTypes from '../src/runtime/agent-api.d.ts?raw';
 import apiTypes from '../src/runtime/api.d.ts?raw';
 import type {Compiled} from './compiler-messages.ts';
 
-export const DIR = '/playground',
+export const DIR = '/playground/programs',
   CONFIG = `${DIR}/tsconfig.json`,
   PROGRAM = `${DIR}/program.ts`;
-const TYPES = '/runtime/api.d.ts',
-  AGENT_TYPES = '/runtime/agent-api.d.ts';
-export const RUNTIME = '@arv/structs/runtime';
+// the globals' types, and the agent module, as its types
+const TYPES = '/src/runtime/api.d.ts',
+  AGENT = '/src/runtime/agent.ts';
+// what the compiled program imports the runtime as (link.ts)
+export const RUNTIME = '../../src/runtime/emit.ts';
 
 const tsconfig = JSON.stringify({
   compilerOptions: {
@@ -26,10 +30,8 @@ const tsconfig = JSON.stringify({
     lib: ['esnext', 'dom'],
     types: [],
     skipLibCheck: true,
-    paths: {
-      '@arv/structs': [TYPES],
-      '@arv/structs/agent': [AGENT_TYPES],
-    },
+    noEmit: true,
+    allowImportingTsExtensions: true,
   },
   // the runtime's types as a root: its globals (Atomics.Mutex and the rest)
   // are there whether or not the program imports it
@@ -49,7 +51,7 @@ export function files(
       [CONFIG]: tsconfig,
       [PROGRAM]: source,
       [TYPES]: apiTypes,
-      [AGENT_TYPES]: agentTypes,
+      [AGENT]: agentTypes,
     },
     ...(kind === 'full' && {
       symlinks: {'bundled:///libs': {target: 'bundled:///libs', host: true}},
