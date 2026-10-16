@@ -324,9 +324,11 @@ function print(html: string) {
   output.insertAdjacentHTML('beforeend', html);
   output.scrollTop = output.scrollHeight;
 }
-// (but the dev server's client, which says it connected in each worker)
+// (but the dev server's client, which says it connected in each worker, and
+// what a warm-up run prints)
+let quiet = false;
 onLog(text => {
-  if (!text.startsWith('[vite]')) print(`${escapeHtml(text)}\n`);
+  if (!quiet && !text.startsWith('[vite]')) print(`${escapeHtml(text)}\n`);
 });
 
 // the worker counts to run main with: "1,2,4,8" (at most 64 each)
@@ -347,9 +349,28 @@ runButton.addEventListener('click', async () => {
     `<div class="run">${fast ? 'Direct field access' : 'Proxy only'} · ${escapeHtml(preset.selectedOptions[0]?.text ?? 'program')} · main(n) on a worker, for n = ${counts.join(', ')}</div>`,
   );
   const t0 = performance.now();
-  // each count's time, from the start of its worker to main's end
+  // each count's time, from the call of main to its end
   const times: [number, number][] = [];
   try {
+    // a run on the most workers first, unshown, so that each worker has
+    // optimized its hot code before the runs that are timed (the pool keeps
+    // them: see run in @arv/structs/agent)
+    if ($<HTMLInputElement>('warm').checked) {
+      const most = Math.max(...counts);
+      print(`<div class="step">warming up: main(${most})</div>`);
+      const current = (running = {
+        t0: performance.now(),
+        run: spawn(programUrl(code), 'main', most),
+      });
+      updateRun();
+      quiet = true;
+      try {
+        await current.run.result;
+      } finally {
+        quiet = false;
+      }
+      if (running !== current) return;
+    }
     for (const n of counts) {
       const current = (running = {
         t0: performance.now(),

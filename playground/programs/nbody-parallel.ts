@@ -2,7 +2,8 @@
 // given. Each step has two phases, with a barrier after each: every worker
 // updates its bodies' velocities from everyone's positions, then moves its
 // bodies. The barrier is a Mutex and a Condition in a shared struct. Run it on
-// 1, 2, 4 and 8: the energy comes out the same, faster.
+// 1, 2, 4 and 8: the energy comes out the same, faster. (Warm up, which is on,
+// runs it once first, so that each worker has optimized its hot code.)
 
 import {run} from '@arv/structs/agent';
 
@@ -40,32 +41,40 @@ function arrive(b: Barrier) {
   }
 }
 
+// one body's velocity, from everyone's positions. The hot loop is a function
+// of its own, called for each body: V8 optimizes a function that is called
+// often, where a loop in a function called once is optimized only while it
+// runs, and thrown away each time it ends
+function accelerate(bodies: SharedArray<Body>, i: number) {
+  const a = bodies[i]!;
+  let ax = 0, ay = 0, az = 0;
+  for (let j = 0; j < N; j++) {
+    const b = bodies[j]!;
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const d2 = dx * dx + dy * dy + dz * dz + SOFTENING;
+    const f = b.mass / (d2 * Math.sqrt(d2));
+    ax += dx * f;
+    ay += dy * f;
+    az += dz * f;
+  }
+  a.vx = a.vx + ax * DT;
+  a.vy = a.vy + ay * DT;
+  a.vz = a.vz + az * DT;
+}
+
+function move(bodies: SharedArray<Body>, i: number) {
+  const a = bodies[i]!;
+  a.x = a.x + a.vx * DT;
+  a.y = a.y + a.vy * DT;
+  a.z = a.z + a.vz * DT;
+}
+
 // on a worker: bodies [from, to), every step
 export function simulate(bodies: SharedArray<Body>, from: number, to: number, barrier: Barrier) {
   for (let step = 0; step < STEPS; step++) {
-    for (let i = from; i < to; i++) {
-      const a = bodies[i]!;
-      let ax = 0, ay = 0, az = 0;
-      for (let j = 0; j < N; j++) {
-        const b = bodies[j]!;
-        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-        const d2 = dx * dx + dy * dy + dz * dz + SOFTENING;
-        const f = b.mass / (d2 * Math.sqrt(d2));
-        ax += dx * f;
-        ay += dy * f;
-        az += dz * f;
-      }
-      a.vx = a.vx + ax * DT;
-      a.vy = a.vy + ay * DT;
-      a.vz = a.vz + az * DT;
-    }
+    for (let i = from; i < to; i++) accelerate(bodies, i);
     arrive(barrier);
-    for (let i = from; i < to; i++) {
-      const a = bodies[i]!;
-      a.x = a.x + a.vx * DT;
-      a.y = a.y + a.vy * DT;
-      a.z = a.z + a.vz * DT;
-    }
+    for (let i = from; i < to; i++) move(bodies, i);
     arrive(barrier);
   }
 }

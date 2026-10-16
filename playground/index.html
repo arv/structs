@@ -307,6 +307,10 @@
       <label
         >Workers <input id="workers" type="text" value="1,2,4,8" size="9"
       /></label>
+      <label
+        title="Runs main once on the most workers first, unshown, so that the timed runs find their workers' code optimized"
+        ><input id="warm" type="checkbox" checked /> Warm up</label
+      >
       <button
         id="run"
         title="Calls main(n) on a worker, for each worker count n"

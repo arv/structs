@@ -23,9 +23,11 @@ parent.onmessage = ({tally, n}) => {
 };
 ```
 
-`run(url, name, ...args)` calls the function a module exports as `name` on a new
+`run(url, name, ...args)` calls the function a module exports as `name` on a
 worker and settles with what it returns. A module can run its own functions with
-`run(import.meta.url, ...)`.
+`run(import.meta.url, ...)`. The workers are a pool: one that returns waits for
+the next call, with the code V8 has optimized in it, so a program that runs its
+work again finds its workers warm.
 
 [examples/counter](https://github.com/arv/threads/tree/tc39-proposal/examples/counter)
 has four workers counting to a million under a Mutex, with a Condition saying

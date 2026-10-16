@@ -88,14 +88,21 @@ export function startWorker(
     : webAgent(new Worker(url, {type: 'module', name: options.name}));
 }
 
-function nodeAgent(w: import('node:worker_threads').Worker): Agent {
+// an agent that `run` keeps for its next call: in Node, whether it keeps the
+// process alive (not while it waits for work)
+interface Pooled extends Agent {
+  hold(busy: boolean): void;
+}
+
+function nodeAgent(w: import('node:worker_threads').Worker): Pooled {
   let exited!: (code: number) => void;
-  const agent: Agent = {
+  const agent: Pooled = {
     postMessage: m => w.postMessage(encode(m)),
     onmessage: null,
     onerror: null,
     terminate: () => void w.terminate(),
     exited: new Promise<number>(resolve => (exited = resolve)),
+    hold: busy => (busy ? w.ref() : w.unref()),
   };
   w.on('message', m => agent.onmessage?.(decode(m)));
   w.on('error', e => {
@@ -106,14 +113,15 @@ function nodeAgent(w: import('node:worker_threads').Worker): Agent {
   return agent;
 }
 
-function webAgent(w: Worker): Agent {
+function webAgent(w: Worker): Pooled {
   w.postMessage({[HEAP]: SAB});
-  const agent: Agent = {
+  const agent: Pooled = {
     postMessage: m => w.postMessage(encode(m)),
     onmessage: null,
     onerror: null,
     terminate: () => w.terminate(),
     exited: new Promise(() => {}),
+    hold: () => {},
   };
   w.onmessage = e => agent.onmessage?.(decode(e.data));
   w.onerror = e => {
@@ -137,10 +145,45 @@ export function onLog(handler: ((text: string) => void) | null) {
 const log = (text: string) =>
   logHandler ? logHandler(text) : console.log(text);
 
-// Runs the function exported as `name` by the module at `url` on a new
-// worker, with `args` (shared objects pass as themselves, the rest as
-// postMessage copies them), and ends the worker when it returns. Settles with
-// what it returns (or its promise does), or rejects with what it threw.
+// The workers `run` starts and keeps: one that has returned waits for the
+// next call, with the code it has optimized (V8 makes a worker's hot code fast
+// as it runs, so a worker started for each call would run it cold), and the
+// modules it has imported. In Node an idle one does not keep the process
+// alive.
+const idle: Pooled[] = [];
+const POOL = 64;
+
+function startPooled(): Pooled {
+  const wt = nodeThreads();
+  return wt
+    ? nodeAgent(
+        new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
+          workerData: {__structsHeap: SAB},
+        }),
+      )
+    : webAgent(
+        new Worker(new URL('./agent-worker.ts', import.meta.url), {
+          type: 'module',
+        }),
+      );
+}
+
+// Starts workers for `run` until `n` wait idle: so that the calls that follow
+// do not wait for workers to start.
+export function prestart(n: number) {
+  requireHeap();
+  while (idle.length < Math.min(n, POOL)) {
+    const agent = startPooled();
+    agent.hold(false);
+    idle.push(agent);
+  }
+}
+
+// Runs the function exported as `name` by the module at `url` on a worker,
+// with `args` (shared objects pass as themselves, the rest as postMessage
+// copies them). Settles with what it returns (or its promise does), or
+// rejects with what it threw. The worker is one of the pool's: a worker that
+// returned before, or a new one.
 export const run = (
   url: string | URL,
   name: string,
@@ -155,29 +198,29 @@ export interface Running {
   terminate(): void;
 }
 
-// run, which can be stopped.
+// run, which can be stopped. A worker that is stopped, or fails, is not kept.
 export function spawn(
   url: string | URL,
   name: string,
   ...args: unknown[]
 ): Running {
   requireHeap();
-  const wt = nodeThreads();
-  const agent = wt
-    ? nodeAgent(
-        new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
-          workerData: {__structsHeap: SAB},
-        }),
-      )
-    : webAgent(
-        new Worker(new URL('./agent-worker.ts', import.meta.url), {
-          type: 'module',
-        }),
-      );
+  const agent = idle.pop() ?? startPooled();
+  agent.hold(true);
+  let ended = false;
+  const end = (keep: boolean) => {
+    if (ended) return;
+    ended = true;
+    agent.onmessage = agent.onerror = null;
+    if (keep && idle.length < POOL) {
+      agent.hold(false);
+      idle.push(agent);
+    } else agent.terminate();
+  };
   const result = new Promise((resolve, reject) => {
     agent.onmessage = m => {
       if (LOG in m) return log(m[LOG]);
-      agent.terminate();
+      end(true);
       if (ERROR in m) {
         const e = new Error(m[ERROR].message);
         if (m[ERROR].stack) e.stack = m[ERROR].stack;
@@ -185,14 +228,14 @@ export function spawn(
       } else resolve(m[RESULT]);
     };
     agent.onerror = e => {
-      agent.terminate();
+      end(false);
       reject(
         e instanceof Error ? e : new Error(String((e as any)?.message ?? e)),
       );
     };
     agent.postMessage({url: String(url), name, args});
   });
-  return {result, terminate: () => agent.terminate()};
+  return {result, terminate: () => end(false)};
 }
 
 // The agent that started this one (in a worker), or null.

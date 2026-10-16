@@ -1,6 +1,6 @@
 // The worker `run` starts (agent.ts): it imports a module, calls one of its
 // functions with the arguments it is sent, and sends back what it returns, or
-// what it threw. In a browser it also sends its console output back, which a
+// what it threw; then waits for the next call. In a browser it also sends its console output back, which a
 // worker's console would keep to itself (the devtools').
 
 import * as agent from './agent.ts';
@@ -42,8 +42,8 @@ function format(v: unknown): string {
   }
 }
 
+// a call, then the next: run keeps this worker for its next call
 parent!.onmessage = async ({url, name, args}) => {
-  parent!.onmessage = null;
   try {
     const module = await import(/* @vite-ignore */ url);
     if (typeof module[name] !== 'function')

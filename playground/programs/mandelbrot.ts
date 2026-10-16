@@ -5,7 +5,7 @@
 
 import {run} from '@arv/structs/agent';
 
-const WIDTH = 1200, HEIGHT = 800, LIMIT = 500;
+const WIDTH = 1600, HEIGHT = 1200, LIMIT = 1000;
 
 shared struct Picture {
   // the next row to draw

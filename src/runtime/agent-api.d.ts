@@ -20,8 +20,9 @@ export declare const parent: {
   onmessage: ((message: any) => void) | null;
 } | null;
 
-// Calls the function `name` exports from the module at `url` on a new worker,
-// with `args`; settles with what it returns.
+// Calls the function `name` exports from the module at `url` on a worker,
+// with `args`; settles with what it returns. The worker is kept for the next
+// call, with the code it has optimized.
 export declare function run(
   url: string | URL,
   name: string,
@@ -34,6 +35,9 @@ export declare function spawn(
   name: string,
   ...args: unknown[]
 ): {result: Promise<unknown>; terminate(): void};
+
+// Starts workers for run until n wait idle.
+export declare function prestart(n: number): void;
 
 // Where the console output of run's workers goes, in a browser.
 export declare function onLog(handler: ((text: string) => void) | null): void;

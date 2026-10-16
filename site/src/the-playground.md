@@ -26,8 +26,11 @@ page compiles the program and shows you:
 - **The output.** **Run** calls the program's `main(n)` on a worker, once for
   each count in the **Workers** field, which starts out as 1, 2, 4 and 8, and
   says how long each took and how much faster than the first: the way to see
-  that more workers make it faster. `main` may block, on `Atomics.Mutex.lock`
-  for example. A program starts its own workers with
+  that more workers make it faster. **Warm up**, which is on, runs `main` once
+  on the most workers first, unshown: each worker's JavaScript engine optimizes
+  its hot code as it runs, and the workers are kept for the next call, so the
+  timed runs compare workers that are all warm. `main` may block, on
+  `Atomics.Mutex.lock` for example. A program starts its own workers with
   `run(import.meta.url, 'name', ...args)` from `@arv/structs/agent`, which calls
   the function it exports as `name` on a new worker. Their console output comes
   back to the page. **Stop** ends the run, along with the workers it started.
