@@ -3,6 +3,10 @@
 
 import './index.ts';
 import {F64, I32} from './heap.ts';
+// the heap's views, which compiled code indexes with an address from addr().
+// It reads them from here at each access: they are made again as the heap
+// grows
+export {F64, I32} from './heap.ts';
 import {
   addressOf,
   HEAD,
@@ -44,14 +48,20 @@ export interface Layout {
 
 export const layout = (keys: PropertyKey[]): Layout => ({keys, addr: 0});
 
-// the slot of field `i` of `o`, if `o` is a Shared Struct of layout `l`
-function slot(o: unknown, l: Layout, i: number) {
+// The address of `o` if it is a Shared Struct of layout `l`, else -1. The
+// compiler emits it once for a binding that keeps its value, and reads its
+// fields in the views, or with the `...At` functions below.
+export function addr(o: unknown, l: Layout) {
   const a = addressOf(o);
   if (a === undefined) return -1;
   if (l.addr === 0) l.addr = shapeFor(l.keys).addr;
-  return I32[a >> 2] === K_STRUCT && I32[(a >> 2) + 1] === l.addr
-    ? a + HEAD + i * SLOT
-    : -1;
+  return I32[a >> 2] === K_STRUCT && I32[(a >> 2) + 1] === l.addr ? a : -1;
+}
+
+// the slot of field `i` of `o`, if `o` is a Shared Struct of layout `l`
+function slot(o: unknown, l: Layout, i: number) {
+  const a = addr(o, l);
+  return a < 0 ? -1 : a + HEAD + i * SLOT;
 }
 
 // o.key
@@ -74,6 +84,26 @@ export function set(o: any, l: Layout, i: number, v: unknown) {
   else {
     if (typeof v !== 'number') requireShareable(v);
     write(s, v);
+  }
+  return v;
+}
+
+// get, getNumber and set, given addr(o, l)
+export function getAt(o: any, a: number, l: Layout, i: number) {
+  return a < 0 ? o[l.keys[i]!] : read(a + HEAD + i * SLOT);
+}
+
+export function getNumberAt(o: any, a: number, l: Layout, i: number) {
+  if (a < 0) return o[l.keys[i]!];
+  const s = a + HEAD + i * SLOT;
+  return I32[s >> 2] === W_NUMBER ? F64[(s >> 3) + 1] : read(s);
+}
+
+export function setAt(o: any, a: number, l: Layout, i: number, v: unknown) {
+  if (a < 0) o[l.keys[i]!] = v;
+  else {
+    if (typeof v !== 'number') requireShareable(v);
+    write(a + HEAD + i * SLOT, v);
   }
   return v;
 }

@@ -224,8 +224,9 @@ function compileProgram(
     const withoutFast = options.alsoWithoutFast
       ? toJs(finish(text, fileName, {...l, ms: l.ms.clone()}, runtime))
       : undefined;
+    let declared = '';
     if (options.fast !== false && fieldNames.size > 0)
-      fastAccess(file, {
+      declared = fastAccess(file, {
         ms: l.ms,
         checker,
         rt: l.runtimeName,
@@ -240,7 +241,8 @@ function compileProgram(
       .map(
         ([keys, name]) => `const ${name} = ${l.runtimeName}.layout(${keys}); `,
       )
-      .join('');
+      .join('')
+      .concat(declared);
     const emitted = finish(text, fileName, l, runtime, prelude);
     files.push({fileName, ...toJs(emitted), ...(withoutFast && {withoutFast})});
   }
