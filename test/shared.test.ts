@@ -48,6 +48,22 @@ describe('shared struct', () => {
     }
   });
 
+  test('literal initializers, and others, fill the slots', async () => {
+    const {S} = await load(`
+      export shared struct S { s = ''; n = -0.5; b = true; z = null; big = 7n; t = \`t\`; m = new Atomics.Mutex(); }
+    `);
+    const s = new S();
+    expect([s.s, s.n, s.b, s.z, s.big, s.t]).toEqual([
+      '',
+      -0.5,
+      true,
+      null,
+      7n,
+      't',
+    ]);
+    expect(Reflect.canBeShared(s.m)).toBe(true);
+  });
+
   test('a field initializer that is not shareable throws', async () => {
     const {S} = await load(`export shared struct S { v = {}; }`);
     expect(() => new S()).toThrow(TypeError);

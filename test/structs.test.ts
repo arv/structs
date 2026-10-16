@@ -1,7 +1,8 @@
 // Structs (§1): fixed-layout objects, sealed, made in one shot.
 
 import {describe, expect, test} from 'vite-plus/test';
-import {errors, load} from './helpers.ts';
+import {transpile} from '../src/compiler/index.ts';
+import {errors, load, RUNTIME} from './helpers.ts';
 
 describe('struct', () => {
   test('its fields are all defined before any initializer runs', async () => {
@@ -16,6 +17,19 @@ describe('struct', () => {
     const p = new Point();
     expect(seen).toEqual([['x', 'y'], ['x', 'y'], true]);
     expect({...p}).toEqual({x: 1, y: 2});
+  });
+
+  test('a literal initializer is its value, in order with the others', async () => {
+    const {S} = await load(`
+      export struct S { a = 'x'; #b = 2; c = -1; d = this.a + this.#b + this.c; e = 3n; f = null; }
+    `);
+    expect({...new S()}).toEqual({a: 'x', c: -1, d: 'x2-1', e: 3n, f: null});
+    const code = transpile(`struct S { a = 'x'; b = this.a; }`, {
+      fileName: 'test.js',
+      runtime: RUNTIME,
+    }).code;
+    expect(code).toContain(`{key: "a", value: 'x'}`);
+    expect(code).not.toContain('#$f1');
   });
 
   test('an instance is sealed, its fields writable and not configurable', async () => {

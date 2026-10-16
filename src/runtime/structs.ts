@@ -5,12 +5,13 @@
 // defineSharedStruct, the first static element:
 //
 //   struct S extends P {           class S extends $.structHeritage(P) {
-//     x = 1;                         static { $.defineStruct(this, {
-//     #y = 2;                          fields: [{key: 'x', init: o => o.#$f0()},
-//     constructor(a) {                          {set: o => { o.#y = o.#$f1(); }}],
+//     x = f();                       static { $.defineStruct(this, {
+//     #y = g();                        fields: [{key: 'x', init: o => o.#$f0()},
+//     z = 0;                                    {set: o => { o.#y = o.#$f1(); }},
+//     constructor(a) {                          {key: 'z', value: 0}],
 //       super(a); ...                  init: (o, a) => o.#$init(...a) }) }
 //     }                              #$brand; #y;
-//     m() { ... }                    #$f0() { return (1); } #$f1() { return (2); }
+//     m() { ... }                    #$f0() { return (f()); } #$f1() { return (g()); }
 //   }                                #$init(a) { $.superInit(S, this, [a]); ... }
 //                                    m() {
 //                                      if (!(#$brand in this)) $.notInstance("m");
@@ -22,6 +23,9 @@
 //                                    }
 //                                    static { $.sealStruct(this) }
 //                                  }
+//
+// A literal initializer (`z = 0`) is its value: it runs no code and gives
+// every instance the same value, so it needs no function.
 //
 // An instance is made the spec's way: its fields are all defined (undefined)
 // and it is sealed before any initializer runs, then the initializers run,
@@ -51,6 +55,8 @@ export interface Field {
   key?: PropertyKey;
   // the initializer, called with the instance (absent: undefined)
   init?: (o: any) => unknown;
+  // or, for a literal, its value (the compiler leaves out the function)
+  value?: unknown;
   // a private field's initialization: PrivateSet of its initializer's value
   set?: (o: any) => void;
 }
@@ -175,9 +181,9 @@ export function endStruct(
   // RunStructInstanceFieldInitializers (§1.1.5)
   for (const field of s.chain) {
     if (field.set) field.set(o);
-    else if (field.init)
+    else if (field.init || 'value' in field)
       Object.defineProperty(o, field.key!, {
-        value: field.init(o),
+        value: field.init ? field.init(o) : field.value,
         writable: true,
         enumerable: true,
         configurable: false,
@@ -263,9 +269,11 @@ export function constructSharedStruct(
   const o = create(K_STRUCT, s.shape.addr, s.shape.keys.length);
   const a = addressOf(o)!;
   for (const field of s.chain) {
-    if (!field.init) continue;
-    const v = field.init.call(o, o);
-    requireShareable(v);
+    let v: unknown;
+    if (field.init) requireShareable((v = field.init.call(o, o)));
+    // a literal: a primitive, shareable
+    else if ('value' in field) v = field.value;
+    else continue;
     write(a + HEAD + s.shape.index.get(field.key!)! * SLOT, v);
   }
   s.init?.(o, args);

@@ -250,7 +250,9 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
               );
               continue;
             }
-            if (!initializer) continue; // stamped by the class
+            // stamped by the class, with a literal's value as it is: no code
+            // runs, so it cannot tell that it came early
+            if (!initializer || isLiteral(initializer)) continue;
             const priv = nameNode.text as string;
             replace(
               start,
@@ -280,6 +282,15 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
           if (!initializer) {
             ms.remove(start, member.end);
             fields.push(`{key: ${key}}`);
+            continue;
+          }
+          // a literal is its value: an initializer that runs no code and
+          // gives the same value for every instance needs no function
+          if (isLiteral(initializer)) {
+            ms.remove(start, member.end);
+            fields.push(
+              `{key: ${key}, value: ${text.slice(initializer.getStart(), initializer.end)}}`,
+            );
             continue;
           }
           replace(
@@ -374,6 +385,31 @@ export function propertyKey(name: Node): string {
       return String(BigInt(String(name.text).replace(/n$/, '')));
     default:
       return name.text;
+  }
+}
+
+// whether an initializer is a literal: a string, a number, a BigInt (either
+// signed), a template with no substitutions, true, false or null. (Not
+// `undefined`, which a binding may shadow.)
+function isLiteral(node: Node): boolean {
+  switch (node.kind) {
+    case K.StringLiteral:
+    case K.NumericLiteral:
+    case K.BigIntLiteral:
+    case K.NoSubstitutionTemplateLiteral:
+    case K.TrueKeyword:
+    case K.FalseKeyword:
+    case K.NullKeyword:
+      return true;
+    case K.PrefixUnaryExpression:
+      return (
+        (node.operator === K.MinusToken || node.operator === K.PlusToken) &&
+        (node.operand.kind === K.NumericLiteral ||
+          (node.operand.kind === K.BigIntLiteral &&
+            node.operator === K.MinusToken))
+      );
+    default:
+      return false;
   }
 }
 
