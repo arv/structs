@@ -1,0 +1,32 @@
+{
+  "name": "structs-playground",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The structs proposal's playground: write structs and shared structs, see the JavaScript they compile to, and run them on Web Workers.",
+  "license": "Apache-2.0",
+  "author": "Erik Arvidsson",
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "build-wasm": "node build-wasm.ts",
+    "test-build": "node test-build.ts"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.57.0"
+  },
+  "devDependencies": {
+    "@oxc-transform/binding-wasm32-wasip1": "0.153.0",
+    "@types/node": "catalog:",
+    "buffer": "^6.0.3",
+    "pathe": "^2.0.3",
+    "playwright-core": "^1.64.0",
+    "typescript": "7.1.0-dev.20261011.1",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

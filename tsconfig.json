@@ -2,7 +2,8 @@
   // the runtime, the compiler and the tests, type-checked by stock tsc (vp run
   // typecheck). Node runs them as they are, their types stripped. Programs in
   // the proposal's syntax (examples/, test/fixtures/) are the compiler's to
-  // check: tsc cannot parse them
+  // check: tsc cannot parse them. The playground's page is
+  // playground/tsconfig.json's
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -15,6 +16,17 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vite.config.ts",
+    // the playground's node side: the page is playground/tsconfig.json's
+    "playground/vite.config.ts",
+    "playground/assets.d.ts",
+    "playground/build-wasm.ts",
+    "playground/test-build.ts",
+    "playground/*.test.ts",
+    "playground/tsgo/*.test.ts"
+  ],
   "exclude": ["test/fixtures"]
 }

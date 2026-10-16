@@ -1,0 +1,25 @@
+{
+  // the page and its workers, in the browser. The programs (programs/) are in
+  // the proposal's syntax, which only the playground's compiler parses; the
+  // Vite config, build-wasm.ts, test-build.ts and the tests run on node:
+  // ../tsconfig.json checks them
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["esnext", "dom", "esnext.disposable"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["*.ts", "tsgo/*.ts", "../src/runtime/api.d.ts"],
+  "exclude": [
+    "vite.config.ts",
+    "build-wasm.ts",
+    "test-build.ts",
+    "*.test.ts",
+    "tsgo/*.test.ts"
+  ]
+}

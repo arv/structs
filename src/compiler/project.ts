@@ -10,6 +10,7 @@
 import {readFileSync} from 'node:fs';
 import {dirname, isAbsolute, resolve} from 'node:path';
 import {SyntaxKind as K} from 'typescript/ast';
+import type {RequestFileSystem} from 'typescript/proto';
 import {API} from 'typescript/sync';
 import type {Checker, Program, Type} from 'typescript/sync';
 import {fastAccess} from './fast.ts';
@@ -28,15 +29,24 @@ export interface CompileOptions {
   typescript?: boolean;
   // make shared struct field access direct where the types allow (default)
   fast?: boolean;
+  // also compile each file without direct field access (CompiledFile's
+  // withoutFast), from the same type check
+  alsoWithoutFast?: boolean;
   // an API session to use (and leave open); by default one is started and
   // closed
   api?: API;
+  // the project's files, the tsconfig among them, rather than the disk's
+  // (with a symlink to the lib files): for an API with no disk of its own,
+  // such as tsgo in WebAssembly
+  fileSystem?: RequestFileSystem;
 }
 
 export interface CompiledFile {
   fileName: string;
   code: string;
   map: SourceMap;
+  // with alsoWithoutFast: every field access through the Proxy
+  withoutFast?: {code: string; map: SourceMap};
 }
 
 export interface CompileResult {
@@ -66,17 +76,25 @@ export function compile(
     : resolve(tsconfigPath);
   const api = options.api ?? new API({cwd: dirname(tsconfig)});
   try {
-    const config = api.parseConfigFile(tsconfig);
-    const diagnostics: Diagnostic[] = config.errors.map(d =>
+    const given = options.fileSystem;
+    // the project's sources: those the tsconfig names, or (given files) every
+    // source among them
+    const config = given ? undefined : api.parseConfigFile(tsconfig);
+    const diagnostics: Diagnostic[] = (config?.errors ?? []).map(d =>
       fromApi(d, undefined),
     );
-    // the project's files that have structs, spelled as classes
+    const names = config
+      ? (config.fileNames as string[])
+      : Object.keys(given!.files).filter(f => /\.[cm]?[jt]sx?$/.test(f));
+    // the files that have structs, spelled as classes
     const sources = new Map<string, string>();
     const scans = new Map<string, Scan>();
     const layer: Record<string, string> = {};
-    for (const fileName of config.fileNames as string[]) {
+    for (const fileName of names) {
       if (/\.d\.[cm]?ts$/.test(fileName)) continue;
-      const text = readFileSync(fileName, 'utf8');
+      const text = given
+        ? given.files[fileName]!
+        : readFileSync(fileName, 'utf8');
       sources.set(fileName, text);
       const scanned = scan(text);
       scans.set(fileName, scanned);
@@ -84,12 +102,19 @@ export function compile(
     }
     const snapshot = api.createSnapshot({
       openProjects: [tsconfig],
-      fileSystem: {kind: 'layer', files: layer},
+      fileSystem: given
+        ? {...given, files: {...given.files, ...layer}}
+        : {kind: 'layer', files: layer},
     });
     try {
       const project =
         snapshot.getConfiguredProject(tsconfig) ?? snapshot.getProjects()[0];
       if (!project) throw new Error(`cannot open the project ${tsconfigPath}`);
+      const compilerOptions = (config?.options ??
+        project.program.getCompilerOptions()) as Record<string, unknown>;
+      if (!config)
+        for (const d of project.program.getConfigFileParsingDiagnostics())
+          diagnostics.push(fromApi(d, undefined));
       return {
         ...compileProgram(
           project.program,
@@ -98,10 +123,10 @@ export function compile(
           scans,
           diagnostics,
           options,
-          !!config.options.rewriteRelativeImportExtensions,
+          !!compilerOptions.rewriteRelativeImportExtensions,
         ),
-        outDir: config.options.outDir as string | undefined,
-        rootDir: config.options.rootDir as string | undefined,
+        outDir: compilerOptions.outDir as string | undefined,
+        rootDir: compilerOptions.rootDir as string | undefined,
       };
     } finally {
       snapshot.dispose();
@@ -191,6 +216,14 @@ function compileProgram(
   for (const [fileName, {file, lowered: l}] of lowered) {
     const text = sources.get(fileName)!;
     const used = new Map<string, string>();
+    const toJs = (emitted: {code: string; map: SourceMap}) =>
+      options.typescript
+        ? emitted
+        : toJavaScript(fileName, emitted, rewriteImportExtensions);
+    // before the direct access: the same lowering, every access a property's
+    const withoutFast = options.alsoWithoutFast
+      ? toJs(finish(text, fileName, {...l, ms: l.ms.clone()}, runtime))
+      : undefined;
     if (options.fast !== false && fieldNames.size > 0)
       fastAccess(file, {
         ms: l.ms,
@@ -209,12 +242,7 @@ function compileProgram(
       )
       .join('');
     const emitted = finish(text, fileName, l, runtime, prelude);
-    files.push({
-      fileName,
-      ...(options.typescript
-        ? emitted
-        : toJavaScript(fileName, emitted, rewriteImportExtensions)),
-    });
+    files.push({fileName, ...toJs(emitted), ...(withoutFast && {withoutFast})});
   }
   return {files, diagnostics};
 }

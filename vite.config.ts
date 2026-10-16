@@ -14,15 +14,27 @@ export default defineConfig({
     sortImports: {newlinesBetween: false, partitionByNewline: true},
     sortPackageJson: true,
     // programs in the proposal's syntax, which no formatter parses
-    ignorePatterns: ['examples/**', 'test/fixtures/**'],
+    ignorePatterns: [
+      'examples/**',
+      'test/fixtures/**',
+      'playground/programs/**',
+    ],
   },
   test: {
-    include: ['test/**/*.test.ts'],
+    include: [
+      'test/**/*.test.ts',
+      'playground/*.test.ts',
+      'playground/tsgo/*.test.ts',
+    ],
     // the tests start workers, which take a moment
     testTimeout: 20000,
   },
   lint: {
     options: {typeAware: true, typeCheck: true},
-    ignorePatterns: ['examples/**', 'test/fixtures/**'],
+    ignorePatterns: [
+      'examples/**',
+      'test/fixtures/**',
+      'playground/programs/**',
+    ],
   },
 });

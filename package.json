@@ -23,7 +23,10 @@
       "default": "./src/runtime/index.ts"
     },
     "./runtime": "./src/runtime/emit.ts",
-    "./agent": "./src/runtime/agent.ts",
+    "./agent": {
+      "types": "./src/runtime/agent-api.d.ts",
+      "default": "./src/runtime/agent.ts"
+    },
     "./compiler": "./src/compiler/index.ts",
     "./register": "./src/register.ts",
     "./package.json": "./package.json"

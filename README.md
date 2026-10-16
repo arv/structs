@@ -23,6 +23,9 @@ worker.postMessage(counter); // the same object in the worker, not a copy
 }
 ```
 
+You can write programs and run them in your browser, with the compiled
+JavaScript side by side, in [the playground](playground).
+
 > **Status: experimental.** This branch (`tc39-proposal`) replaces the threads
 > library on `main` with something much smaller that stays as close to the spec
 > as JavaScript allows. See [Where it differs](#where-it-differs-from-the-spec).
@@ -84,6 +87,10 @@ parent.onmessage = ({tally, n}) => {
   /* tally is the main thread's struct */
 };
 ```
+
+`run(url, name, ...args)` calls the function a module exports as `name` on a new
+worker and settles with what it returns. A module can run its own functions with
+`run(import.meta.url, ...)`.
 
 [examples/counter](examples/counter) has four workers counting to a million
 under a Mutex, with a Condition saying when they are done.

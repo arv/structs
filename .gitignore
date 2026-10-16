@@ -4,3 +4,7 @@ node_modules/
 /build
 # compiled test programs (test/helpers.ts)
 /test/.out
+# the playground: its build (vp build), and the compiler it runs in
+# WebAssembly (vp run build-wasm)
+/playground/dist
+/playground/public/compiler

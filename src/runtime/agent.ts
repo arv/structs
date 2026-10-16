@@ -78,43 +78,121 @@ export function startWorker(
 ): Agent {
   requireHeap();
   const wt = nodeThreads();
-  let agent: Agent;
-  if (wt) {
-    const w = new wt.Worker(url, {
-      name: options.name,
-      workerData: {__structsHeap: SAB},
-    });
-    let exited!: (code: number) => void;
-    const done = new Promise<number>(resolve => (exited = resolve));
-    agent = {
-      postMessage: m => w.postMessage(encode(m)),
-      onmessage: null,
-      onerror: null,
-      terminate: () => void w.terminate(),
-      exited: done,
-    };
-    w.on('message', m => agent.onmessage?.(decode(m)));
-    w.on('error', e => {
-      if (agent.onerror) agent.onerror(e);
-      else throw e;
-    });
-    w.on('exit', code => exited(code));
-  } else {
-    const w = new Worker(url, {type: 'module', name: options.name});
-    w.postMessage({[HEAP]: SAB});
-    agent = {
-      postMessage: m => w.postMessage(encode(m)),
-      onmessage: null,
-      onerror: null,
-      terminate: () => w.terminate(),
-      exited: new Promise(() => {}),
-    };
-    w.onmessage = e => agent.onmessage?.(decode(e.data));
-    w.onerror = e => {
-      if (agent.onerror) agent.onerror(e);
-    };
-  }
+  return wt
+    ? nodeAgent(
+        new wt.Worker(url, {
+          name: options.name,
+          workerData: {__structsHeap: SAB},
+        }),
+      )
+    : webAgent(new Worker(url, {type: 'module', name: options.name}));
+}
+
+function nodeAgent(w: import('node:worker_threads').Worker): Agent {
+  let exited!: (code: number) => void;
+  const agent: Agent = {
+    postMessage: m => w.postMessage(encode(m)),
+    onmessage: null,
+    onerror: null,
+    terminate: () => void w.terminate(),
+    exited: new Promise<number>(resolve => (exited = resolve)),
+  };
+  w.on('message', m => agent.onmessage?.(decode(m)));
+  w.on('error', e => {
+    if (agent.onerror) agent.onerror(e);
+    else throw e;
+  });
+  w.on('exit', code => exited(code));
   return agent;
+}
+
+function webAgent(w: Worker): Agent {
+  w.postMessage({[HEAP]: SAB});
+  const agent: Agent = {
+    postMessage: m => w.postMessage(encode(m)),
+    onmessage: null,
+    onerror: null,
+    terminate: () => w.terminate(),
+    exited: new Promise(() => {}),
+  };
+  w.onmessage = e => agent.onmessage?.(decode(e.data));
+  w.onerror = e => {
+    if (agent.onerror) agent.onerror(e);
+  };
+  return agent;
+}
+
+// what a worker run starts (agent-worker.ts) says back
+export const RESULT = '__structs.result',
+  ERROR = '__structs.error',
+  LOG = '__structs.log';
+
+let logHandler: ((text: string) => void) | null = null;
+// Where the console output of the workers `run` starts goes, in a browser
+// (whose workers' console is the devtools'): to `handler`, rather than to this
+// agent's console. A worker's own runs' output comes up to it, and on.
+export function onLog(handler: ((text: string) => void) | null) {
+  logHandler = handler;
+}
+const log = (text: string) =>
+  logHandler ? logHandler(text) : console.log(text);
+
+// Runs the function exported as `name` by the module at `url` on a new
+// worker, with `args` (shared objects pass as themselves, the rest as
+// postMessage copies them), and ends the worker when it returns. Settles with
+// what it returns (or its promise does), or rejects with what it threw.
+export const run = (
+  url: string | URL,
+  name: string,
+  ...args: unknown[]
+): Promise<unknown> => spawn(url, name, ...args).result;
+
+export interface Running {
+  // what the function returns, or threw
+  result: Promise<unknown>;
+  // ends the worker (in a browser, the workers it started end with it); the
+  // result never settles then
+  terminate(): void;
+}
+
+// run, which can be stopped.
+export function spawn(
+  url: string | URL,
+  name: string,
+  ...args: unknown[]
+): Running {
+  requireHeap();
+  const wt = nodeThreads();
+  const agent = wt
+    ? nodeAgent(
+        new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
+          workerData: {__structsHeap: SAB},
+        }),
+      )
+    : webAgent(
+        new Worker(new URL('./agent-worker.ts', import.meta.url), {
+          type: 'module',
+        }),
+      );
+  const result = new Promise((resolve, reject) => {
+    agent.onmessage = m => {
+      if (LOG in m) return log(m[LOG]);
+      agent.terminate();
+      if (ERROR in m) {
+        const e = new Error(m[ERROR].message);
+        if (m[ERROR].stack) e.stack = m[ERROR].stack;
+        reject(e);
+      } else resolve(m[RESULT]);
+    };
+    agent.onerror = e => {
+      agent.terminate();
+      reject(
+        e instanceof Error ? e : new Error(String((e as any)?.message ?? e)),
+      );
+    };
+    agent.postMessage({url: String(url), name, args});
+  });
+  return {result, terminate: () => agent.terminate()};
 }
 
 // The agent that started this one (in a worker), or null.
