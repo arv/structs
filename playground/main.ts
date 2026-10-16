@@ -16,8 +16,10 @@ import {programUrl} from './link.ts';
 import atomics from './programs/atomics.ts?raw';
 import condition from './programs/condition.ts?raw';
 import hello from './programs/hello.ts?raw';
+import mandelbrot from './programs/mandelbrot.ts?raw';
 import mistakes from './programs/mistakes.ts?raw';
 import mutex from './programs/mutex.ts?raw';
+import nbodyParallel from './programs/nbody-parallel.ts?raw';
 import nbody from './programs/nbody.ts?raw';
 import shared from './programs/shared.ts?raw';
 import {compileInBrowser, startCompiler} from './wasm.ts';
@@ -35,6 +37,8 @@ const PRESETS: [string, string, string][] = [
   ['Basics', 'Atomics.Mutex: counting together', mutex],
   ['Basics', 'Atomics.Condition: a bounded queue', condition],
   ['Basics', 'Atomics on fields: claiming work', atomics],
+  ['Examples', 'Mandelbrot: rows claimed by workers', mandelbrot],
+  ['Examples', 'N-body: a thousand bodies on workers', nbodyParallel],
   ['Examples', 'N-body: direct field access', nbody],
   ['Examples', 'Mistakes the compiler catches', mistakes],
 ];
@@ -325,40 +329,70 @@ onLog(text => {
   if (!text.startsWith('[vite]')) print(`${escapeHtml(text)}\n`);
 });
 
+// the worker counts to run main with: "1,2,4,8" (at most 64 each)
+const workerCounts = () =>
+  workersInput.value
+    .split(',')
+    .map(s => Number(s.trim()))
+    .filter(n => Number.isInteger(n) && n > 0 && n <= 64);
+
 runButton.addEventListener('click', async () => {
   if (!result) return;
   const fast = mode() === 'fast',
     code = fast ? result.fast : result.proxy;
   if (!code) return;
-  const workers = Math.max(1, Math.min(32, Number(workersInput.value) || 1));
+  const counts = workerCounts();
+  if (counts.length === 0) counts.push(1);
   print(
-    `<div class="run">${fast ? 'Direct field access' : 'Proxy only'} · ${escapeHtml(preset.selectedOptions[0]?.text ?? 'program')} · main(${workers}) on a worker</div>`,
+    `<div class="run">${fast ? 'Direct field access' : 'Proxy only'} · ${escapeHtml(preset.selectedOptions[0]?.text ?? 'program')} · main(n) on a worker, for n = ${counts.join(', ')}</div>`,
   );
-  const current = (running = {
-    t0: performance.now(),
-    run: spawn(programUrl(code), 'main', workers),
-  });
-  updateRun();
+  const t0 = performance.now();
+  // each count's time, from the start of its worker to main's end
+  const times: [number, number][] = [];
   try {
-    await current.run.result;
-    if (running === current)
-      print(
-        `<div class="done">done in ${(performance.now() - current.t0).toFixed(0)} ms</div>`,
-      );
+    for (const n of counts) {
+      const current = (running = {
+        t0: performance.now(),
+        run: spawn(programUrl(code), 'main', n),
+      });
+      updateRun();
+      if (counts.length > 1) print(`<div class="step">main(${n})</div>`);
+      await current.run.result;
+      // stopped meanwhile: the rest does not run
+      if (running !== current) return;
+      const ms = performance.now() - current.t0;
+      times.push([n, ms]);
+      if (counts.length > 1)
+        print(
+          `<div class="step">${n} worker${n === 1 ? '' : 's'}: ${ms.toFixed(0)} ms</div>`,
+        );
+    }
+    const [, base] = times[0]!;
+    print(
+      `<div class="done">${
+        times.length > 1
+          ? times
+              .map(
+                ([n, ms]) =>
+                  `${n}: ${ms.toFixed(0)} ms (${(base / ms).toFixed(2)}x)`,
+              )
+              .join(' · ')
+          : `done in ${(performance.now() - t0).toFixed(0)} ms`
+      }</div>`,
+    );
   } catch (e) {
-    if (running === current)
+    if (running)
       print(
         `<div class="error">${escapeHtml(e instanceof Error ? e.message : String(e))}</div>`,
       );
   } finally {
-    if (running === current) {
-      running = null;
-      updateRun();
-    }
+    running = null;
+    updateRun();
   }
 });
 
-// a run that does not end ends here: its worker, and the workers it started
+// a run that does not end ends here: its worker, and the workers it started;
+// the counts after it do not run
 stopButton.addEventListener('click', () => {
   if (!running) return;
   running.run.terminate();

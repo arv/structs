@@ -21,8 +21,10 @@ page compiles the program and shows you:
 - **The errors.** These are TypeScript's, from seeing each struct as a class,
   and the structs' own: a shared struct can't have methods, for example. They
   appear as squiggles in the editor and in a list.
-- **The output.** **Run** calls the program's `main(workers)` on a worker, with
-  the number in the **Workers** field. `main` may block, on `Atomics.Mutex.lock`
+- **The output.** **Run** calls the program's `main(n)` on a worker, once for
+  each count in the **Workers** field, which starts out as 1, 2, 4 and 8, and
+  says how long each took and how much faster than the first: the way to see
+  that more workers make it faster. `main` may block, on `Atomics.Mutex.lock`
   for example. A program starts its own workers with
   `run(import.meta.url, 'name', ...args)` from `@arv/structs/agent`, which calls
   the function it exports as `name` on a new worker. Their console output comes
@@ -89,13 +91,17 @@ and the page loads once more under it.
 
 ## Programs
 
-The programs live in [programs/](programs). Each one exports `main(workers)`:
+The programs live in [programs/](programs). Each one exports `main(n)`, which
+runs on `n` workers where it uses any:
 
 - Structs: sealed, initialized in one shot, with brand-checked methods
 - Shared structs across workers: a linked list that workers add to
 - `Atomics.Mutex`: workers counting together
 - `Atomics.Condition`: a bounded queue between producers and a consumer
 - `Atomics` on fields: claiming work with `compareExchange`
+- Mandelbrot: rows claimed by workers, which scales with them
+- N-body: a thousand bodies split among workers, kept in step by a barrier built
+  from a Mutex and a Condition
 - N-body: direct field access against the Proxy
 - The mistakes the compiler catches
 

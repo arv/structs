@@ -11,7 +11,7 @@
 //   --compare=<dir>   also time the compiles of another static build (an
 //                     older one, say), served the same way
 //   --only=<text>     the programs whose names include it
-//   --workers=<n>     the workers each run's main is given
+//   --workers=1,2     the worker counts each run's main is given
 import fs from 'node:fs';
 import http from 'node:http';
 import type {AddressInfo} from 'node:net';
@@ -24,7 +24,7 @@ import {build, createServer} from 'vite-plus';
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 const arg = (name: string) =>
   process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const workers = arg('workers') ?? '2';
+const workers = arg('workers') ?? '1,2';
 const only = arg('only');
 const compare = arg('compare');
 
@@ -238,8 +238,9 @@ async function programs(
 // what in a program's output depends on how its workers were scheduled, by
 // program: it differs from one run to the next
 const SCHEDULED: Record<string, RegExp> = {
-  // which worker claimed how many chunks
+  // which worker claimed how many chunks, or rows
   'Atomics on fields: claiming work': /(?<=chunks per worker: )[\d, ]+/g,
+  'Mandelbrot: rows claimed by workers': /(?<=rows drawn by each: )[\d, ]+/g,
 };
 
 // a run's lines, as two runs of a program may differ: in any order, its
