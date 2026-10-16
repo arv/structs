@@ -3,18 +3,19 @@
 
 import './index.ts';
 import {F64, I32} from './heap.ts';
-// the heap's views, which compiled code indexes with an address from addr().
-// It reads them from here at each access: they are made again as the heap
-// grows
-export {F64, I32} from './heap.ts';
+// the heap's views, which compiled code indexes with an address from addr():
+// a function keeps them in locals (views()), code elsewhere reads them here
+export {F64, I32, views} from './heap.ts';
 import {
   addressOf,
   HEAD,
+  K_ARRAY,
   K_STRUCT,
   read,
   requireShareable,
   shapeFor,
   SLOT,
+  T_REF,
   W_NUMBER,
   write,
 } from './shared.ts';
@@ -57,6 +58,35 @@ export function addr(o: unknown, l: Layout) {
   if (l.addr === 0) l.addr = shapeFor(l.keys).addr;
   return I32[a >> 2] === K_STRUCT && I32[(a >> 2) + 1] === l.addr ? a : -1;
 }
+
+// The address of `o`, if it is a Shared Array, or -1.
+export function addrArray(o: unknown) {
+  const a = addressOf(o);
+  return a !== undefined && I32[a >> 2] === K_ARRAY ? a : -1;
+}
+
+// The address of the Shared Struct of layout `l` that the slot whose word is
+// I32[w] holds, or -1: what that word says without making its Proxy. (A slot
+// that holds anything else is read as written, through its holder.)
+function refIn(w: number, l: Layout) {
+  const v = I32[w]!;
+  if ((v & 7) !== T_REF) return -1;
+  const r = v & ~7;
+  if (l.addr === 0) l.addr = shapeFor(l.keys).addr;
+  return I32[r >> 2] === K_STRUCT && I32[(r >> 2) + 1] === l.addr ? r : -1;
+}
+
+// The address of the struct of layout `l` in field `i` of the struct at `a`
+// (-1 for none: an address that is -1, or another value).
+export const ref = (a: number, i: number, l: Layout) =>
+  a < 0 ? -1 : refIn((a + HEAD + i * SLOT) >> 2, l);
+
+// The address of the struct of layout `l` at index `i` of the Shared Array at
+// `a` (-1 for none: an index out of its bounds, too).
+export const elem = (a: number, i: number, l: Layout) =>
+  a < 0 || i >>> 0 !== i || i >= I32[(a >> 2) + 1]!
+    ? -1
+    : refIn((a + HEAD + i * SLOT) >> 2, l);
 
 // the slot of field `i` of `o`, if `o` is a Shared Struct of layout `l`
 function slot(o: unknown, l: Layout, i: number) {

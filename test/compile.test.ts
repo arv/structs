@@ -25,7 +25,7 @@ describe('compile', () => {
     // a parameter never assigned: its address is checked once, and a number
     // field read in the heap's views, but for an object of another layout
     expect(main).toMatch(
-      /const (\$a\d_\$struct) = \$struct\.addr\(v, \$L\d_\$struct\);\s*return Math\.sqrt\(\(\1 < 0 \|\| \$struct\.I32\[\(\1 >> 2\) \+ 4\] !== 1 \? \$struct\.getNumberAt\(v, \1, \$L\d_\$struct, 0\) : \$struct\.F64\[\(\1 >> 3\) \+ 3\]\)/,
+      /const (\$a\d_\$struct) = \$struct\.addr\(v, \$L\d_\$struct\);[\s\S]*?return Math\.sqrt\(\(\1 < 0 \|\| \$I_\$struct\[\(\1 >> 2\) \+ 4\] !== 1 \? \$struct\.getNumberAt\(v, \1, \$L\d_\$struct, 0\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\]\)/,
     );
     // a const, a field that is not a number
     expect(main).toMatch(
@@ -43,21 +43,47 @@ describe('compile', () => {
   test('a binding that keeps its value is checked once', () => {
     const hoist = code('hoist.ts');
     expect(hoist).toMatch(
-      /function dot\(a, b\) \{\s*const \$a\d_\$struct = \$struct\.addr\(a, \$L\d_\$struct\);\s*const \$a\d_\$struct = \$struct\.addr\(b, /,
+      /function dot\(a, b\) \{\s*const \$a\d_\$struct = \$struct\.addr\(a, \$L\d_\$struct\);[\s\S]*?const \$a\d_\$struct = \$struct\.addr\(b, /,
     );
     // in the for-of's block
     expect(hoist).toMatch(
       /for \(const v of vs\) \{\s*const \$a\d_\$struct = \$struct\.addr\(v, /,
     );
     expect(hoist).toMatch(/const w = v, \$a\d_\$struct = \$struct\.addr\(w, /);
-    // a number written in the heap's views if it is a Number, through the
-    // runtime if not, the scratch variable declared once
-    expect(hoist).toMatch(/^let \$v_\$struct;$/m);
+    // the heap's views and the scratch variable, locals of the function
     expect(hoist).toMatch(
-      /\$v_\$struct = x, (\$a\d_\$struct) < 0 \|\| typeof \$v_\$struct !== "number" \|\| \$struct\.I32\[\(\1 >> 2\) \+ 4\] !== 1 \? \$struct\.setAt\(v, \1, \$L\d_\$struct, 0, \$v_\$struct\) : \$struct\.F64\[\(\1 >> 3\) \+ 3\] = \$v_\$struct;/,
+      /function put\(v, x\) \{[\s\S]*?const \{ I32: \$I_\$struct, F64: \$F_\$struct \} = \$struct\.views\(\);\s*let \$v_\$struct;/,
+    );
+    // a number written in the heap's views if it is a Number, through the
+    // runtime if not
+    expect(hoist).toMatch(
+      /\$v_\$struct = x, (\$a\d_\$struct) < 0 \|\| typeof \$v_\$struct !== "number" \|\| \$I_\$struct\[\(\1 >> 2\) \+ 4\] !== 1 \? \$struct\.setAt\(v, \1, \$L\d_\$struct, 0, \$v_\$struct\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\] = \$v_\$struct;/,
     );
     // a let that is assigned
     expect(hoist).toMatch(/return \$struct\.getNumber\(v, \$L\d_\$struct, 0\)/);
+  });
+
+  test('a struct from a SharedArray or a field is its address, with no Proxy', () => {
+    const heap = code('heap.ts');
+    // arr[i]: the element's word, and arr itself checked once
+    expect(heap).toMatch(
+      /const (\$a\d+_\$struct) = \$struct\.elem\((\$a\d+_\$struct), i, \$L\d_\$struct\), p = \1 < 0 \? arr\[i\] : undefined;/,
+    );
+    expect(heap).toMatch(/\$a\d+_\$struct = \$struct\.addrArray\(arr\)/);
+    // its length, from its header
+    expect(heap).toMatch(
+      /i < \((\$a\d+_\$struct) < 0 \? arr\.length : \$I_\$struct\[\(\1 >> 2\) \+ 1\]\)/,
+    );
+    // s.next: the field's word
+    expect(heap).toMatch(
+      /const (\$a\d+_\$struct) = \$struct\.ref\(\$a\d+_\$struct, 1, \$L\d_\$struct\), n = \1 < 0 \?/,
+    );
+    // used other than for its fields: made, and checked
+    expect(heap).toMatch(
+      /const q = arr\[0\], \$a\d+_\$struct = \$struct\.addr\(q, /,
+    );
+    // an async function reads the runtime's views
+    expect(heap).toMatch(/async function later[\s\S]*?\$struct\.I32\[/);
   });
 
   test('the compiled program runs', async () => {
@@ -80,6 +106,19 @@ describe('compile', () => {
     expect(m.length({x: 6, y: 8})).toBe(10);
     expect(m.local.bump()).toBe(1);
 
+    const heap = await import(pathToFileURL(out + 'heap.js').href);
+    const arr = heap.points(3);
+    expect(heap.sumX(arr)).toBe(0 + 1 + 2);
+    expect(heap.firstY(arr)).toBe(0);
+    expect(await heap.later(arr)).toBe(6);
+    // the slow paths: an element that is no Node, a next that is null
+    const holes = new SharedArray(2);
+    expect(() => heap.sumX(holes)).toThrow(TypeError);
+    const lone = new heap.Node();
+    expect(() => heap.nextX(lone)).toThrow(TypeError);
+    lone.next = new heap.Node();
+    lone.next.x = 7;
+    expect(heap.nextX(lone)).toBe(7);
     const h = await import(pathToFileURL(out + 'hoist.js').href);
     const [a, b] = [new Vec(1, 2), new Vec(3, 4)];
     expect(h.dot(a, b)).toBe(11);

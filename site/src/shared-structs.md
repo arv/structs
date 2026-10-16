@@ -5,10 +5,11 @@ description:
   each agent sees them through a Proxy whose traps are the spec's.
 ---
 
-Every agent attaches to one growable `SharedArrayBuffer`. A Shared Struct is a
-block in it with a slot per field. Each agent sees the block through a Proxy
-whose traps are the spec's internal methods (§2.1.5 to §2.1.10). There is one
-Proxy per block per agent, so `===` holds.
+Every agent attaches to one `SharedArrayBuffer` of a fixed size (256 MB, which
+is reserved rather than used up front). A Shared Struct is a block in it with a
+slot per field. Each agent sees the block through a Proxy whose traps are the
+spec's internal methods (§2.1.5 to §2.1.10). There is one Proxy per block per
+agent, so `===` holds.
 
 ```
 a shared object  [kind][shape: its keys, interned][..][..] then 16 bytes per field

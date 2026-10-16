@@ -46,7 +46,7 @@ the spec as JavaScript allows. See
 | Spec                              | Here                                                             |
 | --------------------------------- | ---------------------------------------------------------------- |
 | §1 `struct` declarations          | The compiler lowers them to classes that call the runtime        |
-| §2 `shared struct` declarations   | Proxies over one growable `SharedArrayBuffer`, the heap          |
+| §2 `shared struct` declarations   | Proxies over one `SharedArrayBuffer`, the heap                   |
 | §2.3 `Atomics` on struct fields   | `load`, `store`, `exchange` and `compareExchange` take a struct  |
 | §2.4 `Reflect.canBeShared`        | Installed on `Reflect`                                           |
 | §3 `SharedArray`                  | A global: a Shared Struct with indexed fields and a fixed length |

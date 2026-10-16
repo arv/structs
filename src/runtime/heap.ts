@@ -1,10 +1,14 @@
-// The memory every agent shares: one growable SharedArrayBuffer, the heap.
+// The memory every agent shares: one SharedArrayBuffer, the heap.
 // Shared structs, Shared Arrays, Mutexes and Conditions live in it, and so do
 // the strings their fields hold, interned. Memory is bump allocated and never
 // freed: there is no collector across agents (see README.md).
 //
 // An agent (the main thread, a worker) attaches to the heap once. The first
 // one makes it; a worker gets it from whoever started it (agent.ts).
+//
+// The heap's size is fixed (HEAP_SIZE, unless attach is given another), so
+// its views never change: compiled code may keep them in locals (fast.ts).
+// Memory the heap never uses is not committed, so the size is a reservation.
 
 // ---- the control area: the first CTRL bytes, as Int32 indices ----
 const C_TOP = 0; // the bump cursor, in bytes
@@ -30,7 +34,7 @@ export const A = {
   wait: Atomics.wait,
 };
 
-const INITIAL = 1 << 20;
+export const HEAP_SIZE = 256 << 20;
 // addresses are tagged in the low 3 bits of an Int32 (see encode), so the heap
 // stays under 2 GB
 export const MAX_HEAP = 1 << 30;
@@ -60,35 +64,25 @@ export const CAN_BLOCK = (() => {
 
 export const attached = () => AGENT !== 0;
 
-// The views of the heap, as long as it is now. They are fixed-length views
-// (a length-tracking view of a growable buffer is several times slower to
-// index in V8), made again when the heap has grown: by this agent (alloc), or
-// by another, whose address this agent meets (seeHeap).
-function view() {
-  const n = SAB.byteLength;
-  I32 = new Int32Array(SAB, 0, n >> 2);
-  F64 = new Float64Array(SAB, 0, n >> 3);
-  U16 = new Uint16Array(SAB, 0, n >> 1);
-}
-
-// Makes sure the views reach `end`, an address another agent may have
-// allocated up to.
-export function seeHeap(end: number) {
-  if (end > I32.byteLength) view();
-}
-
-// Attaches this agent to `sab`, or to a new heap.
+// Attaches this agent to `sab`, or to a new heap of HEAP_SIZE bytes.
 export function attach(sab?: SharedArrayBuffer) {
   if (AGENT !== 0) {
     if (sab && sab !== SAB) throw new Error('structs: already attached');
     return SAB;
   }
   const fresh = !sab;
-  SAB =
-    sab ?? new (SharedArrayBuffer as any)(INITIAL, {maxByteLength: MAX_HEAP});
-  if (!(SAB as any).growable)
-    throw new Error('structs: the heap must be a growable SharedArrayBuffer');
-  view();
+  SAB = sab ?? new SharedArrayBuffer(HEAP_SIZE);
+  if (
+    (SAB as any).growable ||
+    SAB.byteLength > MAX_HEAP ||
+    SAB.byteLength < CTRL
+  )
+    throw new Error(
+      `structs: the heap must be a SharedArrayBuffer of a fixed size, ${CTRL} bytes to ${MAX_HEAP >> 20} MB`,
+    );
+  I32 = new Int32Array(SAB);
+  F64 = new Float64Array(SAB);
+  U16 = new Uint16Array(SAB);
   if (fresh) A.store(I32, C_TOP, CTRL);
   globalThis.__structsHeap = SAB;
   AGENT = A.add(I32, C_AGENTS, 1) + 1;
@@ -120,25 +114,35 @@ function nodeWorkerHeap(): SharedArrayBuffer | undefined {
 }
 
 // ---- allocation ----
-// `bytes` rounded up to 8, zeroed (a grown buffer is zeroed, and nothing is
-// freed). Lock free: the cursor moves first, the buffer grows after it.
+// `bytes` rounded up to 8, zeroed (nothing is freed, so the heap is zero
+// where it was never allocated). Lock free: the cursor moves.
 export function alloc(bytes: number) {
   requireHeap();
   const n = (bytes + 7) & ~7;
   const p = A.add(I32, C_TOP, n);
-  const need = p + n;
-  if (need > MAX_HEAP)
-    throw new RangeError(`structs: the heap is full (${MAX_HEAP >> 20} MB)`);
-  for (let have = SAB.byteLength; have < need; have = SAB.byteLength) {
-    const to = Math.min(MAX_HEAP, Math.max(have * 2, need + (need >> 1)));
+  if (p + n > SAB.byteLength) {
+    // the cursor stays past the end: every allocation after this one fails too
+    throw new RangeError(
+      `structs: the heap is full (${SAB.byteLength >> 20} MB)`,
+    );
+  }
+  return p;
+}
+
+// The heap's views, for compiled code to keep in locals (fast.ts); this
+// agent attached first. An agent that cannot attach yet (a browser worker
+// waiting for its heap) gets empty views: it has no shared object to read.
+const NO_I32 = new Int32Array(0),
+  NO_F64 = new Float64Array(0);
+export function views(): {I32: Int32Array; F64: Float64Array} {
+  if (AGENT === 0) {
     try {
-      (SAB as any).grow((to + 7) & ~7);
+      requireHeap();
     } catch {
-      // another agent grew it first (grow cannot shrink): look again
+      return {I32: NO_I32, F64: NO_F64};
     }
   }
-  seeHeap(need);
-  return p;
+  return {I32, F64};
 }
 
 // ---- locks: a word, 0 free, 1 held, 2 held with waiters (Drepper's mutex)
@@ -224,7 +228,6 @@ export function intern(s: string) {
   const h = hash(s);
   lock(C_STR_LOCK);
   try {
-    seeHeap(SAB.byteLength);
     if ((I32[C_STR_COUNT] + 1) * 2 > I32[C_STR_CAP]) grow();
     const t = I32[C_STR_TABLE],
       i = probe(t, I32[C_STR_CAP], s, h);
@@ -250,9 +253,7 @@ export function intern(s: string) {
 export function stringAt(a: number) {
   let s = fromAddr.get(a);
   if (s !== undefined) return s;
-  seeHeap(a + STR_HEAD);
   const n = I32[a >> 2]!;
-  seeHeap(a + STR_HEAD + n * 2);
   const u = (a + STR_HEAD) >> 1;
   // copied out: the decoders do not read shared memory
   const units = U16.slice(u, u + n);

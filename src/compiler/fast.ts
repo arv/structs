@@ -35,8 +35,26 @@
 //                : $struct.F64[($a0 >> 3) + n] = $v)
 //
 // where w and n index slot i's word and Float64 (src/runtime/shared.ts), and
-// $v is the module's scratch variable: nothing runs between its write and its
-// reads.
+// $v is a scratch variable: nothing runs between its write and its reads.
+// A function keeps the heap's views and its scratch variable in locals
+// ($I, $F, $v: `const {I32: $I, F64: $F} = $struct.views()` at its start),
+// since the heap's size is fixed and its views never change; an async function
+// or a generator, which may resume after the heap is attached, and code at the
+// top of the module use the runtime's.
+//
+// Better still, the address need not be looked up. Where such a binding takes
+// a struct from the heap, an element of a SharedArray<S> (`arr[i]`) or a field
+// that holds an S (`s.f`), arr or s having addresses of their own, its address
+// is the word of that slot, which the runtime reads without making the struct's
+// Proxy ($struct.elem, $struct.ref). If every use of the binding is a field
+// access made direct, the binding itself is made only where that address is
+// -1 (the slow path, which reads it as written):
+//
+//   const b = arr[i];  const $b = $struct.elem($arr, i, $L0),
+//                        b = $b < 0 ? arr[i] : undefined;
+//
+// And a SharedArray's length, which its header holds and never changes, is
+// read from there: arr.length is ($arr < 0 ? arr.length : $I[($arr >> 2) + 1]).
 //
 // Compound assignments (`o.x += 1`), increments, `delete` and destructuring
 // are left as they are.
@@ -57,6 +75,12 @@ export interface FastContext {
   rt: string;
   // the layout of the shared struct an expression's type is an instance of
   layoutOf(expression: Node): Layout | undefined;
+  // the same, of a type that may be null or undefined too (`Body | null`)
+  nullableLayoutOf(expression: Node): Layout | undefined;
+  // the layout of the shared struct an expression's SharedArray holds
+  elementLayoutOf(expression: Node): Layout | undefined;
+  // whether an expression's type is a SharedArray
+  isSharedArray(expression: Node): boolean;
   // the names of the layouts this module uses, by their keys (JSON)
   layouts: Map<string, string>;
   // the field names any shared struct has: a cheap test before the checker
@@ -91,9 +115,13 @@ export function fastAccess(file: Node, ctx: FastContext): string {
   // the addresses declared, by the binding and the layout
   const addresses = new Map<string, string>();
   const sites = new Map<string, Site | null>();
-  // the address of `o`, checked against layout L once, if `o` is a binding
-  // that keeps its value
-  const addressOf = (o: Node, L: string, at: Node) => {
+  // the address of `o`, checked against layout L once (L null: checked to be
+  // a Shared Array), if `o` is a binding that keeps its value
+  const addressOf = (
+    o: Node,
+    L: string | null,
+    at: Node,
+  ): string | undefined => {
     if (o.kind !== K.Identifier) return undefined;
     const decl = checker
       .getSymbolAtLocation(o as any)
@@ -108,9 +136,90 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     if (!name) {
       name = `$a${addresses.size}_${rt}`;
       addresses.set(`${key}:${L}`, name);
-      site.declare(name, `${rt}.addr(${o.text}, ${L})`);
+      const source = L && sourceOf(decl, L, o.text as string);
+      if (source) {
+        // `const b = arr[i]` becomes `const $a = <its address>, b = $a < 0
+        // ? arr[i] : undefined`: b is made only for the slow path
+        const init = decl.initializer as Node;
+        ms.prependRight(decl.getStart(), `${name} = ${source}, `);
+        ms.prependRight(init.getStart(), `${name} < 0 ? `);
+        ms.appendLeft(init.end, ' : undefined');
+      } else
+        site.declare(
+          name,
+          L ? `${rt}.addr(${o.text}, ${L})` : `${rt}.addrArray(${o.text})`,
+        );
     }
     return name;
+  };
+  // Where a const (or a let never assigned) takes a struct from the heap,
+  // `arr[i]` of a SharedArray or `s.f` of a struct, both with addresses of
+  // their own, its address is the word of that slot, read without making a
+  // Proxy: what declares it, if it can be. Only if every use of the binding
+  // is a field access made direct, since the binding itself is then made only
+  // where the address is -1.
+  const sourceOf = (decl: Node, L: string, name: string) => {
+    if (decl.kind !== K.VariableDeclaration) return undefined;
+    let init = decl.initializer as Node | undefined;
+    if (!init || !onlyFieldUses(decl, name, L)) return undefined;
+    // through what only TypeScript sees: `arr[i]!`, `(s.f as S)`
+    while (
+      init.kind === K.NonNullExpression ||
+      init.kind === K.ParenthesizedExpression ||
+      init.kind === K.AsExpression ||
+      init.kind === K.SatisfiesExpression
+    )
+      init = init.expression as Node;
+    if (init.kind === K.ElementAccessExpression) {
+      const arr = init.expression as Node,
+        index = init.argumentExpression as Node;
+      // the index is evaluated twice
+      if (index.kind !== K.Identifier && index.kind !== K.NumericLiteral)
+        return undefined;
+      const element = ctx.elementLayoutOf(arr);
+      if (!element || layoutName(element.keys) !== L) return undefined;
+      const a = addressOf(arr, null, decl);
+      return a && `${rt}.elem(${a}, ${index.text}, ${L})`;
+    }
+    if (init.kind === K.PropertyAccessExpression) {
+      const f = field(init),
+        holder = init.expression as Node;
+      const held = ctx.nullableLayoutOf(init);
+      if (!f || !held || layoutName(held.keys) !== L) return undefined;
+      const a = addressOf(holder, f.L, decl);
+      return a && `${rt}.ref(${a}, ${f.i}, ${L})`;
+    }
+    return undefined;
+  };
+  // whether every use of `name` in its scope is `name.key` made direct, of
+  // layout L
+  const onlyFieldUses = (decl: Node, name: string, L: string) => {
+    let only = true;
+    const visit = (node: Node) => {
+      if (!only) return;
+      if (
+        node.kind === K.Identifier &&
+        node.text === name &&
+        // a declaration's name: this one, or another binding of the name
+        !(
+          (node.parent as Node | undefined)?.name &&
+          same(node, (node.parent as Node).name) &&
+          (node.parent.kind === K.VariableDeclaration ||
+            node.parent.kind === K.Parameter ||
+            node.parent.kind === K.BindingElement)
+        )
+      ) {
+        const parent = node.parent as Node;
+        const f =
+          parent?.kind === K.PropertyAccessExpression &&
+          same(node, parent.expression)
+            ? field(parent)
+            : undefined;
+        if (!f || f.L !== L || !direct(parent)) only = false;
+      } else node.forEachChild(child => visit(child as Node));
+    };
+    visit(scopeOf(decl));
+    return only;
   };
   const layoutName = (keys: string[]) => {
     const json = JSON.stringify(keys);
@@ -136,11 +245,54 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       !!type && !!(type.flags & (TypeFlags.Number | TypeFlags.NumberLiteral))
     );
   };
+  // The views of the heap and the scratch variable an access uses: in a
+  // function, its locals, read once at its start (the heap's views never
+  // change); elsewhere (at the top of the module, in an async function or a
+  // generator, which may run before the heap is attached and resume after),
+  // the runtime's
+  const hoisted = new Set<number>();
+  const viewsAt = (node: Node) => {
+    const fn = scopeOf(node);
+    const body = fn.body as Node | undefined;
+    if (
+      fn.kind === K.SourceFile ||
+      body?.kind !== K.Block ||
+      fn.asteriskToken ||
+      hasModifier(fn, K.AsyncKeyword)
+    ) {
+      return {I: `${rt}.I32`, F: `${rt}.F64`, v: scratch, local: false};
+    }
+    const names = {I: `$I_${rt}`, F: `$F_${rt}`, v: scratch, local: true};
+    if (!hoisted.has(fn.pos)) {
+      hoisted.add(fn.pos);
+      ms.appendLeft(
+        bodyStart(body),
+        ` const {I32: ${names.I}, F64: ${names.F}} = ${rt}.views(); let ${scratch};`,
+      );
+    }
+    return names;
+  };
   // slot i's word in I32, and its Float64 in F64, from the address `a`
-  const word = (a: string, i: number) =>
-    `${rt}.I32[(${a} >> 2) + ${(HEAD + i * SLOT) / 4}]`;
-  const float = (a: string, i: number) =>
-    `${rt}.F64[(${a} >> 3) + ${(HEAD + i * SLOT) / 8 + 1}]`;
+  const word = (I: string, a: string, i: number) =>
+    `${I}[(${a} >> 2) + ${(HEAD + i * SLOT) / 4}]`;
+  const float = (F: string, a: string, i: number) =>
+    `${F}[(${a} >> 3) + ${(HEAD + i * SLOT) / 8 + 1}]`;
+  // whether `o.key` is read or written directly: read but not called, or
+  // the target of `=`
+  const direct = (node: Node) => {
+    const parent = node.parent as Node | undefined;
+    if (
+      parent?.kind === K.BinaryExpression &&
+      parent.operatorToken.kind === K.EqualsToken &&
+      same(node, parent.left)
+    )
+      return true;
+    if (isAssignmentTarget(node)) return false;
+    return !(
+      (parent?.kind === K.CallExpression && same(node, parent.expression)) ||
+      (parent?.kind === K.TaggedTemplateExpression && same(node, parent.tag))
+    );
+  };
   // after the children: what they write stays inside what this writes
   const visit = (node: Node) => {
     // a computed key is copied as it was written (transform.ts)
@@ -175,7 +327,8 @@ export function fastAccess(file: Node, ctx: FastContext): string {
         ms.appendLeft(value.end, ')');
         return;
       }
-      usesScratch = true;
+      const v = viewsAt(node);
+      if (!v.local) usesScratch = true;
       ms.overwrite(
         target.getStart(),
         value.getStart(),
@@ -184,11 +337,32 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       );
       ms.appendLeft(
         value.end,
-        `, ${a} < 0 || typeof ${scratch} !== 'number' || ${word(a, f.i)} !== ${W_NUMBER} ? ${setAt}, ${scratch}) : ${float(a, f.i)} = ${scratch})`,
+        `, ${a} < 0 || typeof ${scratch} !== 'number' || ${word(v.I, a, f.i)} !== ${W_NUMBER} ? ${setAt}, ${scratch}) : ${float(v.F, a, f.i)} = ${scratch})`,
       );
       return;
     }
     if (node.kind !== K.PropertyAccessExpression) return;
+    // a SharedArray's length, which its header holds and never changes
+    if (
+      node.name.kind === K.Identifier &&
+      node.name.text === 'length' &&
+      direct(node) &&
+      !isAssignmentTarget(node) &&
+      ctx.isSharedArray(node.expression)
+    ) {
+      const o = node.expression as Node;
+      const a = addressOf(o, null, node);
+      if (a) {
+        const v = viewsAt(node);
+        ms.overwrite(
+          node.getStart(),
+          node.end,
+          `${guard(node)}(${a} < 0 ? ${o.text}.length : ${v.I}[(${a} >> 2) + 1])`,
+          {contentOnly: true},
+        );
+      }
+      return;
+    }
     const parent = node.parent as Node | undefined;
     // a write, or a method call, is left as it is
     if (isAssignmentTarget(node)) return;
@@ -213,11 +387,12 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       return;
     }
     const args = `${o.text}, ${a}, ${f.L}, ${f.i}`;
+    const v = viewsAt(node);
     ms.overwrite(
       node.getStart(),
       node.end,
       numeric
-        ? `${guard(node)}(${a} < 0 || ${word(a, f.i)} !== ${W_NUMBER} ? ${rt}.getNumberAt(${args}) : ${float(a, f.i)})`
+        ? `${guard(node)}(${a} < 0 || ${word(v.I, a, f.i)} !== ${W_NUMBER} ? ${rt}.getNumberAt(${args}) : ${float(v.F, a, f.i)})`
         : `${rt}.getAt(${args})`,
       {contentOnly: true},
     );
@@ -271,16 +446,7 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
     const body = fn.body as Node | undefined;
     if (fn.kind === K.Constructor || body?.kind !== K.Block) return null;
     if (assigned(fn, name)) return null;
-    // after the body's directives
-    const directives = (body.statements as Node[]).filter(
-      (st, i, all) =>
-        st.kind === K.ExpressionStatement &&
-        st.expression.kind === K.StringLiteral &&
-        all.slice(0, i).every(p => p.kind === K.ExpressionStatement),
-    );
-    const at = directives.length
-      ? directives[directives.length - 1]!.end
-      : body.getStart() + 1;
+    const at = bodyStart(body);
     return {
       pos: body.pos,
       end: body.end,
@@ -289,6 +455,22 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
   }
   return null;
 }
+
+// where a function's body begins: after its directives
+function bodyStart(body: Node) {
+  const directives = (body.statements as Node[]).filter(
+    (st, i, all) =>
+      st.kind === K.ExpressionStatement &&
+      st.expression.kind === K.StringLiteral &&
+      all.slice(0, i).every(p => p.kind === K.ExpressionStatement),
+  );
+  return directives.length
+    ? directives[directives.length - 1]!.end
+    : body.getStart() + 1;
+}
+
+const hasModifier = (node: Node, kind: K) =>
+  !!node.modifiers?.some((m: Node) => m.kind === kind);
 
 // the function, or the module, a declaration is in
 function scopeOf(node: Node): Node {

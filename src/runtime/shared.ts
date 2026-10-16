@@ -13,16 +13,7 @@
 // Atomics.store, so a field read never tears and never shows a value nobody
 // wrote (§2.1.3, "no tear").
 
-import {
-  A,
-  alloc,
-  F64,
-  I32,
-  intern,
-  requireHeap,
-  seeHeap,
-  stringAt,
-} from './heap.ts';
+import {A, alloc, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
 
 export const K_STRUCT = 1,
   K_ARRAY = 2,
@@ -41,8 +32,8 @@ const W_UNDEFINED = 0,
 export const W_NUMBER = 1;
 const T_STRING = 2,
   T_BIGINT = 3,
-  T_SYMBOL = 4,
-  T_REF = 5;
+  T_SYMBOL = 4;
+export const T_REF = 5;
 
 // ---- this agent's handles ----
 const addresses = new WeakMap<object, number>();
@@ -65,16 +56,6 @@ export const kindOf = (o: unknown): number => {
 export function handleAt(a: number): object {
   const known = handles.get(a)?.deref();
   if (known) return known;
-  // all of it: the header says how long it is
-  seeHeap(a + HEAD);
-  const kind = I32[a >> 2]!;
-  const slots =
-    kind === K_STRUCT
-      ? shapeAt(I32[(a >> 2) + 1]!).keys.length
-      : kind === K_ARRAY
-        ? I32[(a >> 2) + 1]!
-        : 0;
-  seeHeap(a + HEAD + slots * SLOT);
   let h: object;
   switch (I32[a >> 2]) {
     case K_STRUCT:

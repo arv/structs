@@ -24,16 +24,17 @@ shared struct Body {
 const SOLAR_MASS = 4 * Math.PI * Math.PI;
 const DAYS = 365.24;
 
-function system(): Body[] {
-  const bodies = [
+function system(): SharedArray<Body> {
+  const bodies = new SharedArray<Body>(
     new Body(0, 0, 0, 0, 0, 0, 1),
     new Body(4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01, 1.66007664274403694e-03, 7.69901118419740425e-03, -6.90460016972063023e-05, 9.54791938424326609e-04),
     new Body(8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01, -2.76742510726862411e-03, 4.99852801234917238e-03, 2.30417297573763929e-05, 2.85885980666130812e-04),
     new Body(1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01, 2.96460137564761618e-03, 2.37847173959480950e-03, -2.96589568540237556e-05, 4.36624404335156298e-05),
     new Body(1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01, 2.68067772490389322e-03, 1.62824170038242295e-03, -9.51592254519715870e-05, 5.15138902046611451e-05),
-  ];
+  );
   let px = 0, py = 0, pz = 0;
-  for (const b of bodies) {
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i]!;
     px += b.vx * b.mass;
     py += b.vy * b.mass;
     pz += b.vz * b.mass;
@@ -45,7 +46,7 @@ function system(): Body[] {
   return bodies;
 }
 
-function advance(bodies: Body[], dt: number) {
+function advance(bodies: SharedArray<Body>, dt: number) {
   for (let i = 0; i < bodies.length; i++) {
     const a = bodies[i]!;
     for (let j = i + 1; j < bodies.length; j++) {
@@ -62,14 +63,15 @@ function advance(bodies: Body[], dt: number) {
       b.vz = b.vz + dz * am;
     }
   }
-  for (const b of bodies) {
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i]!;
     b.x = b.x + dt * b.vx;
     b.y = b.y + dt * b.vy;
     b.z = b.z + dt * b.vz;
   }
 }
 
-function energy(bodies: Body[]) {
+function energy(bodies: SharedArray<Body>) {
   let e = 0;
   for (let i = 0; i < bodies.length; i++) {
     const a = bodies[i]!;

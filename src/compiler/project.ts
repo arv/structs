@@ -208,6 +208,13 @@ function compileProgram(
     return layout;
   };
 
+  const typeOf = (expression: Node) =>
+    checker.getTypeAtLocation(expression as any);
+  const layoutOfType = (type: Type) => {
+    const s = structOfClass(type);
+    return (s && layoutOfStruct(s)) ?? undefined;
+  };
+
   const fieldNames = new Set<string>();
   for (const s of structs.values())
     if (s.shared) for (const k of s.ownKeys ?? []) fieldNames.add(k);
@@ -232,9 +239,17 @@ function compileProgram(
         rt: l.runtimeName,
         fieldNames,
         layouts: used,
-        layoutOf: expression => {
-          const s = structOfClass(checker.getTypeAtLocation(expression as any));
-          return (s && layoutOfStruct(s)) ?? undefined;
+        layoutOf: expression => layoutOfType(typeOf(expression)),
+        nullableLayoutOf: expression =>
+          layoutOfType(checker.getNonNullableType(typeOf(expression))),
+        isSharedArray: expression =>
+          typeOf(expression).getSymbol()?.name === 'SharedArray',
+        // a SharedArray<S>: the global interface of the runtime's types
+        elementLayoutOf: expression => {
+          const type = typeOf(expression);
+          if (type.getSymbol()?.name !== 'SharedArray') return undefined;
+          const [element] = checker.getTypeArguments(type as any);
+          return element ? layoutOfType(element) : undefined;
         },
       });
     const prelude = [...used]

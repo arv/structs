@@ -19,28 +19,35 @@ const dx = $struct.getNumber(a, $L0, 0) - $struct.getNumber(b, $L0, 0);
 
 The types are not trusted. The runtime checks that the object is a Shared Struct
 with that layout, and reads it through the Proxy if not, so a structurally typed
-plain object still works. Where `o` is a binding that keeps its value (a
-`const`, or a `let` or a parameter that is never assigned), that check is made
-once, beside the binding, and a number field is then read and written in the
-heap directly:
+plain object still works.
+
+Compiled code holds heap addresses rather than Proxies where it can. A binding
+that keeps its value (a `const`, or a `let` or a parameter that is never
+assigned) is checked once, beside the binding. A struct taken from a
+`SharedArray<S>` element or from a struct-typed field is the address that slot
+already holds, read without making its Proxy at all; the binding itself is made
+only on the slow path. Each function keeps the heap's views in locals, since the
+heap's size is fixed:
 
 ```js
-const a = bodies[i];
-const ax = a.x;
-// compiles to: a's address, or -1, then the slot's Float64 if it holds a Number
-const a = bodies[i],
-  $a0 = $struct.addr(a, $L0);
-const ax =
-  $a0 < 0 || $struct.I32[($a0 >> 2) + 4] !== 1
-    ? $struct.getNumberAt(a, $a0, $L0, 0)
-    : $struct.F64[($a0 >> 3) + 3];
+const b = bodies[j];
+const bx = b.x;
+// compiles to: b's address from bodies' slot, then the Float64 if it holds a Number
+const $a1 = $struct.elem($a0, j, $L0),
+  b = $a1 < 0 ? bodies[j] : undefined;
+const bx =
+  $a1 < 0 || $I[($a1 >> 2) + 4] !== 1
+    ? $struct.getNumberAt(b, $a1, $L0, 0)
+    : $F[($a1 >> 3) + 3];
 ```
 
 On
 [examples/nbody](https://github.com/arv/threads/tree/tc39-proposal/examples/nbody)
-(1,000,000 steps, Node 24, Apple Silicon) this takes 0.46 s against the Proxy's
-5.0 s (2.5 s with the check at every access). Plain JavaScript objects take
-about 0.07 s.
+(1,000,000 steps, Node 24, Apple Silicon), which keeps its bodies in a
+`SharedArray<Body>`, this takes 0.14 s. The same program on plain JavaScript
+objects takes 0.045 s, and through the Proxy alone 7.5 s. Most of what is left
+is the check of each slot's tag: a field may hold any shareable value, so a read
+checks that it holds a Number.
 
 The code is in
 [src/compiler/project.ts](https://github.com/arv/threads/blob/tc39-proposal/src/compiler/project.ts)
