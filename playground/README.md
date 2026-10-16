@@ -3,8 +3,8 @@
 The structs playground is a page where you write programs in the
 [structs proposal](https://tc39.es/proposal-structs/)'s syntax, see what they
 compile to, and run them on Web Workers that share memory. It's the playground
-of [@arv/structs](../README.md), whose README explains the runtime, the compiler
-and where they differ from the spec.
+of [this repository](../README.md), whose README explains the runtime, the
+compiler and where they differ from the spec.
 
 > Written iterating with Claude Code (Claude Opus 5.5).
 
@@ -29,9 +29,10 @@ page compiles the program and shows you:
   its hot code as it runs, and the workers are kept for the next call, so the
   timed runs compare workers that are all warm. `main` may block, on
   `Atomics.Mutex.lock` for example. A program starts its own workers with
-  `run(import.meta.url, 'name', ...args)` from `@arv/structs/agent`, which calls
-  the function it exports as `name` on a new worker. Their console output comes
-  back to the page. **Stop** ends the run, along with the workers it started.
+  `run(import.meta.url, 'name', ...args)` from the agent module
+  (src/runtime/agent.ts), which calls the function it exports as `name` on a new
+  worker. Their console output comes back to the page. **Stop** ends the run,
+  along with the workers it started.
 
 Monaco's TypeScript can't parse `struct`, so the editor only colors and
 completes. The errors you see come from the playground's compiler.

@@ -1,4 +1,4 @@
-# @arv/structs
+# Structs
 
 An implementation of the TC39
 [structs proposal](https://tc39.es/proposal-structs/) (Stage 2, the December
@@ -42,16 +42,26 @@ JavaScript side by side, in [the playground](playground).
 | §4 `Atomics.Mutex`, `UnlockToken` | Futex-style locks on heap words; tokens work with `using`        |
 | §4 `Atomics.Condition`            | `wait`, `waitFor` (with a timeout and a predicate), `notify`     |
 
-Importing `@arv/structs` installs the globals. The compiler's output imports
-`@arv/structs/runtime`, which does it too.
+Importing the runtime ([src/runtime/index.ts](src/runtime/index.ts)) installs
+the globals. The compiler's output imports it too.
 
 ## Running it
+
+Clone the repository, its `tc39-proposal` branch, and install what it needs:
+
+```bash
+git clone --branch tc39-proposal https://github.com/arv/threads.git
+```
+
+```bash
+cd threads && pnpm install
+```
 
 In Node, the register hook compiles struct syntax as modules load, in workers
 too:
 
 ```bash
-node --import @arv/structs/register examples/counter/main.js
+node --import ./src/register.ts examples/counter/main.js
 ```
 
 The CLI compiles a single file, or a whole TypeScript project with type
@@ -66,23 +76,24 @@ node src/compiler/cli.ts compile -p examples/nbody/tsconfig.json
 ```
 
 From code, use `transpile(source, {fileName})` and `compile(tsconfigPath)` from
-`@arv/structs/compiler`.
+[src/compiler/index.ts](src/compiler/index.ts).
 
 ### Agents
 
-The proposal leaves sharing across agents to the host. `@arv/structs/agent`
-starts workers that attach to the same heap: `worker_threads` in Node, module
-Web Workers in a browser. Messages sent through it carry shared objects as
-themselves, and everything else as `postMessage` copies it.
+The proposal leaves sharing across agents to the host. The agent module
+([src/runtime/agent.ts](src/runtime/agent.ts)) starts workers that attach to the
+same heap: `worker_threads` in Node, module Web Workers in a browser. Messages
+sent through it carry shared objects as themselves, and everything else as
+`postMessage` copies it.
 
 ```js
-// main.js
-import {startWorker} from '@arv/structs/agent';
+// examples/counter/main.js
+import {startWorker} from '../../src/runtime/agent.ts';
 const w = startWorker(new URL('./worker.js', import.meta.url));
 w.postMessage({tally, n: 1000});
 
-// worker.js
-import {parent} from '@arv/structs/agent';
+// examples/counter/worker.js
+import {parent} from '../../src/runtime/agent.ts';
 parent.onmessage = ({tally, n}) => {
   /* tally is the main thread's struct */
 };

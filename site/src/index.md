@@ -1,5 +1,5 @@
 ---
-title: '@arv/structs'
+title: Structs
 navTitle: Introduction
 description:
   'The TC39 structs proposal for JavaScript today: structs, shared structs,
@@ -7,7 +7,7 @@ description:
   syntax.'
 ---
 
-@arv/structs is an implementation of the TC39
+This is an implementation of the TC39
 [structs proposal](https://tc39.es/proposal-structs/) (Stage 2, the December
 2024 draft) for JavaScript today: structs, shared structs, Shared Arrays,
 `Atomics.Mutex` and `Atomics.Condition`. It has a runtime that follows the
@@ -53,12 +53,14 @@ the spec as JavaScript allows. See
 | §4 `Atomics.Mutex`, `UnlockToken` | Futex-style locks on heap words; tokens work with `using`        |
 | §4 `Atomics.Condition`            | `wait`, `waitFor` (with a timeout and a predicate), `notify`     |
 
-Importing `@arv/structs` installs the globals. The compiler's output imports
-`@arv/structs/runtime`, which does it too.
+Importing the runtime
+([src/runtime/index.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/index.ts))
+installs the globals. The compiler's output imports it too.
 
 ## Where to Next
 
-- [Running It](/running-it/): the Node hook, the CLI and the compiler's API.
+- [Running It](/running-it/): getting the code, the Node hook, the CLI and the
+  compiler's API.
 - [Structs](/structs/) and [Shared Structs](/shared-structs/): what the syntax
   makes, and how.
 - [The Playground](/the-playground/): try it all in your browser.

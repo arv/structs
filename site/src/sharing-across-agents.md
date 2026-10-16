@@ -5,19 +5,20 @@ description:
   objects as themselves.
 ---
 
-The proposal leaves sharing across agents to the host. `@arv/structs/agent`
+The proposal leaves sharing across agents to the host. The agent module
+([src/runtime/agent.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/agent.ts))
 starts workers that attach to the same heap: `worker_threads` in Node, module
 Web Workers in a browser. Messages sent through it carry shared objects as
 themselves, and everything else as `postMessage` copies it.
 
 ```js
-// main.js
-import {startWorker} from '@arv/structs/agent';
+// examples/counter/main.js
+import {startWorker} from '../../src/runtime/agent.ts';
 const w = startWorker(new URL('./worker.js', import.meta.url));
 w.postMessage({tally, n: 1000});
 
-// worker.js
-import {parent} from '@arv/structs/agent';
+// examples/counter/worker.js
+import {parent} from '../../src/runtime/agent.ts';
 parent.onmessage = ({tally, n}) => {
   /* tally is the main thread's struct */
 };

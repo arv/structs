@@ -1,9 +1,9 @@
 // Four workers count to a million together: a shared struct holds the count,
 // a Mutex orders the increments, and a Condition says when all are done.
 //
-//   node --import @arv/structs/register examples/counter/main.js
+//   node --import ./src/register.ts examples/counter/main.js
 
-import {startWorker} from '@arv/structs/agent';
+import {startWorker} from '../../src/runtime/agent.ts';
 
 shared struct Tally {
   count = 0;

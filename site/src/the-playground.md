@@ -31,9 +31,10 @@ page compiles the program and shows you:
   its hot code as it runs, and the workers are kept for the next call, so the
   timed runs compare workers that are all warm. `main` may block, on
   `Atomics.Mutex.lock` for example. A program starts its own workers with
-  `run(import.meta.url, 'name', ...args)` from `@arv/structs/agent`, which calls
-  the function it exports as `name` on a new worker. Their console output comes
-  back to the page. **Stop** ends the run, along with the workers it started.
+  `run(import.meta.url, 'name', ...args)` from the agent module
+  (src/runtime/agent.ts), which calls the function it exports as `name` on a new
+  worker. Their console output comes back to the page. **Stop** ends the run,
+  along with the workers it started.
 
 Monaco's TypeScript can't parse `struct`, so the editor only colors and
 completes. The errors you see come from the playground's compiler.
@@ -78,7 +79,7 @@ vp run test-build
 ```
 
 `build-wasm` builds tsgo from TypeScript's sources at the commit of the
-compiler's `typescript` package, into `public/compiler/`. `vp build` builds the
+TypeScript the compiler runs on, into `public/compiler/`. `vp build` builds the
 page into `dist/`, to be served from `/playground/` (set `BASE` for another
 path). `test-build` serves the build with no COOP or COEP headers, so the
 service worker has to isolate it. It then compiles and runs every program in

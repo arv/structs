@@ -4,7 +4,7 @@ description:
   What's in the tc39-proposal branch of arv/threads, and how to work on it.
 ---
 
-@arv/structs is the `tc39-proposal` branch of
+This is the `tc39-proposal` branch of
 [arv/threads](https://github.com/arv/threads/tree/tc39-proposal). Here's what's
 in it:
 
@@ -30,8 +30,9 @@ edits with magic-string, and strips types with OXC.
 
 ## Development
 
-The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`), with
-the playground and these docs as packages of their own.
+Clone it, check out `tc39-proposal`, and install its dependencies with pnpm. It
+builds and tests with [Vite+](https://viteplus.dev) (`vp`); the playground and
+these docs live in folders of their own.
 
 ```bash
 pnpm install

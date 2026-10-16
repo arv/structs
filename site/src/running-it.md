@@ -5,11 +5,22 @@ description:
   projects with the CLI, or call the compiler from code.
 ---
 
+There is no package to install: clone the repository, its `tc39-proposal`
+branch, and install what it needs:
+
+```bash
+git clone --branch tc39-proposal https://github.com/arv/threads.git
+```
+
+```bash
+cd threads && pnpm install
+```
+
 In Node, the register hook compiles struct syntax as modules load, in workers
 too:
 
 ```bash
-node --import @arv/structs/register examples/counter/main.js
+node --import ./src/register.ts examples/counter/main.js
 ```
 
 The CLI compiles a single file, or a whole TypeScript project with type
@@ -28,7 +39,7 @@ source map. `--no-fast` leaves every shared struct field access to the Proxy
 (see [TypeScript](/typescript/)), and `--typescript` keeps the types.
 
 From code, use `transpile(source, {fileName})` and `compile(tsconfigPath)` from
-`@arv/structs/compiler`.
+[src/compiler/index.ts](https://github.com/arv/threads/blob/tc39-proposal/src/compiler/index.ts).
 
 ::: note The compiler runs on TypeScript 7
 It parses with TypeScript 7's API, the same parser for JavaScript and for
