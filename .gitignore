@@ -1,14 +1,6 @@
-# the programs threads-check compiles (build/ts), and bench.ts's work
-# (build/bench)
-/build
-# the playground's production build (vp build), and the compiler it runs in
-# WebAssembly (vp run build-wasm)
-/playground/dist
-/playground/public/compiler
-# the docs site's build (vp run threads-site#build)
-/site/dist
 node_modules/
 .DS_Store
-# the packages as pnpm pack builds them (vp run build-dist)
-/dist
-/src/checker/dist
+# what the CLI writes when no output is named
+/build
+# compiled test programs (test/helpers.ts)
+/test/.out

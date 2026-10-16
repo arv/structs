@@ -1,8 +1,6 @@
 # On every push to main and every pull request: vp check (formatting, lint and
-# types) and vp test (the unit tests, the programs threads-check compiles, and
-# the Vite plugin compiling with threads-check), as they run locally, the
-# programs threads-check compiles run on node, the packages as npm installs
-# them, and the playground's static build compiling in Chrome
+# types), vp test (the runtime, the compiler, and workers sharing the heap),
+# and the examples, compiled and run on node
 name: CI
 
 on:
@@ -39,43 +37,19 @@ jobs:
           node-version: '24'
           cache: true
       - run: vp test
-      # the programs (tsconfig.programs.json), compiled by threads-check into
-      # build/ts, on node: each runs to the end, and N-body reaches the same
-      # energy on every thread count
-      - run: vp run build-programs
-      - name: the programs on node
+      # four workers count to a million under a Mutex
+      - name: examples/counter
         run: |
-          for f in build/ts/*.js; do
-            echo "== $f"
-            out=$(node src/run.ts "$f" --threads=1,2,4)
+          out=$(node --import ./src/register.ts examples/counter/main.js)
+          echo "$out"
+          test "$out" = 'count: 1000000 (expected 1000000)'
+      # N-body reaches the reference energy, with direct field access and
+      # without
+      - name: examples/nbody
+        run: |
+          for flag in "" --no-fast; do
+            node src/compiler/cli.ts compile -p examples/nbody/tsconfig.json $flag
+            out=$(node build/nbody/nbody.js 1000000)
             echo "$out"
-            case $f in
-              *nbody*) test "$(echo "$out" | grep -c 'kinetic energy 59093.195871')" = 3 ;;
-            esac
+            echo "$out" | grep -q -- '-0.169086185'
           done
-      # packed, installed in a project of their own, and loaded by node; the
-      # page, which the plugin compiles with threads-check, runs in Chrome (the
-      # runner's), from Vite's dev server and its build
-      - run: vp run test-pack
-
-  # the playground's static build in Chrome (the runner's), served as Pages
-  # serves it: every program compiled in the browser, by threads-check on
-  # tsgo in WebAssembly (stock TypeScript, built by vp run build-wasm), and
-  # run, against the dev server
-  playground:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # the Go TypeScript's go.mod asks for (a newer one, it downloads)
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.27'
-          cache: false
-      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
-        with:
-          node-version: '24'
-          cache: true
-      - run: vp run build-wasm
-        working-directory: playground
-      - run: vp run test-build
-        working-directory: playground

@@ -1,0 +1,4 @@
+{
+  "compilerOptions": {"target": "esnext", "module": "esnext", "strict": true, "noEmit": true, "lib": ["esnext"], "types": []},
+  "include": ["*.ts"]
+}

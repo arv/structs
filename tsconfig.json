@@ -1,11 +1,8 @@
 {
-  // src/ (but the checker, which has its own), the playground's Vite config
-  // and the package's build (build-dist.ts), type-checked by stock tsc (vp run
-  // typecheck): the runtime, the prototype's scripts and programs, and the
-  // tests. Node runs them as they are, their types stripped. The playground's
-  // page has its own (playground/tsconfig.json), tsconfig.programs.json is what
-  // threads-check compiles for the scripts (vp run build-programs), and
-  // tsconfig.dist.json what the package ships compiled
+  // the runtime, the compiler and the tests, type-checked by stock tsc (vp run
+  // typecheck). Node runs them as they are, their types stripped. Programs in
+  // the proposal's syntax (examples/, test/fixtures/) are the compiler's to
+  // check: tsc cannot parse them
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -16,31 +13,8 @@
     "erasableSyntaxOnly": true,
     "lib": ["es2024", "esnext.disposable", "dom"],
     "types": ["node"],
-    "skipLibCheck": true,
-    // the runtime's API, and its modules, which the programs import (run.ts
-    // and chrome.ts point them at the runtime's directory: see program.ts)
-    "paths": {
-      "@arv/threads": ["./src/runtime/threads.d.ts"],
-      "@arv/threads/own": ["./src/runtime/own.ts"],
-      "@arv/threads/runtime": ["./src/runtime/runtime.ts"]
-    }
+    "skipLibCheck": true
   },
-  "include": [
-    "build-dist.ts",
-    "src/**/*.ts",
-    "playground/vite.config.ts",
-    "playground/build-wasm.ts",
-    "playground/test-build.ts",
-    "playground/tsgo/*.test.ts",
-    "playground/compiler.ts",
-    "playground/compiler.test.ts"
-  ],
-  "exclude": ["src/checker"],
-  // a glob leaves out a .d.ts beside a .ts of its name: a page's API is checked
-  // as well, by name
-  "files": [
-    "src/runtime/browser.d.ts",
-    "src/runtime/compiled.d.ts",
-    "src/runtime/heap.d.ts"
-  ]
+  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"],
+  "exclude": ["test/fixtures"]
 }

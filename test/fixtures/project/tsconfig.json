@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "lib": ["esnext"],
+    "types": [],
+    "paths": {"@arv/structs": ["../../../src/runtime/api.d.ts"]}
+  },
+  "include": ["*.ts"]
+}

@@ -1,0 +1,15 @@
+{
+  // compile with: node src/compiler/cli.ts compile -p examples/nbody/tsconfig.json
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["esnext"],
+    "types": ["node"],
+    "outDir": "../../build/nbody",
+    "paths": {"@arv/structs": ["../../src/runtime/api.d.ts"]}
+  },
+  "include": ["*.ts"]
+}

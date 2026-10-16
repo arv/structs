@@ -1,7 +1,0 @@
-threads.ts(44,3): error TS96003: 'bodies' cannot be used here: it shares objects with 'half', which was sent to 'spawn' on line 43.
-threads.ts(50,3): error TS96005: 'snap' was consumed by 'share' on line 49.
-threads.ts(52,3): error TS96010: Cannot change 'p[0]!': it is a shared value, which is immutable.
-threads.ts(53,3): error TS96010: Cannot change 'p': it is a shared value, which is immutable.
-threads.ts(60,24): error TS96002: 'mine' cannot be used here: it may have been sent to 'spawn' on line 60.
-threads.ts(66,22): error TS96007: 'xs' cannot be sent: it may be referenced by the caller. Declare the parameter 'Sending<T>' to take ownership.
-threads.ts(77,10): error TS96009: 'xs' cannot be returned as 'Sending<T>': it may be referenced by the caller.

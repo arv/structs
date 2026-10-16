@@ -1,8 +1,9 @@
 {
-  "name": "@arv/threads",
-  "version": "0.2.0",
-  "description": "Threads for JavaScript, in plain TypeScript, on Web Workers and a SharedArrayBuffer: see README.md",
-  "homepage": "https://github.com/arv/threads#readme",
+  "name": "@arv/structs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The TC39 structs proposal (structs, shared structs, Mutex and Condition) for JavaScript today: a runtime and a compiler for its syntax",
+  "homepage": "https://github.com/arv/threads/tree/tc39-proposal#readme",
   "bugs": {
     "url": "https://github.com/arv/threads/issues"
   },
@@ -12,62 +13,33 @@
     "type": "git",
     "url": "git+https://github.com/arv/threads.git"
   },
-  "files": [
-    "dist"
-  ],
+  "bin": {
+    "structs": "./src/compiler/cli.ts"
+  },
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/threads.d.ts",
-      "default": "./dist/threads.ts"
+      "types": "./src/runtime/api.d.ts",
+      "default": "./src/runtime/index.ts"
     },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "default": "./dist/browser.ts"
-    },
-    "./compiled": {
-      "types": "./dist/compiled.d.ts",
-      "default": "./dist/compiled.js"
-    },
-    "./heap": {
-      "types": "./dist/heap.d.ts",
-      "default": "./dist/heap.ts"
-    },
-    "./vite": {
-      "types": "./dist/vite-plugin-threads.d.ts",
-      "default": "./dist/vite-plugin-threads.js"
-    },
+    "./runtime": "./src/runtime/emit.ts",
+    "./agent": "./src/runtime/agent.ts",
+    "./compiler": "./src/compiler/index.ts",
+    "./register": "./src/register.ts",
     "./package.json": "./package.json"
   },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "scripts": {
-    "build-dist": "node build-dist.ts",
-    "build-programs": "node src/checker/cli.ts compile -p tsconfig.programs.json --runtime @arv/threads",
-    "prepack": "pnpm run build-dist",
-    "test-pack": "node src/pack.ts",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jridgewell/sourcemap-codec": "^1.6.0",
+    "magic-string": "^1.4.3",
+    "oxc-transform": "^0.153.0",
+    "typescript": "7.1.0-dev.20261011.1"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "playwright-core": "^1.64.0",
-    "typescript": "catalog:",
-    "vite": "catalog:",
     "vite-plus": "catalog:"
-  },
-  "peerDependencies": {
-    "@arv/threads-check": "workspace:^",
-    "vite": ">=8"
-  },
-  "peerDependenciesMeta": {
-    "@arv/threads-check": {
-      "optional": true
-    },
-    "vite": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=22.13"
