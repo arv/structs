@@ -48,24 +48,25 @@ function apiInBrowser(): Plugin {
   };
 }
 
-// the dev server compiles: one API session, its tsgo a process
+// the dev server compiles: one API session, its tsgo a process, and the
+// compiler loaded through Vite for each compile, so that an edit to it (in
+// ../src, which Vite is told to watch: it is outside the root) is the next
+// compile's
 function compileOnServer(): Plugin {
-  let session: Promise<{
-    api: import('typescript/sync').API;
-    program: typeof import('./compile-program.ts');
-  }> | null = null;
-  const start = (server: ViteDevServer) =>
-    (session ??= (async () => {
-      const {API} = await import('typescript/sync');
-      // through Vite: compile-program.ts imports the runtime's types ?raw
-      const program = (await server.ssrLoadModule(
-        here('compile-program.ts'),
-      )) as typeof import('./compile-program.ts');
-      return {api: new API({cwd: here('.')}), program};
-    })());
+  let api: import('typescript/sync').API | null = null;
+  const start = async (server: ViteDevServer) => {
+    const {API} = await import('typescript/sync');
+    api ??= new API({cwd: here('.')});
+    // through Vite: compile-program.ts imports the runtime's types ?raw
+    const program = (await server.ssrLoadModule(
+      here('compile-program.ts'),
+    )) as typeof import('./compile-program.ts');
+    return {api, program};
+  };
   return {
     name: 'structs-playground:compile',
     configureServer(server) {
+      server.watcher.add(here('../src'));
       server.middlewares.use((_req, res, next) => {
         for (const [k, v] of Object.entries(ISOLATED)) res.setHeader(k, v);
         next();
