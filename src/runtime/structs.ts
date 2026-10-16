@@ -167,27 +167,17 @@ export function endStruct(
   if (newTarget !== f) return o;
   pending = pendingTarget = null;
   const s = structs.get(f)!;
-  // InitializeStructInstanceFieldsAndBrand (§1.1.3): the private names were
-  // stamped by the classes, the public fields are defined here
-  for (const field of s.chain)
-    if (field.key !== undefined)
-      Object.defineProperty(o, field.key, {
-        value: undefined,
-        writable: true,
-        enumerable: true,
-        configurable: false,
-      });
-  Object.preventExtensions(o);
-  // RunStructInstanceFieldInitializers (§1.1.5)
+  // InitializeStructInstanceFieldsAndBrand (§1.1.3): the classes defined the
+  // fields as they stamped the instance (undefined), every struct's in the
+  // chain, the base's first, private names and all; sealed, they are not
+  // configurable
+  Object.seal(o);
+  // RunStructInstanceFieldInitializers (§1.1.5): the fields are the
+  // instance's own, writable data properties, which an assignment sets
   for (const field of s.chain) {
     if (field.set) field.set(o);
-    else if (field.init || 'value' in field)
-      Object.defineProperty(o, field.key!, {
-        value: field.init ? field.init(o) : field.value,
-        writable: true,
-        enumerable: true,
-        configurable: false,
-      });
+    else if (field.init) (o as any)[field.key!] = field.init(o);
+    else if ('value' in field) (o as any)[field.key!] = field.value;
   }
   if (s.init) s.init(o, args);
   return o;

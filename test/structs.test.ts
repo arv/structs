@@ -214,6 +214,51 @@ describe('struct', () => {
     expect(s[Symbol.for('s')]).toBe(4);
   });
 
+  test('computed keys are evaluated in element order, once', async () => {
+    const {S, Sh, Outer, order} = await load(`
+      export const order = [];
+      const k = name => (order.push(name), name);
+      export struct S {
+        [k('a')] = 1;
+        [k('m')]() { return 'm'; }
+        [k('b')];
+        static [k('s')] = 2;
+      }
+      export shared struct Sh { [k('c')] = 3; [k('d')]; }
+      // a struct declared inside a key takes its own keys
+      export struct Outer {
+        [k('x')] = 1;
+        [(k('inner'), (() => { struct In { [k('y')] = 2; } return new In().y; })(), k('z'))] = 3;
+      }
+    `);
+    expect(order).toEqual([
+      'a',
+      'm',
+      'b',
+      's',
+      'c',
+      'd',
+      'x',
+      'inner',
+      'y',
+      'z',
+    ]);
+    expect(Object.keys(new S())).toEqual(['a', 'b']);
+    expect({...new Sh()}).toEqual({c: 3, d: undefined});
+    expect({...new Outer()}).toEqual({x: 1, z: 3});
+    expect(order).toHaveLength(10);
+  });
+
+  test('fields are defined base first, in order, and sealed before initializers run', async () => {
+    const {B, seen} = await load(`
+      export const seen = [];
+      struct A { a1; #p = 1; a2 = (seen.push(Object.keys(this), Object.isSealed(this)), 2); }
+      export struct B extends A { b1 = 3; }
+    `);
+    expect(Object.keys(new B())).toEqual(['a1', 'a2', 'b1']);
+    expect(seen).toEqual([['a1', 'a2', 'b1'], true]);
+  });
+
   test('export default struct is named default', async () => {
     const m = await load(`export default struct { x = 1; }`);
     expect(m.default.name).toBe('default');

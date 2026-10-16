@@ -78,6 +78,14 @@ export function set(o: any, l: Layout, i: number, v: unknown) {
   return v;
 }
 
-// a computed field key, evaluated (ToPropertyKey)
-export const toKey = (v: unknown): PropertyKey =>
-  typeof v === 'symbol' ? v : String(v);
+// The computed keys of a struct's fields: each evaluated where its field is
+// (ToPropertyKey), in element order, and recorded; the struct's first static
+// block, which runs once all are, takes its own (the last `n`). A struct
+// declared inside a key takes its keys before the outer one records the next.
+const keys: PropertyKey[] = [];
+export function fieldKey(v: unknown): PropertyKey {
+  const key = typeof v === 'symbol' ? v : String(v);
+  keys.push(key);
+  return key;
+}
+export const fieldKeys = (n: number) => keys.splice(keys.length - n, n);

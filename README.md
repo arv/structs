@@ -214,8 +214,6 @@ an oversight, this implementation does something else:
   method does.
 - **Static methods are not brand-checked.** The spec's `DefineMethod` would wrap
   them too, which would make them impossible to call.
-- **Computed instance field keys** are evaluated when the static elements start,
-  not in element order.
 - **`super.x` in a shared struct's initializers** looks at the parent
   constructor. In the spec their home object is null, and `super.x` throws.
 - **Mutexes aren't fair.** A woken waiter competes with newcomers, where the

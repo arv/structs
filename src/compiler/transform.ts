@@ -197,7 +197,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
       replace(method.getStart(), nameNode.end, impl);
       ms.prependRight(method.getStart(), forwarder);
     }
-    let computed = false,
+    let computed = 0,
       init: string | undefined,
       n = 0;
     const members: Node[] = [...node.members];
@@ -269,34 +269,52 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
               initializer,
               'a shared struct field initializer cannot use private names (§2.2.3)',
             );
-          let key: string;
+          // the field stays, a declaration with no initializer, where it
+          // was: its computed key is evaluated in element order, as the
+          // spec's is, and recorded (fieldKey) for the first static block
+          // to take (fieldKeys); and an unshared struct's class defines
+          // the field as it stamps the instance, in the spec's order
+          // (a computed key's expression keeps its text where it is: a struct
+          // declared in it is edited too)
+          let key: string, expr: Node | undefined;
           if (nameNode.kind === K.ComputedPropertyName) {
-            const expr = children(nameNode)[0]!;
-            key = `${rt}.toKey(${text.slice(expr.getStart(), expr.end)})`;
-            computed = true;
+            expr = children(nameNode)[0]!;
+            key = `$k[${computed++}]`;
           } else {
             const k = propertyKey(nameNode);
             key = JSON.stringify(k);
             keys.push(k);
           }
+          // the declaration, from the member's start up to `to`, and then
+          // what follows it
+          const declare = (to: number, then: string) => {
+            if (expr) {
+              replace(start, expr.getStart(), `[${rt}.fieldKey(`);
+              replace(expr.end, to, `)];${then}`);
+            } else
+              replace(
+                start,
+                to,
+                `${text.slice(nameNode.getStart(), nameNode.end)};${then}`,
+              );
+          };
           if (!initializer) {
-            ms.remove(start, member.end);
+            declare(member.end, '');
             fields.push(`{key: ${key}}`);
             continue;
           }
           // a literal is its value: an initializer that runs no code and
           // gives the same value for every instance needs no function
           if (isLiteral(initializer)) {
-            ms.remove(start, member.end);
             fields.push(
               `{key: ${key}, value: ${text.slice(initializer.getStart(), initializer.end)}}`,
             );
+            declare(member.end, '');
             continue;
           }
-          replace(
-            start,
+          declare(
             initializer.getStart(),
-            `${shared ? 'static ' : ''}${f}() { return (`,
+            ` ${shared ? 'static ' : ''}${f}() { return (`,
           );
           replace(initializer.end, member.end, '); }');
           fields.push(
@@ -325,7 +343,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
     const open = node.members.pos;
     ms.appendLeft(
       open,
-      ` static { ${rt}.${define}(this, {${spec.join(', ')}}); }${shared ? '' : ' #$brand;'}`,
+      ` static { ${computed ? `const $k = ${rt}.fieldKeys(${computed}); ` : ''}${rt}.${define}(this, {${spec.join(', ')}}); }${shared ? '' : ' #$brand;'}`,
     );
     const close = node.end - 1;
     ms.appendLeft(
