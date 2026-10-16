@@ -21,6 +21,7 @@ export {
   defineSharedStruct,
   defineStruct,
   endStruct,
+  notInstance,
   sealSharedStruct,
   sealStruct,
   sharedStructHeritage,

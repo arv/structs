@@ -8,3 +8,5 @@ node_modules/
 # WebAssembly (vp run build-wasm)
 /playground/dist
 /playground/public/compiler
+# the docs site's build (vp run structs-site#build)
+/site/dist

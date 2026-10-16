@@ -18,8 +18,8 @@ shows the shape). An instance is made the spec's way (§1.1.6):
    parent struct's initializer.
 
 Instance methods check that `this` is an instance of their struct (struct method
-exotic objects, §1.2). Constructing anything but the struct itself is a
-TypeError, so a class cannot extend a struct.
+exotic objects, §1.2), and so do getters and setters here. Constructing anything
+but the struct itself is a TypeError, so a class cannot extend a struct.
 
 ::: note No constructor, no initializer
 A struct with no `constructor` has no initializer, so its parent's initializer

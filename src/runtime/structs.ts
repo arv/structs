@@ -8,12 +8,14 @@
 //     x = 1;                         static { $.defineStruct(this, {
 //     #y = 2;                          fields: [{key: 'x', init: o => o.#$f0()},
 //     constructor(a) {                          {set: o => { o.#y = o.#$f1(); }}],
-//       super(a); ...                  init: (o, a) => o.#$init(...a),
-//     }                                brand: o => #$brand in o }) }
-//     m() {}                         #$brand; #y;
-//   }                                #$f0() { return (1); } #$f1() { return (2); }
-//                                    #$init(a) { $.superInit(S, this, [a]); ... }
-//                                    m() {}
+//       super(a); ...                  init: (o, a) => o.#$init(...a) }) }
+//     }                              #$brand; #y;
+//     m() { ... }                    #$f0() { return (1); } #$f1() { return (2); }
+//   }                                #$init(a) { $.superInit(S, this, [a]); ... }
+//                                    m() {
+//                                      if (!(#$brand in this)) $.notInstance("m");
+//                                      ...
+//                                    }
 //                                    constructor(...a) {
 //                                      super($.beginStruct(new.target, S));
 //                                      return $.endStruct(this, S, new.target, a);
@@ -25,8 +27,8 @@
 // and it is sealed before any initializer runs, then the initializers run,
 // from the base struct down, then the initializer (the `constructor`). The
 // class's own construction, through super(), only stamps the private names:
-// those of every struct in the chain, and #$brand, which brand-checks the
-// methods (StructBrands, §1.2).
+// those of every struct in the chain, and #$brand, which each method checks
+// `this` has, first thing (StructBrands, §1.2; transform.ts says how).
 //
 // A shared struct's instance is a Shared Struct (shared.ts), made by
 // constructSharedStruct; its declaration's class only holds the statics.
@@ -57,8 +59,6 @@ export interface StructSpec {
   fields: Field[];
   // the initializer: the declaration's `constructor`
   init?: (o: any, args: unknown[]) => void;
-  // whether an object has this struct's brand
-  brand: (o: object) => boolean;
   // the declaration's name, for one with none (`export default struct {}`)
   name?: string;
 }
@@ -116,42 +116,14 @@ export function defineStruct(f: Function, spec: StructSpec) {
     init: spec.init,
   });
   nameOf(f, spec.name);
-  // the instance methods, struct method exotic objects (§1.2): they check
-  // that `this` has this struct's brand. (DefineMethod wraps methods only:
-  // not accessors, generators or async methods. The spec would wrap static
-  // methods too, which could then never be called: they are not.)
-  const proto = f.prototype;
-  for (const key of Reflect.ownKeys(proto)) {
-    if (key === 'constructor') continue;
-    const desc = Object.getOwnPropertyDescriptor(proto, key)!;
-    const m = desc.value;
-    if (
-      typeof m !== 'function' ||
-      Object.getPrototypeOf(m) !== Function.prototype
-    )
-      continue;
-    desc.value = structMethod(m, spec.brand);
-    Object.defineProperty(proto, key, desc);
-  }
 }
 
-// StructMethodCreate (§1.2.2): no own properties, its target's prototype
-function structMethod(target: Function, brand: (o: object) => boolean) {
-  // a method, taken off its object: it has no prototype and cannot be
-  // constructed, and its `this` is the caller's
-  // oxlint-disable-next-line typescript/unbound-method
-  const m = {
-    m(this: unknown, ...args: unknown[]) {
-      if (typeof this !== 'object' || this === null || !brand(this))
-        throw new TypeError(
-          `structs: ${target.name || 'the method'} called on an object that is not an instance of its struct`,
-        );
-      return Reflect.apply(target, this, args);
-    },
-  }.m;
-  delete (m as any).name;
-  delete (m as any).length;
-  return m;
+// A struct method called on what is not an instance of its struct (§1.2.1):
+// the compiler checks, first thing in the method, and calls this if not.
+export function notInstance(name: string): never {
+  throw new TypeError(
+    `structs: ${name} called on an object that is not an instance of its struct`,
+  );
 }
 
 // The class's last static element: the prototype sealed (§1.1.6).

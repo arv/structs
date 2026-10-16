@@ -147,6 +147,56 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
 
     const fields: string[] = [];
     const keys: string[] = [];
+    let forwarded = 0;
+
+    // A method checks that `this` is an instance of this struct, as a struct
+    // method exotic object does (§1.2), first thing:
+    //
+    //   m(a) { body }        m(a) { if (!(#$brand in this)) $.notInstance("m"); body }
+    //
+    // A method whose parameters run code (a default, a destructuring) would
+    // run it before that check, so it is forwarded to instead, the check
+    // first:
+    //
+    //   m(a = f()) { body }  m(...a) { if (...) ...; return this.#$m0(...a); }
+    //                        #$m0(a = f()) { body }
+    //
+    // A getter or setter checks too, which the spec's do not (DefineMethod
+    // makes only methods struct methods): a setter whose parameter runs code
+    // calls a private method that has it, `set x(v) { check; this.#$m0(v); }`.
+    // (Nor do generators or async methods, which the spec leaves alone as
+    // well. A private member needs no check: reaching it checks the brand.)
+    function checkBrand(method: Node) {
+      if (
+        !method.body ||
+        method.asteriskToken ||
+        hasModifier(method, K.AsyncKeyword) ||
+        method.name.kind === K.PrivateIdentifier
+      )
+        return;
+      const nameNode = method.name as Node;
+      const label =
+        nameNode.kind === K.ComputedPropertyName
+          ? 'method'
+          : propertyKey(nameNode);
+      const check = `if (!(#$brand in this)) ${rt}.notInstance(${JSON.stringify(label)});`;
+      const simple = [...method.parameters].every(
+        (p: Node) => !p.initializer && p.name.kind === K.Identifier,
+      );
+      if (simple) {
+        ms.appendLeft(method.body.getStart() + 1, ` ${check}`);
+        return;
+      }
+      const impl = `#$m${forwarded++}`;
+      const key = text.slice(nameNode.getStart(), nameNode.end);
+      const forwarder =
+        method.kind === K.SetAccessor
+          ? `set ${key}(v) { ${check} this.${impl}(v); } `
+          : `${key}(...a) { ${check} return this.${impl}(...a); } `;
+      // (overwritten first: an overwrite drops what was put before it)
+      replace(method.getStart(), nameNode.end, impl);
+      ms.prependRight(method.getStart(), forwarder);
+    }
     let computed = false,
       init: string | undefined,
       n = 0;
@@ -252,13 +302,13 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
               member,
               'a shared struct cannot have instance methods or accessors (§2.2.3)',
             );
+          else checkBrand(member);
           continue;
       }
     }
 
     const spec = [`fields: [${fields.join(', ')}]`];
     if (init) spec.push(`init: ${init}`);
-    if (!shared) spec.push('brand: o => #$brand in o');
     if (anonymous) spec.push('name: "default"');
     const define = shared ? 'defineSharedStruct' : 'defineStruct';
     const open = node.members.pos;

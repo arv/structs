@@ -107,17 +107,59 @@ describe('struct', () => {
     const get = A.prototype.get;
     expect(() => get.call({x: 1})).toThrow(TypeError);
     expect(() => get.call(undefined)).toThrow(TypeError);
-    // a struct method exotic object: no own properties
-    expect(Reflect.ownKeys(get)).toEqual([]);
+    // the method itself, which checks first thing: not a wrapper
+    expect(get.name).toBe('get');
     expect(Object.getPrototypeOf(get)).toBe(Function.prototype);
   });
 
-  test('accessors, generators and static methods are not wrapped', async () => {
+  test('the check comes before the parameters, and covers computed names', async () => {
+    const {S, ran} = await load(`
+      export const ran = [];
+      const k = 'computed';
+      export struct S {
+        m(a = ran.push('default'), {b} = {}) { return a; }
+        [k](x) { return x; }
+      }
+    `);
+    expect(new S().m(5)).toBe(5);
+    expect(() => S.prototype.m.call({})).toThrow(TypeError);
+    expect(ran).toEqual([]);
+    expect(S.prototype.m.call(new S())).toBe(1);
+    expect(ran).toEqual(['default']);
+    expect(new S().computed(3)).toBe(3);
+    expect(() => S.prototype.computed.call(1)).toThrow(TypeError);
+  });
+
+  test('generators and static methods are not checked', async () => {
     const {S} = await load(`
-      export struct S { get g() { return 1; } *gen() { yield 1; } static make() { return new S(); } }
+      export struct S { *gen() { yield 1; } static make() { return new S(); } }
     `);
     expect(S.make() instanceof S).toBe(true);
     expect([...S.prototype.gen.call({})]).toEqual([1]);
+  });
+
+  test('getters and setters check this, beyond the spec', async () => {
+    const {S, ran} = await load(`
+      export const ran = [];
+      export struct S {
+        x = 1;
+        get g() { return this.x; }
+        set g(v) { this.x = v; }
+        set h({a} = (ran.push('default'), {a: 0})) { this.x = a; }
+      }
+    `);
+    const s = new S();
+    s.g = 2;
+    expect(s.g).toBe(2);
+    s.h = {a: 3};
+    expect(s.x).toBe(3);
+    const g = Object.getOwnPropertyDescriptor(S.prototype, 'g')!;
+    const h = Object.getOwnPropertyDescriptor(S.prototype, 'h')!;
+    expect(() => g.get!.call({x: 1})).toThrow(TypeError);
+    expect(() => g.set!.call({x: 1}, 1)).toThrow(TypeError);
+    // the check before the setter's parameter runs
+    expect(() => h.set!.call({}, undefined)).toThrow(TypeError);
+    expect(ran).toEqual([]);
   });
 
   test('private fields and methods', async () => {

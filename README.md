@@ -112,8 +112,8 @@ is made the spec's way (§1.1.6):
    parent struct's initializer.
 
 Instance methods check that `this` is an instance of their struct (struct method
-exotic objects, §1.2). Constructing anything but the struct itself is a
-TypeError, so a class cannot extend a struct.
+exotic objects, §1.2), and so do getters and setters here. Constructing anything
+but the struct itself is a TypeError, so a class cannot extend a struct.
 
 ### Shared structs
 
@@ -203,6 +203,15 @@ an oversight, this implementation does something else:
   not `Function.prototype`.
 - **Arguments.** The spec evaluates the arguments of `new S(...)` and of
   `super(...)` but never passes them to the initializer. Here they are passed.
+- **Methods are methods.** The spec wraps each instance method in a struct
+  method exotic object, which checks `this` and has no own properties. Here the
+  check is the method's first statement, so it keeps its `name` and `length`. A
+  method whose parameters run code (a default, a destructuring) is called
+  through another that checks first.
+- **Getters and setters check `this` too.** The spec checks only methods: its
+  `DefineMethod` makes no struct method of an accessor. Here an instance getter
+  or setter throws a TypeError on what is not an instance of its struct, as a
+  method does.
 - **Static methods are not brand-checked.** The spec's `DefineMethod` would wrap
   them too, which would make them impossible to call.
 - **Computed instance field keys** are evaluated when the static elements start,
