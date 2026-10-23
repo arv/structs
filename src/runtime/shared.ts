@@ -17,7 +17,10 @@
 // a Number, and its word says so (W_FLOAT) from the moment the struct is made,
 // so the Float64 alone is its value, which compiled code reads and writes
 // with no check of the word (src/compiler/fast.ts). Writing it anything but a
-// Number is a TypeError.
+// Number is a TypeError. Its writes are those of an untyped field that already
+// holds a Number: a store of the Float64 alone, with no word to publish. Like
+// those, they rely on an aligned 8-byte store being one store on the hardware
+// (as on x64 and arm64); the language lets a Float64 that races tear.
 
 import {A, alloc, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
 
