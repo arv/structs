@@ -41,12 +41,32 @@ const bx =
     : $F[($a1 >> 3) + 3];
 ```
 
+Compound assignments and updates (`o.x += v`, `o.x ??= v`, `o.x++`,
+`--arr[i].y`) read and write the slot the same way. The receiver, and an
+element's index, are evaluated once, into locals. The new value is computed with
+the operator as written, so a string concatenation or a bigint field works as
+through the Proxy, a postfix update's value is the old one after ToNumeric, and
+`&&=`, `||=` and `??=` write nothing when they short-circuit:
+
+```js
+counter.count += n;
+// compiles to: the slot read, the operator applied, the slot written
+$t0 =
+  ($a0 < 0 || $I[($a0 >> 2) + 4] !== 1
+    ? $struct.getNumberAt(counter, $a0, $L0, 0)
+    : $F[($a0 >> 3) + 3]) + n;
+$a0 < 0 || typeof $t0 !== 'number' || $I[($a0 >> 2) + 4] !== 1
+  ? $struct.setAt(counter, $a0, $L0, 0, $t0)
+  : ($F[($a0 >> 3) + 3] = $t0);
+```
+
 On [examples/nbody](https://github.com/arv/structs/tree/main/examples/nbody)
 (1,000,000 steps, Node 24, Apple Silicon), which keeps its bodies in a
 `SharedArray<Body>`, this takes 0.14 s. The same program on plain JavaScript
 objects takes 0.045 s, and through the Proxy alone 7.5 s. Most of what is left
 is the check of each slot's tag: a field may hold any shareable value, so a read
-checks that it holds a Number.
+checks that it holds a Number. A `counter.count++` loop does 10,000,000
+increments in 18 ms, against 360 ms through the Proxy.
 
 The code is in
 [src/compiler/project.ts](https://github.com/arv/structs/blob/main/src/compiler/project.ts)
