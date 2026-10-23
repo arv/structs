@@ -3,6 +3,7 @@
 
 import {Vec} from './shapes.ts';
 
+// an escape that is no code point, which names nothing: \u{110000}
 export function bump(v: Vec): number[] {
   const $t0_$struct = 10,
     $a0_$struct = 20,

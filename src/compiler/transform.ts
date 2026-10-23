@@ -62,8 +62,11 @@ export function uniqueName(text: string, name: string) {
   // with their escapes decoded: `$t0_\u0024struct` is `$t0_$struct`
   const decoded = text.replace(
     /\\u\{([\da-fA-F]+)\}|\\u([\da-fA-F]{4})/g,
-    (_, braced: string | undefined, four: string | undefined) =>
-      String.fromCodePoint(parseInt(braced ?? four!, 16)),
+    (escape, braced: string | undefined, four: string | undefined) => {
+      const code = parseInt(braced ?? four!, 16);
+      // one that is no code point (in a comment, say) names nothing
+      return code <= 0x10ffff ? String.fromCodePoint(code) : escape;
+    },
   );
   const used = decoded.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu) ?? [];
   // what the compiler declares beside it ends with it: `$a0_$struct`
