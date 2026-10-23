@@ -183,6 +183,15 @@ describe('a field declared number', () => {
     expect(s.z).toBe('z');
   });
 
+  test('an optional one, `x?: number`, is not typed', async () => {
+    const {S} = await load(`export shared struct S { x?: number; }`, 'test.ts');
+    const s = new S();
+    expect(s.x).toBe(undefined);
+    s.x = 1;
+    s.x = undefined;
+    expect(s.x).toBe(undefined);
+  });
+
   test('its initializer must give a Number', async () => {
     const {S, T} = await load(
       `export shared struct S { x: number = 'one' as any; }

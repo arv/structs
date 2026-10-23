@@ -22,14 +22,15 @@ object. Anything else is a TypeError (`CanBeSharedAcrossAgents`, §2.2.4). A rea
 never tears: a Number's Float64 is written before its word, and the word is
 stored atomically.
 
-A field declared `: number` in TypeScript is typed. Its word says Number from
-the moment the struct is made and never changes, so the Float64 alone is its
-value, and writing it anything but a Number is a TypeError, from compiled code,
-plain JavaScript, `Object.defineProperty` and `Atomics` alike. The compiler
-passes the types to the runtime (`{key: 'x', value: 0, number: true}`), and they
-are part of the struct's shape: two structs with the same keys typed differently
-have different shapes. A key is typed only if every declaration of it in the
-struct and its parents says `number`.
+A field declared `: number` in TypeScript (not `x?: number`, which may hold
+`undefined`) is typed. Its word says Number from the moment the struct is made
+and never changes, so the Float64 alone is its value, and writing it anything
+but a Number is a TypeError, from compiled code, plain JavaScript,
+`Object.defineProperty` and `Atomics` alike. The compiler passes the types to
+the runtime (`{key: 'x', value: 0, number: true}`), and they are part of the
+struct's shape: two structs with the same keys typed differently have different
+shapes. A key is typed only if every declaration of it in the struct and its
+parents says `number`.
 
 Mutex and Condition are Shared Structs with no fields. Their internal slots are
 heap words that `Atomics.wait` and `Atomics.notify` work on. Blocking where an

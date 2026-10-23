@@ -280,9 +280,12 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
           // (a computed key's expression keeps its text where it is: a struct
           // declared in it is edited too)
           // a shared struct's field declared `: number` only holds a Number
-          // (shared.ts): the runtime is told, as `number: true`
+          // (shared.ts): the runtime is told, as `number: true`. Not one
+          // declared `x?: number`, which may hold undefined
           const typed =
             shared &&
+            (member.postfixToken as Node | undefined)?.kind !==
+              K.QuestionToken &&
             (member.type as Node | undefined)?.kind === K.NumberKeyword;
           const number = typed ? ', number: true' : '';
           let key: string, expr: Node | undefined;
