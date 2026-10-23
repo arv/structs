@@ -45,13 +45,12 @@ export function encode(value: unknown, pins?: number[]): unknown {
   return out;
 }
 
-// Posts `message` encoded with `post`; a message it fails to post (one that
-// postMessage cannot copy) is never decoded, so its pins go.
+// Posts `message` encoded with `post`; a message it fails to encode or post
+// (one that postMessage cannot copy) is never decoded, so its pins go.
 function send(post: (encoded: unknown) => void, message: unknown) {
   const pins: number[] = [];
-  const encoded = encode(message, pins);
   try {
-    post(encoded);
+    post(encode(message, pins));
   } catch (e) {
     for (const a of pins) unpin(a);
     throw e;

@@ -173,6 +173,15 @@ function take(need: number) {
       I32[l] = I32[(b >> 2) + 2]!;
       return b;
     }
+    // a larger small one, split
+    for (let k = l + 2; k <= C_SMALL + (SMALL >> 3); k++) {
+      const b = I32[k]!;
+      if (b === 0) continue;
+      I32[k] = I32[(b >> 2) + 2]!;
+      release(b + need, sizeAt(b) - need);
+      I32[b >> 2] = need;
+      return b;
+    }
   }
   for (let l = listOf(Math.max(need, SMALL + 8)); l < C_BINS + 32; l++) {
     // `at` is the word that points at b: the list's, or the block before's
@@ -204,10 +213,14 @@ const full = () =>
 export function allocLocked(bytes: number, kind: number) {
   if (bytes > SAB.byteLength) throw full();
   const need = Math.max(16, (bytes + 15) & ~7);
-  if (collector && I32[C_SINCE]! >= Math.max(MIN_SINCE, I32[C_LIVE]!))
+  // (a collection that has just run need not run again at once)
+  let tries = 0;
+  if (collector && I32[C_SINCE]! >= Math.max(MIN_SINCE, I32[C_LIVE]!)) {
     collector(0);
+    tries = 1;
+  }
   let b = take(need);
-  for (let tries = 0; b === 0 && collector && tries < 3; tries++) {
+  for (; b === 0 && collector && tries < 3; tries++) {
     collector(tries);
     b = take(need);
   }

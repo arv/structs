@@ -13,7 +13,7 @@ agent, so `===` holds.
 
 ```
 a block          [its size and kind][the collector's mark] then what it holds
-a shared object  [kind][shape: its keys, interned][slots][pins] then 16 bytes per field
+a shared object  [kind][shape: its keys, interned][slots][..] then 16 bytes per field
 a slot           [a tagged word: the value][a Float64, for a Number]
 ```
 

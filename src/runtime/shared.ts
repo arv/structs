@@ -5,7 +5,7 @@
 // agent.
 //
 //   a shared object  [0 kind][4 shape: the keys, or the length]
-//                    [8 a struct's number of slots][12 pins (gc.ts)]
+//                    [8 a struct's number of slots][12]
 //                    then a slot per field, 16 bytes each
 //   a slot           [0 a word: the value, tagged][8 a Float64, for a Number]
 //
@@ -43,7 +43,9 @@ export const T_REF = 5;
 const addresses = new WeakMap<object, number>();
 const handles = new Map<number, WeakRef<object>>();
 const gone = (a: number) => {
-  if (handles.get(a)?.deref() !== undefined) return;
+  const h = handles.get(a);
+  // (none: gone already, its root too)
+  if (h === undefined || h.deref() !== undefined) return;
   handles.delete(a);
   unroot(a);
 };

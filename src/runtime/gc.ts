@@ -21,8 +21,8 @@
 //   busy        1 while it takes an object out of a slot, or puts one in or
 //               out of its roots, or its unlinks
 //
-// and an object in flight in a message is pinned (agent.ts): its header
-// counts the messages that carry it.
+// and an object in flight in a message is pinned (agent.ts): in the roots of
+// a record of the pins, once for each message that carries it.
 //
 // Every way an agent gets an object from the heap makes it a root first (but
 // compiled code's, which the unlinks keep): it reads the slot again inside a
@@ -40,7 +40,6 @@
 
 import {
   A,
-  alloc,
   allocLocked,
   B_OBJECT,
   B_RAW,
@@ -68,15 +67,15 @@ const C_TURNS = C_GC + 4; // how many agents run such code (see R_TURN)
 // bumped to ask each agent to collect its own garbage (its Proxies), as the
 // heap runs short
 const C_ASK = C_GC + 5;
+const C_PINS = C_GC + 6; // the record of the pins (see pin)
 
 // a shared object's header (shared.ts): its kind, then its length (an array)
-// or the number of its slots (a struct), then its pins
+// or the number of its slots (a struct)
 const K_STRUCT = 1,
   K_ARRAY = 2,
   HEAD = 16,
   SLOT = 16,
   T_REF = 5;
-const PINS = 3;
 
 // ---- the agents' records: a raw block each, in a list ----
 const R_NEXT = 0,
@@ -99,12 +98,19 @@ const ALIVE = 1,
 // (agent.ts), and retires it as it ends.
 export function makeRecord() {
   requireHeap();
-  const r = alloc(R_WORDS * 4);
-  I32[(r >> 2) + R_STATE] = ALIVE;
   lock(C_ALLOC_LOCK);
+  try {
+    return makeRecordLocked();
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
+}
+
+function makeRecordLocked() {
+  const r = allocLocked(R_WORDS * 4, B_RAW);
+  I32[(r >> 2) + R_STATE] = ALIVE;
   I32[(r >> 2) + R_NEXT] = I32[C_RECORDS]!;
   I32[C_RECORDS] = r;
-  unlock(C_ALLOC_LOCK);
   return r;
 }
 
@@ -196,39 +202,44 @@ const hashOf = (a: number, cap: number) =>
 // room in the roots for one more, made before a busy window (which must not
 // allocate: the collector, holding the allocation lock, waits for it)
 function roomForRoot(r: number) {
-  const cap = I32[r + R_CAP]!;
-  if ((I32[r + R_FILLED]! + 1) * 2 <= cap) return;
+  if ((I32[r + R_FILLED]! + 1) * 2 <= I32[r + R_CAP]!) return;
   lock(C_ALLOC_LOCK);
   try {
-    const old = I32[r + R_TABLE]!,
-      count = I32[r + R_COUNT]!;
-    let ncap = 256;
-    while (ncap < (count + 1) * 4) ncap *= 2;
-    const t = allocLocked(ncap * 4, B_RAW);
-    for (let i = 0; i < cap; i++) {
-      const a = I32[(old >> 2) + i]!;
-      if (a <= 0) continue;
-      let j = hashOf(a, ncap);
-      while (I32[(t >> 2) + j] !== 0) j = (j + 1) & (ncap - 1);
-      I32[(t >> 2) + j] = a;
-    }
-    I32[r + R_TABLE] = t;
-    I32[r + R_CAP] = ncap;
-    I32[r + R_FILLED] = count;
-    if (old !== 0) freeLocked(old);
+    roomForRootLocked(r);
   } finally {
     unlock(C_ALLOC_LOCK);
   }
 }
 
-// puts `a` in the roots of the record `r`, if it is not there
-function insert(r: number, a: number) {
+function roomForRootLocked(r: number) {
+  const cap = I32[r + R_CAP]!;
+  if ((I32[r + R_FILLED]! + 1) * 2 <= cap) return;
+  const old = I32[r + R_TABLE]!,
+    count = I32[r + R_COUNT]!;
+  let ncap = 256;
+  while (ncap < (count + 1) * 4) ncap *= 2;
+  const t = allocLocked(ncap * 4, B_RAW);
+  for (let i = 0; i < cap; i++) {
+    const a = I32[(old >> 2) + i]!;
+    if (a <= 0) continue;
+    let j = hashOf(a, ncap);
+    while (I32[(t >> 2) + j] !== 0) j = (j + 1) & (ncap - 1);
+    I32[(t >> 2) + j] = a;
+  }
+  I32[r + R_TABLE] = t;
+  I32[r + R_CAP] = ncap;
+  I32[r + R_FILLED] = count;
+  if (old !== 0) freeLocked(old);
+}
+
+// puts `a` in the roots of the record `r`, if it is not there (or `again`)
+function insert(r: number, a: number, again = false) {
   const t = I32[r + R_TABLE]! >> 2,
     cap = I32[r + R_CAP]!;
   let free = -1;
   for (let i = hashOf(a, cap); ; i = (i + 1) & (cap - 1)) {
     const e = I32[t + i]!;
-    if (e === a) return;
+    if (e === a && !again) return;
     if (e === DELETED) {
       if (free < 0) free = i;
     } else if (e === 0) {
@@ -243,17 +254,18 @@ function insert(r: number, a: number) {
   }
 }
 
+// takes `a` out of the roots of the record `r`: whether it was there
 function remove(r: number, a: number) {
   const t = I32[r + R_TABLE]! >> 2,
     cap = I32[r + R_CAP]!;
-  if (cap === 0) return;
+  if (cap === 0) return false;
   for (let i = hashOf(a, cap); ; i = (i + 1) & (cap - 1)) {
     const e = I32[t + i]!;
-    if (e === 0) return;
+    if (e === 0) return false;
     if (e === a) {
       I32[t + i] = DELETED;
       I32[r + R_COUNT]--;
-      return;
+      return true;
     }
   }
 }
@@ -269,11 +281,11 @@ export function root(a: number) {
   leave(r);
 }
 
+// (An address that is not a root may have been freed: it is not shaded.)
 export function unroot(a: number) {
   const r = me();
   enter(r);
-  remove(r, a);
-  shade(a);
+  if (remove(r, a)) shade(a);
   leave(r);
 }
 
@@ -389,27 +401,51 @@ export function writeSlot(w: number, v: number) {
 }
 
 // ---- pins: an object in flight in a message (agent.ts) ----
-export function pin(a: number) {
-  const r = me();
-  enter(r);
-  A.add(I32, (a >> 2) + PINS, 1);
-  shade(a);
-  leave(r);
+// The roots of a record of their own, which no agent has: an address once per
+// message that carries it. Under the allocation lock, so no collection runs
+// meanwhile.
+function pinsLocked() {
+  if (I32[C_PINS] === 0) I32[C_PINS] = makeRecordLocked();
+  return I32[C_PINS]! >> 2;
 }
 
-// Whether `a` is the address of a shared object that a message pins.
-export function inFlight(a: unknown) {
-  if (typeof a !== 'number' || (a & 7) !== 0 || a < CTRL + 8 || a >= top())
-    return false;
-  return kindAt(a - 8) === B_OBJECT && A.load(I32, (a >> 2) + PINS) > 0;
+export function pin(a: number) {
+  requireHeap();
+  lock(C_ALLOC_LOCK);
+  try {
+    const p = pinsLocked();
+    roomForRootLocked(p);
+    insert(p, a, true);
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
 }
 
 export function unpin(a: number) {
-  const r = me();
-  enter(r);
-  A.sub(I32, (a >> 2) + PINS, 1);
-  shade(a);
-  leave(r);
+  lock(C_ALLOC_LOCK);
+  remove(pinsLocked(), a);
+  unlock(C_ALLOC_LOCK);
+}
+
+// Whether `a` is the address of a shared object that a message pins: what
+// only encode makes.
+export function inFlight(a: unknown) {
+  if (typeof a !== 'number' || a <= 0 || (a & 7) !== 0) return false;
+  requireHeap();
+  lock(C_ALLOC_LOCK);
+  try {
+    const p = pinsLocked(),
+      t = I32[p + R_TABLE]! >> 2,
+      cap = I32[p + R_CAP]!;
+    if (cap === 0) return false;
+    for (let i = hashOf(a, cap); ; i = (i + 1) & (cap - 1)) {
+      const e = I32[t + i]!;
+      if (e === 0) return false;
+      if (e === a) return true;
+    }
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
 }
 
 // ---- collecting ----
@@ -499,23 +535,17 @@ function collectLocked(tries = 0) {
     }
     at = w + R_NEXT;
   }
-  // the pinned, then what the roots reach
-  const end = top();
-  for (let b = CTRL; b < end; b += sizeAt(b))
-    if (kindAt(b) === B_OBJECT && A.load(I32, (b >> 2) + 2 + PINS) > 0)
-      mark(b + 8);
+  // what the roots reach; then the gray, and what they reach, until there
+  // are none: once the agents have been seen out of their busy windows, none
+  // is shading one
   drain();
-  // the gray, until there are none: once the agents have been seen out of
-  // their busy windows, none is shading one
+  const end = top();
   for (;;) {
     handshake();
-    let found = false;
     for (let b = CTRL; b < end; b += sizeAt(b))
-      if (kindAt(b) === B_OBJECT && A.load(I32, (b >> 2) + 1) === gray) {
-        found = true;
+      if (kindAt(b) === B_OBJECT && A.load(I32, (b >> 2) + 1) === gray)
         mark(b + 8);
-      }
-    if (!found) break;
+    if (stack.length === 0) break;
     drain();
   }
   A.store(I32, C_MARKING, 0);

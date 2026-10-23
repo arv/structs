@@ -109,9 +109,23 @@ describe('the collector', () => {
     const fails = () =>
       w.postMessage({struct: new SharedArray<unknown>(1 << 16), f: () => {}});
     expect(fails).toThrow();
+    // or that cannot be encoded
+    const throws = () =>
+      w.postMessage({
+        struct: new SharedArray<unknown>(1 << 16),
+        get later() {
+          throw new Error('no');
+        },
+      });
+    expect(throws).toThrow('no');
     w.terminate();
     // a marker no message made is a plain object
     expect(decode({'__structs.shared': 8})).toEqual({'__structs.shared': 8});
+    // nor one inside a shared object
+    const inside = encode(new SharedArray<unknown>(4)) as any;
+    const forged = {'__structs.shared': inside['__structs.shared'] + 16};
+    expect(decode(forged)).toEqual(forged);
+    decode(inside);
     const used = heapStats().used;
     await nextTurn();
     collect(true);
