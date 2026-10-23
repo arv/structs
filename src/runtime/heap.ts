@@ -95,7 +95,9 @@ export function attach(sab?: SharedArrayBuffer) {
   F64 = new Float64Array(SAB);
   U16 = new Uint16Array(SAB);
   // a heap no agent has used yet: its blocks begin after the control area
-  if (A.compareExchange(I32, C_TOP, 0, CTRL) === 0) A.store(I32, C_HIGH, CTRL);
+  // (C_HIGH only if no agent has allocated yet: one may have, in between)
+  if (A.compareExchange(I32, C_TOP, 0, CTRL) === 0)
+    A.compareExchange(I32, C_HIGH, 0, CTRL);
   globalThis.__structsHeap = SAB;
   AGENT = A.add(I32, C_AGENTS, 1) + 1;
   return SAB;
@@ -173,13 +175,16 @@ function take(need: number) {
       I32[l] = I32[(b >> 2) + 2]!;
       return b;
     }
-    // a larger small one, split
-    for (let k = l + 2; k <= C_SMALL + (SMALL >> 3); k++) {
+    // a larger small one: split, or whole if what is left is too small
+    for (let k = l + 1; k <= C_SMALL + (SMALL >> 3); k++) {
       const b = I32[k]!;
       if (b === 0) continue;
       I32[k] = I32[(b >> 2) + 2]!;
-      release(b + need, sizeAt(b) - need);
-      I32[b >> 2] = need;
+      const size = sizeAt(b);
+      if (size - need >= 16) {
+        release(b + need, size - need);
+        I32[b >> 2] = need;
+      }
       return b;
     }
   }

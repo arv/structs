@@ -103,17 +103,30 @@ export function startWorker(
   options: StartOptions = {},
 ): Agent {
   requireHeap();
-  const wt = nodeThreads(),
-    record = makeRecord();
-  return wt
-    ? nodeAgent(
-        new wt.Worker(url, {
-          name: options.name,
-          workerData: {__structsHeap: SAB, __structsAgent: record},
-        }),
-        record,
-      )
-    : webAgent(new Worker(url, {type: 'module', name: options.name}), record);
+  const wt = nodeThreads();
+  return withRecord(record =>
+    wt
+      ? nodeAgent(
+          new wt.Worker(url, {
+            name: options.name,
+            workerData: {__structsHeap: SAB, __structsAgent: record},
+          }),
+          record,
+        )
+      : webAgent(new Worker(url, {type: 'module', name: options.name}), record),
+  );
+}
+
+// `start`, given a record for the agent it starts (gc.ts), which is retired
+// if the agent does not start
+function withRecord(start: (record: number) => Pooled): Pooled {
+  const record = makeRecord();
+  try {
+    return start(record);
+  } catch (e) {
+    retire(record);
+    throw e;
+  }
 }
 
 // an agent that `run` keeps for its next call: in Node, whether it keeps the
@@ -190,21 +203,22 @@ const idle: Pooled[] = [];
 const POOL = 64;
 
 function startPooled(): Pooled {
-  const wt = nodeThreads(),
-    record = makeRecord();
-  return wt
-    ? nodeAgent(
-        new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
-          workerData: {__structsHeap: SAB, __structsAgent: record},
-        }),
-        record,
-      )
-    : webAgent(
-        new Worker(new URL('./agent-worker.ts', import.meta.url), {
-          type: 'module',
-        }),
-        record,
-      );
+  const wt = nodeThreads();
+  return withRecord(record =>
+    wt
+      ? nodeAgent(
+          new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
+            workerData: {__structsHeap: SAB, __structsAgent: record},
+          }),
+          record,
+        )
+      : webAgent(
+          new Worker(new URL('./agent-worker.ts', import.meta.url), {
+            type: 'module',
+          }),
+          record,
+        ),
+  );
 }
 
 // Starts workers for `run` until `n` wait idle: so that the calls that follow
