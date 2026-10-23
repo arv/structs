@@ -64,7 +64,14 @@ function elements(): unknown[] {
   const cells = new SharedArray<Cell>(new Cell(1), new Cell(2));
   const holes = new SharedArray<Cell>(1);
   const key: any = '1';
+  // converted to a key once, as through the Proxy
+  let conversions = 0;
+  const boxed: any = {
+    toString: () => (conversions++, '0'),
+    valueOf: () => (conversions++, 0),
+  };
   const out: unknown[] = [cells[0]!.n++, (cells[key]!.n *= 5)];
+  out.push(cells[boxed]!.n++, conversions);
   const thrown = (f: () => unknown) => {
     try {
       return f();

@@ -58,9 +58,12 @@ export function skipTrivia(text: string, i: number) {
 
 // A name like `name` that no identifier in `text` is.
 export function uniqueName(text: string, name: string) {
-  const used = new Set(text.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu));
+  const used = text.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu) ?? [];
+  // what the compiler declares beside it ends with it: `$a0_$struct`
+  const taken = (n: string) =>
+    used.some(id => id === n || id.endsWith(`_${n}`));
   let unique = name;
-  for (let n = 1; used.has(unique); n++) unique = `${name}_${n}`;
+  for (let n = 1; taken(unique); n++) unique = `${name}_${n}`;
   return unique;
 }
 
