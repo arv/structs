@@ -41,6 +41,12 @@ const bx =
     : $F[($a1 >> 3) + 3];
 ```
 
+A field declared `: number` always holds a Number (see
+[Shared structs](/shared-structs/)), so its word isn't read: `b.x` is
+`$a1 < 0 ? $struct.getAt(b, $a1, $L0, 0) : $F[($a1 >> 3) + 3]`, and `b.x = v`
+writes the Float64 if `v` is a Number and calls the runtime, which throws, if
+not.
+
 Compound assignments and updates (`o.x += v`, `o.x ??= v`, `o.x++`,
 `--arr[i].y`) read and write the slot the same way. The receiver, and an
 element's index, are evaluated once, into locals. The new value is computed with
@@ -62,11 +68,12 @@ $a0 < 0 || typeof $t0 !== 'number' || $I[($a0 >> 2) + 4] !== 1
 
 On [examples/nbody](https://github.com/arv/structs/tree/main/examples/nbody)
 (1,000,000 steps, Node 24, Apple Silicon), which keeps its bodies in a
-`SharedArray<Body>`, this takes 0.14 s. The same program on plain JavaScript
-objects takes 0.045 s, and through the Proxy alone 7.5 s. Most of what is left
-is the check of each slot's tag: a field may hold any shareable value, so a read
-checks that it holds a Number. A `counter.count++` loop does 10,000,000
-increments in 18 ms, against 360 ms through the Proxy.
+`SharedArray<Body>` and declares their fields `: number`, this takes 0.10 s
+(0.13 s with the fields untyped, when each read checks its slot's tag). The same
+program on plain JavaScript objects takes 0.045 s, and through the Proxy alone 7
+s. Most of what is left is finding each body's address in the array and checking
+that it is a Body. A `counter.count++` loop does 10,000,000 increments in 18 ms,
+against 360 ms through the Proxy.
 
 The code is in
 [src/compiler/project.ts](https://github.com/arv/structs/blob/main/src/compiler/project.ts)

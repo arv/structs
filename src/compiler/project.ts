@@ -195,13 +195,23 @@ function compileProgram(
       const ext = s.node.heritageClauses?.find(
         (h: Node) => h.token === K.ExtendsKeyword,
       );
-      if (!ext) layout = {keys: s.ownKeys};
+      if (!ext) layout = {keys: s.ownKeys, numbers: s.ownNumbers};
       else {
         const expr = children(ext.types[0])[0]!;
         // the type of the class (typeof P) has the class's symbol
         const parent = structOfClass(checker.getTypeAtLocation(expr as any));
         const up = parent && layoutOfStruct(parent);
-        if (up) layout = {keys: [...new Set([...up.keys, ...s.ownKeys])]};
+        if (up) {
+          const keys = [...new Set([...up.keys, ...s.ownKeys])];
+          // typed if every declaration of the key says number, as the
+          // runtime has it (defineSharedStruct)
+          const numbers = keys.filter(
+            k =>
+              (!up.keys.includes(k) || up.numbers.includes(k)) &&
+              (!s.ownKeys!.includes(k) || s.ownNumbers.includes(k)),
+          );
+          layout = {keys, numbers};
+        }
       }
     }
     layouts.set(s, layout);
@@ -254,7 +264,7 @@ function compileProgram(
       });
     const prelude = [...used]
       .map(
-        ([keys, name]) => `const ${name} = ${l.runtimeName}.layout(${keys}); `,
+        ([args, name]) => `const ${name} = ${l.runtimeName}.layout(${args}); `,
       )
       .join('')
       .concat(declared);

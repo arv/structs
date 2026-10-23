@@ -65,6 +65,30 @@ describe('compile', () => {
     expect(hoist).toMatch(/return \$struct\.getNumber\(v, \$L\d_\$struct, 0\)/);
   });
 
+  test('a field declared number is read and written with no check of its word', () => {
+    const typed = code('typed.ts');
+    // the layout lists its typed fields' indexes
+    expect(typed).toMatch(
+      /\$struct\.layout\(\[\s*"x",\s*"label"\s*\], \[\s*0\s*\]\)/,
+    );
+    expect(typed).toMatch(/key: "x",\s*value: 0,\s*number: true/);
+    expect(typed).toMatch(
+      /return (\$a\d_\$struct) < 0 \? \$struct\.getAt\(p, \1, \$L\d_\$struct, 0\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\];/,
+    );
+    // a Number written in the heap's views, anything else to the runtime
+    expect(typed).toMatch(
+      /\$v_\$struct = x, (\$a\d_\$struct) < 0 \|\| typeof \$v_\$struct !== "number" \? \$struct\.setAt\(p, \1, \$L\d_\$struct, 0, \$v_\$struct\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\] = \$v_\$struct;/,
+    );
+    // compound: the same, read and written with no check of the word
+    const bump = typed.slice(typed.indexOf('function bump'));
+    expect(bump).toMatch(/\$F_\$struct\[/);
+    expect(bump).not.toMatch(/\$I_\$struct\[/);
+    // a subclass's typed fields, its parent's untyped ones
+    expect(code('main.ts')).toMatch(
+      /\$struct\.layout\(\[\s*"x",\s*"y",\s*"mass",\s*"name",\s*"next"\s*\], \[\s*2\s*\]\)/,
+    );
+  });
+
   test('a struct from a SharedArray or a field is its address, with no Proxy', () => {
     const heap = code('heap.ts');
     // arr[i]: the element's word, and arr itself checked once
@@ -146,6 +170,36 @@ describe('compile', () => {
     expect(h.dot(a, b)).toBe(7 * 6 + 2 * 8);
     expect(() => h.put(a, {})).toThrow(TypeError);
     expect(a.x).toBe(7);
+
+    const t = await import(pathToFileURL(out + 'typed.js').href);
+    const p = new t.P();
+    expect(t.put(p, 1.5)).toBe(1.5);
+    expect(t.get(p)).toBe(1.5);
+    expect(p.x).toBe(1.5);
+    expect(t.getAssigned(p)).toBe(1.5);
+    // the types do not hold: a typed field still only takes a Number
+    expect(() => t.put(p, 'one')).toThrow(TypeError);
+    expect(() => t.put(p, undefined)).toThrow(TypeError);
+    expect(t.get(p)).toBe(1.5);
+    // a Vec has another layout, a plain object none: read as written
+    expect(t.get(new Vec(3, 4))).toBe(3);
+    expect(t.getAssigned(new Vec(3, 4))).toBe(3);
+    expect(t.put({x: 0}, 2)).toBe(2);
+    expect(t.put({x: 0}, 'two')).toBe('two');
+    // Body's mass is typed, its x (Vec's) is not
+    const body = new Body(1, 2);
+    body.x = 'x';
+    expect(body.x).toBe('x');
+    expect(() => {
+      body.mass = 'heavy';
+    }).toThrow(TypeError);
+    // compound: the same
+    expect(t.bump(p, 1)).toBe(2.5);
+    expect(p.x).toBe(3.5);
+    // a plain object: as plain JavaScript does it
+    const o = {x: 'a' as any};
+    expect(t.bump(o, 1)).toBeNaN();
+    expect(o.x).toBeNaN();
   });
 
   test('compound assignments and updates: the slot, with no Proxy', () => {

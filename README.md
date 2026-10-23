@@ -152,6 +152,16 @@ object. Anything else is a TypeError (`CanBeSharedAcrossAgents`, §2.2.4). A rea
 never tears: a Number's Float64 is written before its word, and the word is
 stored atomically.
 
+A field declared `: number` in TypeScript (not `x?: number`, which may hold
+`undefined`) is typed. Its word says Number from the moment the struct is made
+and never changes, so the Float64 alone is its value, and writing it anything
+but a Number is a TypeError, from compiled code, plain JavaScript,
+`Object.defineProperty` and `Atomics` alike. The compiler passes the types to
+the runtime (`{key: 'x', value: 0, number: true}`), and they are part of the
+struct's shape: two structs with the same keys typed differently have different
+shapes. A key is typed only if every declaration of it in the struct and its
+parents says `number`.
+
 Mutex and Condition are Shared Structs with no fields. Their internal slots are
 heap words that `Atomics.wait` and `Atomics.notify` work on. Blocking where an
 agent cannot (a browser's main thread) is a TypeError, as the spec says
@@ -220,6 +230,12 @@ const bx =
     : $F[($a1 >> 3) + 3];
 ```
 
+A field declared `: number` always holds a Number (see
+[Shared structs](#shared-structs)), so its word isn't read: `b.x` is
+`$a1 < 0 ? $struct.getAt(b, $a1, $L0, 0) : $F[($a1 >> 3) + 3]`, and `b.x = v`
+writes the Float64 if `v` is a Number and calls the runtime, which throws, if
+not.
+
 Compound assignments and updates (`o.x += v`, `o.x ??= v`, `o.x++`,
 `--arr[i].y`) read and write the slot the same way. The receiver, and an
 element's index, are evaluated once, into locals. The new value is computed with
@@ -240,12 +256,12 @@ $a0 < 0 || typeof $t0 !== 'number' || $I[($a0 >> 2) + 4] !== 1
 ```
 
 On [examples/nbody](examples/nbody) (1,000,000 steps, Node 24, Apple Silicon),
-which keeps its bodies in a `SharedArray<Body>`, this takes 0.14 s. The same
-program on plain JavaScript objects takes 0.045 s, and through the Proxy alone
-7.5 s. Most of what is left is the check of each slot's tag: a field may hold
-any shareable value, so a read checks that it holds a Number. A
-`counter.count++` loop does 10,000,000 increments in 18 ms, against 360 ms
-through the Proxy.
+which keeps its bodies in a `SharedArray<Body>` and declares their fields
+`: number`, this takes 0.10 s (0.13 s with the fields untyped, when each read
+checks its slot's tag). The same program on plain JavaScript objects takes 0.045
+s, and through the Proxy alone 7 s. Most of what is left is finding each body's
+address in the array and checking that it is a Body. A `counter.count++` loop
+does 10,000,000 increments in 18 ms, against 360 ms through the Proxy.
 
 ## Where it differs from the spec
 
@@ -281,6 +297,11 @@ an oversight, this implementation does something else:
   constructor. In the spec their home object is null, and `super.x` throws.
 - **Mutexes aren't fair.** A woken waiter competes with newcomers, where the
   spec has a waiter queue.
+- **Fields declared `: number` only hold Numbers.** The spec's fields are
+  untyped. Here a shared struct field declared `: number` in TypeScript is typed
+  (see [Shared structs](#shared-structs)): writing it anything but a Number
+  throws a TypeError rather than coercing, which would hide the mistake (`"1"`,
+  `undefined`), and before its initializer runs it holds 0, not `undefined`.
 
 A behavior that is the spec's but may surprise: a struct with no `constructor`
 has no initializer, so its parent's initializer doesn't run. Classes do the

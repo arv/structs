@@ -42,12 +42,27 @@ export {
 
 export interface Layout {
   keys: PropertyKey[];
+  // the indexes of its typed fields (declared `: number`), whose slots only
+  // hold a Number: compiled code reads and writes their Float64s alone
+  numbers: number[];
   // the shape's address, once known (this agent may not have a heap yet when
   // the module loads)
   addr: number;
 }
 
-export const layout = (keys: PropertyKey[]): Layout => ({keys, addr: 0});
+export const layout = (
+  keys: PropertyKey[],
+  numbers: number[] = [],
+): Layout => ({
+  keys,
+  numbers,
+  addr: 0,
+});
+
+const shapeOf = (l: Layout) =>
+  l.addr === 0
+    ? (l.addr = shapeFor(l.keys, new Set(l.numbers.map(i => l.keys[i]!))).addr)
+    : l.addr;
 
 // The address of `o` if it is a Shared Struct of layout `l`, else -1. The
 // compiler emits it once for a binding that keeps its value, and reads its
@@ -55,8 +70,7 @@ export const layout = (keys: PropertyKey[]): Layout => ({keys, addr: 0});
 export function addr(o: unknown, l: Layout) {
   const a = addressOf(o);
   if (a === undefined) return -1;
-  if (l.addr === 0) l.addr = shapeFor(l.keys).addr;
-  return I32[a >> 2] === K_STRUCT && I32[(a >> 2) + 1] === l.addr ? a : -1;
+  return I32[a >> 2] === K_STRUCT && I32[(a >> 2) + 1] === shapeOf(l) ? a : -1;
 }
 
 // The address of `o`, if it is a Shared Array, or -1.
@@ -72,8 +86,7 @@ function refIn(w: number, l: Layout) {
   const v = I32[w]!;
   if ((v & 7) !== T_REF) return -1;
   const r = v & ~7;
-  if (l.addr === 0) l.addr = shapeFor(l.keys).addr;
-  return I32[r >> 2] === K_STRUCT && I32[(r >> 2) + 1] === l.addr ? r : -1;
+  return I32[r >> 2] === K_STRUCT && I32[(r >> 2) + 1] === shapeOf(l) ? r : -1;
 }
 
 // The address of the struct of layout `l` in field `i` of the struct at `a`

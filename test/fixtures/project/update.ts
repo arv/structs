@@ -5,7 +5,9 @@
 import '@arv/structs';
 
 export shared struct Cell {
-  n: number = 0;
+  // a number, not declared so: untyped, its word checked (typed.ts has a
+  // typed field's compound assignments)
+  n = 0;
   s: string = '';
   big: bigint = 0n;
   v: any = null;
