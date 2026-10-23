@@ -86,8 +86,11 @@ export declare const UnlockToken: Atomics.UnlockTokenConstructor;
 export declare function canBeShared(value: unknown): boolean;
 // attaches this agent to a heap (agent.ts does, for a worker it starts)
 export declare function attach(heap?: SharedArrayBuffer): SharedArrayBuffer;
+// the heap's size and the bytes in use, in bytes; the strings interned in it,
+// and how many collections have run
 export declare function heapStats(): {
   size: number;
   used: number;
   strings: number;
+  collections: number;
 };

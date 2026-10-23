@@ -12,7 +12,8 @@ spec's internal methods (§2.1.5 to §2.1.10). There is one Proxy per block per
 agent, so `===` holds.
 
 ```
-a shared object  [kind][shape: its keys, interned][..][..] then 16 bytes per field
+a block          [its size and kind][the collector's mark] then what it holds
+a shared object  [kind][shape: its keys, interned][slots][pins] then 16 bytes per field
 a slot           [a tagged word: the value][a Float64, for a Number]
 ```
 
@@ -27,8 +28,31 @@ heap words that `Atomics.wait` and `Atomics.notify` work on. Blocking where an
 agent cannot (a browser's main thread) is a TypeError, as the spec says
 (`AgentCanSuspend`).
 
+## Memory
+
+The heap's blocks come from free lists, and a collector frees the shared objects
+that no agent can reach, cycles too. It is a mark and sweep, run by the agent
+whose allocation finds the heap short, while the other agents carry on: each
+agent keeps what it holds in the heap, where the collector sees it. That is the
+objects it has a Proxy for, the objects in flight in its messages, and, for
+compiled code that holds a struct's address rather than its Proxy, the objects
+taken out of a slot while that code may still hold them (until the agent's turn
+ends).
+
+An object comes back once no agent holds it and the agents' own garbage
+collectors have collected their Proxies on it. A Proxy is kept at least until
+its agent's turn ends (a `WeakRef` keeps what it refers to until then), so a
+loop that allocates in one synchronous run keeps what it makes until it returns
+to its event loop. An engine's collector does not see the heap fill up, so as it
+does, each agent in Node runs its own (with V8's `--expose-gc`, set as it runs);
+in a browser, the engine's runs when it will. Interned strings, and with them
+shapes, BigInts and symbols, are never freed. `heapStats()` says how much is in
+use and how many collections have run.
+
 The code is in
 [src/runtime/heap.ts](https://github.com/arv/structs/blob/main/src/runtime/heap.ts)
-(the heap) and
+(the heap),
+[src/runtime/gc.ts](https://github.com/arv/structs/blob/main/src/runtime/gc.ts)
+(the collector) and
 [src/runtime/shared.ts](https://github.com/arv/structs/blob/main/src/runtime/shared.ts)
 (slots, shapes and the Proxies).

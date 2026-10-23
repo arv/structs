@@ -75,15 +75,21 @@ function mustSuspend() {
 // [[LockedMutex]] of a token (TypeError for anything else), and
 // UnlockTokenCreateIfNeeded (§4.1.1): the class's, which see its private name
 let mutexOf: (token: unknown) => number;
-let holding: (token: UnlockToken | undefined, w: number) => UnlockToken;
+let holding: (
+  token: UnlockToken | undefined,
+  w: number,
+  mutex: unknown,
+) => UnlockToken;
 
 // Atomics.Mutex.UnlockToken (§4.4)
 export class UnlockToken {
   // [[LockedMutex]]: the state word of the Mutex it holds, or 0 for empty
   #mutex = 0;
+  // and the Mutex, which this agent holds so that the collector keeps it
+  #held: unknown = undefined;
 
   get locked() {
-    return this.#mutex !== 0;
+    return this.#held !== undefined;
   }
 
   unlock() {
@@ -91,6 +97,7 @@ export class UnlockToken {
     if (w === 0) return false;
     this.#mutex = 0;
     unlockMutex(w);
+    this.#held = undefined;
     return true;
   }
 
@@ -99,6 +106,7 @@ export class UnlockToken {
     if (w === 0) return;
     this.#mutex = 0;
     unlockMutex(w);
+    this.#held = undefined;
   }
 
   static {
@@ -107,9 +115,10 @@ export class UnlockToken {
         throw new TypeError('structs: not an Atomics.Mutex.UnlockToken');
       return (token as UnlockToken).#mutex;
     };
-    holding = (token, w) => {
+    holding = (token, w, mutex) => {
       token ??= new UnlockToken();
       token.#mutex = w;
+      token.#held = mutex;
       return token;
     };
   }
@@ -142,7 +151,7 @@ Object.assign(Mutex, {
     mustSuspend();
     if (lockMutex(w, Infinity) === DEADLOCK)
       throw new TypeError('structs: this agent already holds the Mutex');
-    return holding(token, w);
+    return holding(token, w, mutex);
   },
   // Atomics.Mutex.lockIfAvailable ( mutex, timeout [ , unlockToken ] )
   // (§4.3.3)
@@ -154,7 +163,7 @@ Object.assign(Mutex, {
     const result = lockMutex(w, ms);
     if (result === DEADLOCK)
       throw new TypeError('structs: this agent already holds the Mutex');
-    return result === ACQUIRED ? holding(token, w) : null;
+    return result === ACQUIRED ? holding(token, w, mutex) : null;
   },
 });
 

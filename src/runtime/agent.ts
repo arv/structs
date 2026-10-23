@@ -18,6 +18,7 @@
 
 // a worker that is sent shared objects needs the proposal's globals
 import './index.ts';
+import {makeRecord, pin, retire, unpin} from './gc.ts';
 import {attach, attached, requireHeap, SAB} from './heap.ts';
 import {addressOf, handleAt} from './shared.ts';
 
@@ -26,10 +27,15 @@ const HEAP = '__structs.heap';
 
 // A message as postMessage can copy it: its shared objects as their
 // addresses, in arrays and plain objects (others are copied as they are).
+// Each is pinned until the message is decoded, so that the collector keeps it
+// while it is in flight (a message that never arrives keeps it for good).
 export function encode(value: unknown): unknown {
   if (typeof value !== 'object' || value === null) return value;
   const a = addressOf(value);
-  if (a !== undefined) return {[MARK]: a};
+  if (a !== undefined) {
+    pin(a);
+    return {[MARK]: a};
+  }
   if (Array.isArray(value)) return value.map(encode);
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   const out: Record<string, unknown> = {};
@@ -43,7 +49,10 @@ export function decode(value: unknown): unknown {
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   if (MARK in value) {
     requireHeap();
-    return handleAt((value as any)[MARK]);
+    const a = (value as any)[MARK],
+      h = handleAt(a);
+    unpin(a);
+    return h;
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value)) out[k] = decode(v);
@@ -77,15 +86,17 @@ export function startWorker(
   options: StartOptions = {},
 ): Agent {
   requireHeap();
-  const wt = nodeThreads();
+  const wt = nodeThreads(),
+    record = makeRecord();
   return wt
     ? nodeAgent(
         new wt.Worker(url, {
           name: options.name,
-          workerData: {__structsHeap: SAB},
+          workerData: {__structsHeap: SAB, __structsAgent: record},
         }),
+        record,
       )
-    : webAgent(new Worker(url, {type: 'module', name: options.name}));
+    : webAgent(new Worker(url, {type: 'module', name: options.name}), record);
 }
 
 // an agent that `run` keeps for its next call: in Node, whether it keeps the
@@ -94,7 +105,12 @@ interface Pooled extends Agent {
   hold(busy: boolean): void;
 }
 
-function nodeAgent(w: import('node:worker_threads').Worker): Pooled {
+// `record` is the worker's agent record (gc.ts): retired as it ends, in Node.
+// (A browser does not say when a worker ends: what it held stays held.)
+function nodeAgent(
+  w: import('node:worker_threads').Worker,
+  record: number,
+): Pooled {
   let exited!: (code: number) => void;
   const agent: Pooled = {
     postMessage: m => w.postMessage(encode(m)),
@@ -109,12 +125,15 @@ function nodeAgent(w: import('node:worker_threads').Worker): Pooled {
     if (agent.onerror) agent.onerror(e);
     else throw e;
   });
-  w.on('exit', code => exited(code));
+  w.on('exit', code => {
+    retire(record);
+    exited(code);
+  });
   return agent;
 }
 
-function webAgent(w: Worker): Pooled {
-  w.postMessage({[HEAP]: SAB});
+function webAgent(w: Worker, record: number): Pooled {
+  w.postMessage({[HEAP]: SAB, record});
   const agent: Pooled = {
     postMessage: m => w.postMessage(encode(m)),
     onmessage: null,
@@ -154,17 +173,20 @@ const idle: Pooled[] = [];
 const POOL = 64;
 
 function startPooled(): Pooled {
-  const wt = nodeThreads();
+  const wt = nodeThreads(),
+    record = makeRecord();
   return wt
     ? nodeAgent(
         new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
-          workerData: {__structsHeap: SAB},
+          workerData: {__structsHeap: SAB, __structsAgent: record},
         }),
+        record,
       )
     : webAgent(
         new Worker(new URL('./agent-worker.ts', import.meta.url), {
           type: 'module',
         }),
+        record,
       );
 }
 
@@ -270,6 +292,7 @@ export const parent: Omit<Agent, 'terminate' | 'exited' | 'onerror'> | null =
     self.addEventListener('message', (e: MessageEvent) => {
       const data = e.data;
       if (!attached() && data && typeof data === 'object' && HEAP in data) {
+        globalThis.__structsAgent = data.record;
         attach(data[HEAP]);
         return;
       }

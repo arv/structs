@@ -5,6 +5,7 @@ import {mkdirSync, writeFileSync} from 'node:fs';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {describe, expect, test} from 'vite-plus/test';
 import {compile} from '../src/compiler/index.ts';
+import {collect} from '../src/runtime/gc.ts';
 import {RUNTIME} from './helpers.ts';
 
 const fixture = (name: string) =>
@@ -88,6 +89,9 @@ describe('compile', () => {
     );
     // an async function reads the runtime's views
     expect(heap).toMatch(/async function later[\s\S]*?\$struct\.I32\[/);
+    // a binding used in a closure is made: its address could outlive the
+    // turn, which is as long as the collector keeps it (src/runtime/gc.ts)
+    expect(heap).toMatch(/function inClosure[\s\S]*?const p = arr\[0\]/);
   });
 
   test('the compiled program runs', async () => {
@@ -124,6 +128,25 @@ describe('compile', () => {
     lone.next = new heap.Node();
     lone.next.x = 7;
     expect(heap.nextX(lone)).toBe(7);
+    // an address held as its struct is taken out of the array, the heap
+    // collected and allocated over: it is kept
+    arr[0].x = 42;
+    // (its Proxy, made in another turn, is collected)
+    await new Promise(resolve => setImmediate(resolve));
+    expect(
+      heap.held(arr, () => {
+        collect(true);
+        for (let i = 0; i < 1000; i++) new heap.Node();
+      }),
+    ).toBe(42);
+    arr[0].x = 5;
+    await new Promise(resolve => setImmediate(resolve));
+    const read = heap.inClosure(arr);
+    arr[0] = new heap.Node();
+    await new Promise(resolve => setImmediate(resolve));
+    collect(true);
+    for (let i = 0; i < 1000; i++) new heap.Node();
+    expect(read()).toBe(5);
     const h = await import(pathToFileURL(out + 'hoist.js').href);
     const [a, b] = [new Vec(1, 2), new Vec(3, 4)];
     expect(h.dot(a, b)).toBe(11);
