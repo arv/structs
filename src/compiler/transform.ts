@@ -56,9 +56,16 @@ export function skipTrivia(text: string, i: number) {
   }
 }
 
-// A name like `name` that no identifier in `text` is.
+// A name like `name` that no identifier in `text` is, or ends with after a
+// `_`.
 export function uniqueName(text: string, name: string) {
-  const used = text.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu) ?? [];
+  // with their escapes decoded: `$t0_\u0024struct` is `$t0_$struct`
+  const decoded = text.replace(
+    /\\u\{([\da-fA-F]+)\}|\\u([\da-fA-F]{4})/g,
+    (_, braced: string | undefined, four: string | undefined) =>
+      String.fromCodePoint(parseInt(braced ?? four!, 16)),
+  );
+  const used = decoded.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu) ?? [];
   // what the compiler declares beside it ends with it: `$a0_$struct`
   const taken = (n: string) =>
     used.some(id => id === n || id.endsWith(`_${n}`));

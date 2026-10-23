@@ -196,7 +196,7 @@ describe('compile', () => {
     }
     expect(await fast.cases.nested()).toEqual(await proxy.cases.nested());
     // a source binding named as the compiler's temporaries would be
-    expect(code('names.ts')).toMatch(/\$t\d+_\$struct_1 = /);
+    expect(code('names.ts')).toMatch(/\$t\d+_\$struct_2 = /);
     const names = await import(
       pathToFileURL(
         fileURLToPath(new URL('./.out/update-fast/names.js', import.meta.url)),
@@ -207,7 +207,7 @@ describe('compile', () => {
         fileURLToPath(new URL('./.out/update-fast/shapes.js', import.meta.url)),
       ).href
     );
-    expect(names.bump(new Vec(1, 2))).toEqual([11, 3, 30]);
+    expect(names.bump(new Vec(1, 2))).toEqual([11, 3, 60]);
     // each receiver evaluated once, before the value
     expect(await proxy.cases.receivers()).toEqual([
       ['pick 11', 'pick 3'],
