@@ -305,8 +305,9 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     const names = {I: `$I_${rt}`, F: `$F_${rt}`, v: scratch, local: true};
     if (!hoisted.has(fn.pos)) {
       hoisted.add(fn.pos);
-      ms.appendLeft(
-        bodyStart(body),
+      insertAtBodyStart(
+        ms,
+        body,
         ` const {I32: ${names.I}, F64: ${names.F}} = ${rt}.views(); let ${scratch};`,
       );
     }
@@ -404,8 +405,8 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       const i = temp(scope);
       r = temp(scope);
       a = temp(scope);
-      before = `${i} = `;
-      after = `, ${a} = ${rt}.elem(${arr}, ${i}, ${f.L}), ${r} = ${a} < 0 ? ${element.expression.text}[${i}] : undefined, `;
+      before = `${i} = (`;
+      after = `), ${a} = ${rt}.elem(${arr}, ${i}, ${f.L}), ${r} = ${a} < 0 ? ${element.expression.text}[${i}] : undefined, `;
     } else {
       kept = o;
       r = temp(scope);
@@ -568,7 +569,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     const list = `let ${names.join(', ')};`;
     if (scope.kind === K.SourceFile) declared += `${list} `;
     else if (scope.body.kind === K.Block)
-      ms.appendLeft(bodyStart(scope.body as Node), ` ${list}`);
+      insertAtBodyStart(ms, scope.body as Node, ` ${list}`);
     else {
       // an arrow's expression body, made a block
       const body = scope.body as Node;
@@ -678,11 +679,11 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
     const body = fn.body as Node | undefined;
     if (fn.kind === K.Constructor || body?.kind !== K.Block) return null;
     if (assigned(fn, name)) return null;
-    const at = bodyStart(body);
     return {
       pos: body.pos,
       end: body.end,
-      declare: (n, init) => ms.appendLeft(at, ` const ${n} = ${init};`),
+      declare: (n, init) =>
+        insertAtBodyStart(ms, body, ` const ${n} = ${init};`),
     };
   }
   return null;
@@ -699,6 +700,17 @@ function bodyStart(body: Node) {
   return directives.length
     ? directives[directives.length - 1]!.end
     : body.getStart() + 1;
+}
+
+// inserts `text` (statements) where a function's body begins: after a `;`
+// that ends its last directive, if that has none
+function insertAtBodyStart(ms: MagicString, body: Node, text: string) {
+  const at = bodyStart(body);
+  const before = (body.getSourceFile().text as string).slice(0, at).trimEnd();
+  ms.appendLeft(
+    at,
+    before.endsWith(';') || before.endsWith('{') ? text : `;${text}`,
+  );
 }
 
 const hasModifier = (node: Node, kind: K) =>

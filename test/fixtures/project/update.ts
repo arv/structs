@@ -72,6 +72,9 @@ function elements(): unknown[] {
   };
   const out: unknown[] = [cells[0]!.n++, (cells[key]!.n *= 5)];
   out.push(cells[boxed]!.n++, conversions);
+  // a comma expression as the index: its last value
+  let j = 0;
+  out.push(cells[(j++, 1)]!.n++, j);
   const thrown = (f: () => unknown) => {
     try {
       return f();
@@ -175,6 +178,13 @@ function structural(): unknown {
   return plain([...r, o.n, o.s, o.big, o.v]);
 }
 
+// a directive with no semicolon before the declarations
+function directive(c: Cell, s: string) {
+  'use strict'
+  c.s += s
+  return c.s
+}
+
 // arrows with an expression body, and functions that keep no views
 function arrows(): unknown[] {
   const cells = new SharedArray<Cell>(new Cell(1), new Cell(2));
@@ -247,6 +257,7 @@ export const cases: Record<string, () => unknown> = {
   untyped,
   structural,
   arrows,
+  directive: () => [directive(new Cell(), 'x')],
   later: async () => {
     const c = new Cell(1);
     return [await later(c), c.n];
