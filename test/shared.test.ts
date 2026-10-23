@@ -174,6 +174,8 @@ describe('a field declared number', () => {
       expect(() => Atomics.compareExchange(s, 'x', -Infinity, v)).toThrow(
         TypeError,
       );
+      // one that would not be written, too
+      expect(() => Atomics.compareExchange(s, 'x', 'no', v)).toThrow(TypeError);
     }
     expect(s.x).toBe(-Infinity);
     expect(Atomics.exchange(s, 'x', 2)).toBe(-Infinity);

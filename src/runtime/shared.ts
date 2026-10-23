@@ -177,11 +177,18 @@ export function write(s: number, v: unknown) {
     // a reader that sees the word says Number reads this Number or an older
     // one: the word is stored (seq-cst, after the Float64) only as it changes
     if (w !== W_NUMBER && w !== W_FLOAT) A.store(I32, s >> 2, W_NUMBER);
-  } else if (w === W_FLOAT)
+  } else {
+    requireFits(s, v);
+    A.store(I32, s >> 2, encode(v));
+  }
+}
+
+// A TypeError if the slot at `s` is a typed field's and `v` is not a Number.
+export function requireFits(s: number, v: unknown) {
+  if (typeof v !== 'number' && I32[s >> 2] === W_FLOAT)
     throw new TypeError(
       `structs: a field declared number can only hold a Number, not ${v === null ? 'null' : typeof v}`,
     );
-  else A.store(I32, s >> 2, encode(v));
 }
 
 function encode(v: unknown): number {
