@@ -22,7 +22,7 @@ export function total(b: Body | null): number {
 }
 
 export function step(b: Body) {
-  b.x += 1; // compound: left to the Proxy
+  b.x += 1; // compound: the slot read and written once
   b.y = b.y - 1;
 }
 

@@ -95,9 +95,10 @@ export const ref = (a: number, i: number, l: Layout) =>
   a < 0 ? -1 : refIn((a + HEAD + i * SLOT) >> 2, l);
 
 // The address of the struct of layout `l` at index `i` of the Shared Array at
-// `a` (-1 for none: an index out of its bounds, too).
-export const elem = (a: number, i: number, l: Layout) =>
-  a < 0 || i >>> 0 !== i || i >= I32[(a >> 2) + 1]!
+// `a` (-1 for none: an index out of its bounds, too, or that is no Number,
+// which the slow path converts, once).
+export const elem = (a: number, i: unknown, l: Layout) =>
+  a < 0 || typeof i !== 'number' || i >>> 0 !== i || i >= I32[(a >> 2) + 1]!
     ? -1
     : refIn((a + HEAD + i * SLOT) >> 2, l);
 

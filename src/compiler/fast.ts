@@ -68,8 +68,28 @@
 // And a SharedArray's length, which its header holds and never changes, is
 // read from there: arr.length is ($arr < 0 ? arr.length : $I[($arr >> 2) + 1]).
 //
-// Compound assignments (`o.x += 1`), increments, `delete` and destructuring
-// are left as they are.
+// A compound assignment or an update (`o.x += v`, `o.x ??= v`, `o.x++`) reads
+// and writes the slot the same way, its receiver evaluated once into a
+// temporary of its own (beside the address, which it checks: $r, $a), the
+// value computed in another ($t) with the operator as written, so a string, a
+// bigint or what is not a Number goes through the runtime as for `=`:
+//
+//   f().x += v  ($r = f(), $a = $struct.addr($r, $L0),
+//                $t = <$r.x read> + (v), <$r.x = $t written>)
+//   o.x ??= v   (<o.x read> ?? ($t = (v), <o.x = $t written>))
+//   o.x++       ($t = <o.x read>, $u = $t++, <o.x = $t written>, $u)
+//
+// A receiver that keeps its value needs no temporary, and an element of a
+// SharedArray whose address is known is its slot's address, its index
+// evaluated once ($i), and the struct made only for the slow path:
+//
+//   --arr[i].y  ($i = i, $a = $struct.elem($arr, $i, $L0),
+//                $r = $a < 0 ? arr[$i] : undefined, $t = <$r.y read>, ...)
+//
+// Its temporaries are locals of its function (`let` at the start of its body,
+// which an arrow's expression body is made a block for), or of the module at
+// its top. An update in a parameter's default or a class field's initializer,
+// which has neither, is left as it is, as are `delete` and destructuring.
 
 import type MagicString from 'magic-string';
 import {NodeFlags, SyntaxKind as K} from 'typescript/ast';
@@ -110,6 +130,26 @@ const same = (a: Node, b: Node | undefined) =>
 const HEAD = 16,
   SLOT = 16,
   W_NUMBER = 1;
+
+// the binary operator of a compound assignment
+const COMPOUND: Partial<Record<K, string>> = {
+  [K.PlusEqualsToken]: '+',
+  [K.MinusEqualsToken]: '-',
+  [K.AsteriskEqualsToken]: '*',
+  [K.AsteriskAsteriskEqualsToken]: '**',
+  [K.SlashEqualsToken]: '/',
+  [K.PercentEqualsToken]: '%',
+  [K.LessThanLessThanEqualsToken]: '<<',
+  [K.GreaterThanGreaterThanEqualsToken]: '>>',
+  [K.GreaterThanGreaterThanGreaterThanEqualsToken]: '>>>',
+  [K.AmpersandEqualsToken]: '&',
+  [K.BarEqualsToken]: '|',
+  [K.CaretEqualsToken]: '^',
+  [K.AmpersandAmpersandEqualsToken]: '&&',
+  [K.BarBarEqualsToken]: '||',
+  [K.QuestionQuestionEqualsToken]: '??',
+};
+const LOGICAL = new Set(['&&', '||', '??']);
 
 // Where a binding's checked address goes: beside it, or the first statement
 // of the block its accesses are in
@@ -286,8 +326,9 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     const names = {I: `$I_${rt}`, F: `$F_${rt}`, v: scratch, local: true};
     if (!hoisted.has(fn.pos)) {
       hoisted.add(fn.pos);
-      ms.appendLeft(
-        bodyStart(body),
+      insertAtBodyStart(
+        ms,
+        body,
         ` const {I32: ${names.I}, F64: ${names.F}} = ${rt}.views(); let ${scratch};`,
       );
     }
@@ -308,11 +349,138 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       same(node, parent.left)
     )
       return true;
+    if (updateOf(node)) return true;
     if (isAssignmentTarget(node)) return false;
     return !(
       (parent?.kind === K.CallExpression && same(node, parent.expression)) ||
       (parent?.kind === K.TaggedTemplateExpression && same(node, parent.tag))
     );
+  };
+  // the temporaries of the updates, by their scopes
+  const temps = new Map<number, {scope: Node; names: string[]}>();
+  let tempCount = 0;
+  const temp = (scope: Node) => {
+    let t = temps.get(scope.pos);
+    if (!t) temps.set(scope.pos, (t = {scope, names: []}));
+    const name = `$t${tempCount++}_${rt}`;
+    t.names.push(name);
+    return name;
+  };
+  // `arr[i]` (through what only TypeScript sees), if arr is a SharedArray of
+  // structs of layout L
+  const elementOf = (o: Node, L: string) => {
+    while (
+      o.kind === K.NonNullExpression ||
+      o.kind === K.ParenthesizedExpression ||
+      o.kind === K.AsExpression ||
+      o.kind === K.SatisfiesExpression
+    )
+      o = o.expression as Node;
+    if (o.kind !== K.ElementAccessExpression || o.questionDotToken)
+      return undefined;
+    const element = ctx.elementLayoutOf(o.expression);
+    return element && layoutName(element) === L ? o : undefined;
+  };
+  // A compound assignment or an update of a field: its receiver evaluated
+  // once, the slot read and written as for a read and `=`, and its value what
+  // it would be through the Proxy. Whether it was rewritten.
+  const update = (node: Node) => {
+    let target: Node, value: Node | undefined, op: string;
+    if (node.kind === K.BinaryExpression) {
+      const o = COMPOUND[node.operatorToken.kind as K];
+      if (!o) return false;
+      target = skipParens(node.left);
+      value = node.right;
+      op = o;
+    } else if (
+      (node.kind === K.PrefixUnaryExpression ||
+        node.kind === K.PostfixUnaryExpression) &&
+      (node.operator === K.PlusPlusToken || node.operator === K.MinusMinusToken)
+    ) {
+      target = skipParens(node.operand);
+      op = node.operator === K.PlusPlusToken ? '++' : '--';
+    } else return false;
+    const f = field(target);
+    const scope = f && updateOf(target) && tempScopeOf(node);
+    if (!f || !scope) return false;
+    const o = target.expression as Node;
+    if (o.kind === K.SuperKeyword) return false;
+    const v = viewsAt(node);
+    // the receiver: its name and address, and what computes them (before
+    // and after the part of it that is kept as written, and rewritten)
+    let r: string,
+      a = addressOf(o, f.L, node),
+      kept: Node | undefined,
+      before = '',
+      after = '';
+    const element = !a && elementOf(o, f.L);
+    const arr = element && addressOf(element.expression, null, node);
+    if (a) r = o.text as string;
+    else if (o.kind === K.ThisKeyword) {
+      r = 'this';
+      a = temp(scope);
+      before = `${a} = ${rt}.addr(this, ${f.L}), `;
+    } else if (element && arr) {
+      // arr[i]: its address from arr's slot, the struct made only if not
+      kept = element.argumentExpression as Node;
+      const i = temp(scope);
+      r = temp(scope);
+      a = temp(scope);
+      before = `${i} = (`;
+      after = `), ${a} = ${rt}.elem(${arr}, ${i}, ${f.L}), ${r} = ${a} < 0 ? ${element.expression.text}[${i}] : undefined, `;
+    } else {
+      kept = o;
+      r = temp(scope);
+      a = temp(scope);
+      before = `${r} = `;
+      after = `, ${a} = ${rt}.addr(${r}, ${f.L}), `;
+    }
+    const args = `${r}, ${a}, ${f.L}, ${f.i}`;
+    const numeric = f.typed || isNumber(target);
+    // a typed field's word is always a Number's: it is not read
+    const untyped = f.typed ? '' : ` || ${word(v.I, a, f.i)} !== ${W_NUMBER}`;
+    const read = f.typed
+      ? `(${a} < 0 ? ${rt}.getAt(${args}) : ${float(v.F, a, f.i)})`
+      : numeric
+        ? `(${a} < 0${untyped} ? ${rt}.getNumberAt(${args}) : ${float(v.F, a, f.i)})`
+        : `${rt}.getAt(${args})`;
+    const write = (x: string) =>
+      numeric
+        ? `(${a} < 0 || typeof ${x} !== 'number'${untyped} ? ${rt}.setAt(${args}, ${x}) : ${float(v.F, a, f.i)} = ${x})`
+        : `${rt}.setAt(${args}, ${x})`;
+    const t = temp(scope);
+    // what comes after the receiver, up to the value, and after the value
+    let rest: string,
+      tail = '';
+    if (!value) {
+      if (node.kind === K.PrefixUnaryExpression)
+        rest = `${t} = ${read}, ${op}${t}, ${write(t)})`;
+      else {
+        const u = temp(scope);
+        rest = `${t} = ${read}, ${u} = ${t}${op}, ${write(t)}, ${u})`;
+      }
+    } else if (LOGICAL.has(op)) {
+      rest = `${read} ${op} (${t} = (`;
+      tail = `), ${write(t)}))`;
+    } else {
+      rest = `${t} = ${read} ${op} (`;
+      tail = `), ${write(t)})`;
+    }
+    // overwrites the source from `from` to `to`, keeping what was written
+    // around and in it
+    const replace = (from: number, to: number, text: string) =>
+      from < to
+        ? ms.overwrite(from, to, text, {contentOnly: true})
+        : ms.prependRight(from, text);
+    const start = node.getStart();
+    const end = value ? value.getStart() : node.end;
+    const open = `${guard(node)}(`;
+    if (kept) {
+      replace(start, kept.getStart(), `${open}${before}`);
+      replace(kept.end, end, `${after}${rest}`);
+    } else replace(start, end, `${open}${before}${rest}`);
+    if (tail) ms.appendLeft(node.end, tail);
+    return true;
   };
   // after the children: what they write stays inside what this writes
   const visit = (node: Node) => {
@@ -321,6 +489,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     node.forEachChild(child => {
       visit(child as Node);
     });
+    if (update(node)) return;
     if (
       node.kind === K.BinaryExpression &&
       node.operatorToken.kind === K.EqualsToken
@@ -423,7 +592,75 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     );
   };
   visit(file);
-  return usesScratch ? `let ${scratch}; ` : '';
+  // the temporaries of the updates, declared in their scopes
+  let declared = usesScratch ? `let ${scratch}; ` : '';
+  for (const {scope, names} of temps.values()) {
+    const list = `let ${names.join(', ')};`;
+    if (scope.kind === K.SourceFile) declared += `${list} `;
+    else if (scope.body.kind === K.Block)
+      insertAtBodyStart(ms, scope.body as Node, ` ${list}`);
+    else {
+      // an arrow's expression body, made a block
+      const body = scope.body as Node;
+      ms.prependRight(body.getStart(), `{ ${list} return `);
+      ms.appendLeft(body.end, '; }');
+    }
+  }
+  return declared;
+}
+
+// The scope of an update's temporaries: the function whose body it is in, a
+// class's static block, or the module; none in a parameter or a class field
+function tempScopeOf(node: Node): Node | undefined {
+  for (
+    let n = node, p = node.parent as Node | undefined;
+    p;
+    n = p, p = p.parent
+  ) {
+    switch (p.kind) {
+      case K.SourceFile:
+      case K.ClassStaticBlockDeclaration:
+        return p;
+      case K.Parameter:
+      case K.PropertyDeclaration:
+        return undefined;
+      case K.FunctionDeclaration:
+      case K.FunctionExpression:
+      case K.ArrowFunction:
+      case K.MethodDeclaration:
+      case K.GetAccessor:
+      case K.SetAccessor:
+      case K.Constructor:
+        return same(n, p.body) ? p : undefined;
+    }
+  }
+  return undefined;
+}
+
+// The compound assignment or update `target` (a field access) is the operand
+// of, if its temporaries have a scope
+function updateOf(target: Node): Node | undefined {
+  let n = target,
+    p = n.parent as Node | undefined;
+  while (p?.kind === K.ParenthesizedExpression) {
+    n = p;
+    p = p.parent;
+  }
+  if (!p) return undefined;
+  const isUpdate =
+    ((p.kind === K.PrefixUnaryExpression ||
+      p.kind === K.PostfixUnaryExpression) &&
+      (p.operator === K.PlusPlusToken || p.operator === K.MinusMinusToken)) ||
+    (p.kind === K.BinaryExpression &&
+      same(n, p.left) &&
+      COMPOUND[p.operatorToken.kind as K] !== undefined);
+  return isUpdate && tempScopeOf(p) ? p : undefined;
+}
+
+// an expression without the parentheses around it
+function skipParens(node: Node): Node {
+  while (node.kind === K.ParenthesizedExpression) node = node.expression;
+  return node;
 }
 
 // The site of the checked address of the binding `decl`, if it keeps its
@@ -471,11 +708,11 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
     const body = fn.body as Node | undefined;
     if (fn.kind === K.Constructor || body?.kind !== K.Block) return null;
     if (assigned(fn, name)) return null;
-    const at = bodyStart(body);
     return {
       pos: body.pos,
       end: body.end,
-      declare: (n, init) => ms.appendLeft(at, ` const ${n} = ${init};`),
+      declare: (n, init) =>
+        insertAtBodyStart(ms, body, ` const ${n} = ${init};`),
     };
   }
   return null;
@@ -483,15 +720,28 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
 
 // where a function's body begins: after its directives
 function bodyStart(body: Node) {
-  const directives = (body.statements as Node[]).filter(
-    (st, i, all) =>
-      st.kind === K.ExpressionStatement &&
-      st.expression.kind === K.StringLiteral &&
-      all.slice(0, i).every(p => p.kind === K.ExpressionStatement),
+  // the string literal statements it begins with, up to any other
+  let last: Node | undefined;
+  for (const st of body.statements as Node[]) {
+    if (
+      st.kind !== K.ExpressionStatement ||
+      st.expression.kind !== K.StringLiteral
+    )
+      break;
+    last = st;
+  }
+  return last ? last.end : body.getStart() + 1;
+}
+
+// inserts `text` (statements) where a function's body begins: after a `;`
+// that ends its last directive, if that has none
+function insertAtBodyStart(ms: MagicString, body: Node, text: string) {
+  const at = bodyStart(body);
+  const before = (body.getSourceFile().text as string).slice(0, at).trimEnd();
+  ms.appendLeft(
+    at,
+    before.endsWith(';') || before.endsWith('{') ? text : `;${text}`,
   );
-  return directives.length
-    ? directives[directives.length - 1]!.end
-    : body.getStart() + 1;
 }
 
 const hasModifier = (node: Node, kind: K) =>

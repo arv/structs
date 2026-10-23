@@ -236,12 +236,32 @@ A field declared `: number` always holds a Number (see
 writes the Float64 if `v` is a Number and calls the runtime, which throws, if
 not.
 
+Compound assignments and updates (`o.x += v`, `o.x ??= v`, `o.x++`,
+`--arr[i].y`) read and write the slot the same way. The receiver, and an
+element's index, are evaluated once, into locals. The new value is computed with
+the operator as written, so a string concatenation or a bigint field works as
+through the Proxy, a postfix update's value is the old one after ToNumeric, and
+`&&=`, `||=` and `??=` write nothing when they short-circuit:
+
+```js
+counter.count += n;
+// compiles to: the slot read, the operator applied, the slot written
+$t0 =
+  ($a0 < 0 || $I[($a0 >> 2) + 4] !== 1
+    ? $struct.getNumberAt(counter, $a0, $L0, 0)
+    : $F[($a0 >> 3) + 3]) + n;
+$a0 < 0 || typeof $t0 !== 'number' || $I[($a0 >> 2) + 4] !== 1
+  ? $struct.setAt(counter, $a0, $L0, 0, $t0)
+  : ($F[($a0 >> 3) + 3] = $t0);
+```
+
 On [examples/nbody](examples/nbody) (1,000,000 steps, Node 24, Apple Silicon),
 which keeps its bodies in a `SharedArray<Body>` and declares their fields
 `: number`, this takes 0.10 s (0.13 s with the fields untyped, when each read
 checks its slot's tag). The same program on plain JavaScript objects takes 0.045
 s, and through the Proxy alone 7 s. Most of what is left is finding each body's
-address in the array and checking that it is a Body.
+address in the array and checking that it is a Body. A `counter.count++` loop
+does 10,000,000 increments in 18 ms, against 360 ms through the Proxy.
 
 ## Where it differs from the spec
 

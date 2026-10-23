@@ -23,3 +23,9 @@ export function getAssigned(p: P | Vec): number {
   p = p as P;
   return p.x;
 }
+
+// compound: the slot read and written with no check of its word
+export function bump(p: P, n: number): number {
+  p.x += n;
+  return p.x++;
+}
