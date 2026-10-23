@@ -101,6 +101,23 @@ describe('the collector', () => {
     expect((message as any).array[0]).toBe('in flight');
   });
 
+  test('a message that cannot be sent, or was not encoded, pins nothing', async () => {
+    const w = startWorker(
+      new URL('./fixtures/echo-worker.ts', import.meta.url),
+    );
+    // (in a function of its own, which lets go of the array as it returns)
+    const fails = () =>
+      w.postMessage({struct: new SharedArray<unknown>(1 << 16), f: () => {}});
+    expect(fails).toThrow();
+    w.terminate();
+    // a marker no message made is a plain object
+    expect(decode({'__structs.shared': 8})).toEqual({'__structs.shared': 8});
+    const used = heapStats().used;
+    await nextTurn();
+    collect(true);
+    expect(heapStats().used).toBeLessThan(used - MB);
+  });
+
   test('what a worker held is let go of as it ends', async () => {
     collect(true);
     const before = heapStats().used;

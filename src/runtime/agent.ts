@@ -18,7 +18,7 @@
 
 // a worker that is sent shared objects needs the proposal's globals
 import './index.ts';
-import {makeRecord, pin, retire, unpin} from './gc.ts';
+import {inFlight, makeRecord, pin, retire, unpin} from './gc.ts';
 import {attach, attached, requireHeap, SAB} from './heap.ts';
 import {addressOf, handleAt} from './shared.ts';
 
@@ -28,19 +28,34 @@ const HEAP = '__structs.heap';
 // A message as postMessage can copy it: its shared objects as their
 // addresses, in arrays and plain objects (others are copied as they are).
 // Each is pinned until the message is decoded, so that the collector keeps it
-// while it is in flight (a message that never arrives keeps it for good).
-export function encode(value: unknown): unknown {
+// while it is in flight (a message that never arrives keeps it for good), and
+// its address goes in `pins`, if given.
+export function encode(value: unknown, pins?: number[]): unknown {
   if (typeof value !== 'object' || value === null) return value;
   const a = addressOf(value);
   if (a !== undefined) {
     pin(a);
+    pins?.push(a);
     return {[MARK]: a};
   }
-  if (Array.isArray(value)) return value.map(encode);
+  if (Array.isArray(value)) return value.map(v => encode(v, pins));
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) out[k] = encode(v);
+  for (const [k, v] of Object.entries(value)) out[k] = encode(v, pins);
   return out;
+}
+
+// Posts `message` encoded with `post`; a message it fails to post (one that
+// postMessage cannot copy) is never decoded, so its pins go.
+function send(post: (encoded: unknown) => void, message: unknown) {
+  const pins: number[] = [];
+  const encoded = encode(message, pins);
+  try {
+    post(encoded);
+  } catch (e) {
+    for (const a of pins) unpin(a);
+    throw e;
+  }
 }
 
 export function decode(value: unknown): unknown {
@@ -49,10 +64,13 @@ export function decode(value: unknown): unknown {
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   if (MARK in value) {
     requireHeap();
-    const a = (value as any)[MARK],
-      h = handleAt(a);
-    unpin(a);
-    return h;
+    const a = (value as any)[MARK];
+    // only what encode made: a shared object that a message pins
+    if (inFlight(a)) {
+      const h = handleAt(a);
+      unpin(a);
+      return h;
+    }
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value)) out[k] = decode(v);
@@ -113,7 +131,7 @@ function nodeAgent(
 ): Pooled {
   let exited!: (code: number) => void;
   const agent: Pooled = {
-    postMessage: m => w.postMessage(encode(m)),
+    postMessage: m => send(e => w.postMessage(e), m),
     onmessage: null,
     onerror: null,
     terminate: () => void w.terminate(),
@@ -135,7 +153,7 @@ function nodeAgent(
 function webAgent(w: Worker, record: number): Pooled {
   w.postMessage({[HEAP]: SAB, record});
   const agent: Pooled = {
-    postMessage: m => w.postMessage(encode(m)),
+    postMessage: m => send(e => w.postMessage(e), m),
     onmessage: null,
     onerror: null,
     terminate: () => w.terminate(),
@@ -270,7 +288,7 @@ export const parent: Omit<Agent, 'terminate' | 'exited' | 'onerror'> | null =
       let handler: ((m: any) => void) | null = null;
       const listener = (m: unknown) => handler?.(decode(m));
       return {
-        postMessage: (m: unknown) => port.postMessage(encode(m)),
+        postMessage: (m: unknown) => send(e => port.postMessage(e), m),
         // listening keeps the worker alive: only while there is a handler
         get onmessage() {
           return handler;
@@ -286,7 +304,7 @@ export const parent: Omit<Agent, 'terminate' | 'exited' | 'onerror'> | null =
       return null;
     const self = globalThis as any;
     const agent = {
-      postMessage: (m: unknown) => self.postMessage(encode(m)),
+      postMessage: (m: unknown) => send(e => self.postMessage(e), m),
       onmessage: null as ((m: any) => void) | null,
     };
     self.addEventListener('message', (e: MessageEvent) => {

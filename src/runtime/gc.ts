@@ -109,9 +109,12 @@ export function makeRecord() {
 }
 
 // The agent whose record `r` is has ended: what it held is no longer held.
+// (Under the allocation lock: a collection frees a dead agent's record.)
 export function retire(r: number) {
+  lock(C_ALLOC_LOCK);
+  if (I32[(r >> 2) + R_TURN] !== 0) A.sub(I32, C_TURNS, 1);
   A.store(I32, (r >> 2) + R_STATE, DEAD);
-  if (A.load(I32, (r >> 2) + R_TURN) !== 0) A.sub(I32, C_TURNS, 1);
+  unlock(C_ALLOC_LOCK);
 }
 
 declare global {
@@ -392,6 +395,13 @@ export function pin(a: number) {
   A.add(I32, (a >> 2) + PINS, 1);
   shade(a);
   leave(r);
+}
+
+// Whether `a` is the address of a shared object that a message pins.
+export function inFlight(a: unknown) {
+  if (typeof a !== 'number' || (a & 7) !== 0 || a < CTRL + 8 || a >= top())
+    return false;
+  return kindAt(a - 8) === B_OBJECT && A.load(I32, (a >> 2) + PINS) > 0;
 }
 
 export function unpin(a: number) {
