@@ -1,6 +1,6 @@
 {
   "name": "@arv/structs-compiler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The compiler of @arv/structs: the TC39 structs proposal's syntax (struct, shared struct) compiled to JavaScript, a command line, and a Node load hook; TypeScript projects type checked, with shared struct field access made direct",
   "keywords": [
     "compiler",

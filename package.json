@@ -1,6 +1,6 @@
 {
   "name": "@arv/structs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The TC39 structs proposal for JavaScript today: structs, shared structs, SharedArray, Atomics.Mutex and Atomics.Condition, on Web Workers and worker_threads that share memory",
   "keywords": [
     "Atomics",
