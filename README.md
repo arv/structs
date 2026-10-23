@@ -142,7 +142,8 @@ spec's internal methods (§2.1.5 to §2.1.10). There is one Proxy per block per
 agent, so `===` holds.
 
 ```
-a shared object  [kind][shape: its keys, interned][..][..] then 16 bytes per field
+a block          [its size and kind][the collector's mark] then what it holds
+a shared object  [kind][shape: its keys, interned][slots][..] then 16 bytes per field
 a slot           [a tagged word: the value][a Float64, for a Number]
 ```
 
@@ -156,6 +157,27 @@ Mutex and Condition are Shared Structs with no fields. Their internal slots are
 heap words that `Atomics.wait` and `Atomics.notify` work on. Blocking where an
 agent cannot (a browser's main thread) is a TypeError, as the spec says
 (`AgentCanSuspend`).
+
+### Memory
+
+The heap's blocks come from free lists, and a collector frees the shared objects
+that no agent can reach, cycles too. It is a mark and sweep, run by the agent
+whose allocation finds the heap short, while the other agents carry on: each
+agent keeps what it holds in the heap, where the collector sees it. That is the
+objects it has a Proxy for, the objects in flight in its messages, and, for
+compiled code that holds a struct's address rather than its Proxy, the objects
+taken out of a slot while that code may still hold them (until the agent's turn
+ends).
+
+An object comes back once no agent holds it and the agents' own garbage
+collectors have collected their Proxies on it. A Proxy is kept at least until
+its agent's turn ends (a `WeakRef` keeps what it refers to until then), so a
+loop that allocates in one synchronous run keeps what it makes until it returns
+to its event loop. An engine's collector does not see the heap fill up, so as it
+does, each agent in Node runs its own (with V8's `--expose-gc`, set as it runs);
+in a browser, the engine's runs when it will. Interned strings, and with them
+shapes, BigInts and symbols, are never freed. `heapStats()` says how much is in
+use and how many collections have run.
 
 ### Mutex and Condition
 
@@ -205,8 +227,10 @@ that keeps its value (a `const`, or a `let` or a parameter that is never
 assigned) is checked once, beside the binding. A struct taken from a
 `SharedArray<S>` element or from a struct-typed field is the address that slot
 already holds, read without making its Proxy at all; the binding itself is made
-only on the slow path. Each function keeps the heap's views in locals, since the
-heap's size is fixed:
+only on the slow path. (Only in a function that is neither async nor a
+generator, and not in its closures: the collector keeps such a struct only until
+the agent's turn ends.) Each function keeps the heap's views in locals, since
+the heap's size is fixed:
 
 ```js
 const b = bodies[j];
@@ -252,8 +276,11 @@ through the Proxy.
 Where JavaScript can't do what the spec says, or where the spec text looks like
 an oversight, this implementation does something else:
 
-- **Memory is never reclaimed.** Shared objects and interned strings live until
-  the process ends. There is no collector across agents.
+- **Memory comes back between turns.** A shared object is freed once no agent
+  can reach it, but only after each agent that had a Proxy on it has returned to
+  its event loop and collected the Proxy. Interned strings (and so shapes,
+  BigInts and symbols) are never freed. A browser does not say when a worker
+  ends, so what a worker held there stays held.
 - **Symbols.** Only registered (`Symbol.for`) and well-known symbols can be
   shared, as values or as field keys, because other agents don't have the
   others. `Reflect.canBeShared` returns false for the rest.
@@ -294,6 +321,7 @@ fields as `undefined`. Spread it instead: `console.log({...s})`.
 | Path                                                   | What it is                                               |
 | ------------------------------------------------------ | -------------------------------------------------------- |
 | [src/runtime/heap.ts](src/runtime/heap.ts)             | The heap: allocation, locks, interned strings            |
+| [src/runtime/gc.ts](src/runtime/gc.ts)                 | The collector                                            |
 | [src/runtime/shared.ts](src/runtime/shared.ts)         | Shared Structs and Shared Arrays: slots, shapes, Proxies |
 | [src/runtime/structs.ts](src/runtime/structs.ts)       | What struct declarations become                          |
 | [src/runtime/sync.ts](src/runtime/sync.ts)             | Mutex, UnlockToken, Condition                            |

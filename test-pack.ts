@@ -128,12 +128,17 @@ for (let i = 0; i < points.length; i++) {
   p.y = 2 * i;
   points[i] = p;
 }
-let sum = 0;
-for (let i = 0; i < points.length; i++) {
-  const p = points[i]!;
-  sum += p.x + p.y;
+// in a function, an element is its address (not at the top of a module, which
+// may await)
+function total(points: SharedArray<Point>) {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    sum += p.x + p.y;
+  }
+  return sum;
 }
-console.log(\`sum: \${sum}\`);
+console.log(\`sum: \${total(points)}\`);
 `,
   );
   run(

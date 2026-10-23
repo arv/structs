@@ -9,6 +9,7 @@ description: What's in arv/structs, how to work on it, and how it's released.
 | Path                                                                                            | What it is                                               |
 | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | [src/runtime/heap.ts](https://github.com/arv/structs/blob/main/src/runtime/heap.ts)             | The heap: allocation, locks, interned strings            |
+| [src/runtime/gc.ts](https://github.com/arv/structs/blob/main/src/runtime/gc.ts)                 | The collector                                            |
 | [src/runtime/shared.ts](https://github.com/arv/structs/blob/main/src/runtime/shared.ts)         | Shared Structs and Shared Arrays: slots, shapes, Proxies |
 | [src/runtime/structs.ts](https://github.com/arv/structs/blob/main/src/runtime/structs.ts)       | What struct declarations become                          |
 | [src/runtime/sync.ts](https://github.com/arv/structs/blob/main/src/runtime/sync.ts)             | Mutex, UnlockToken, Condition                            |

@@ -26,8 +26,10 @@ that keeps its value (a `const`, or a `let` or a parameter that is never
 assigned) is checked once, beside the binding. A struct taken from a
 `SharedArray<S>` element or from a struct-typed field is the address that slot
 already holds, read without making its Proxy at all; the binding itself is made
-only on the slow path. Each function keeps the heap's views in locals, since the
-heap's size is fixed:
+only on the slow path. (Only in a function that is neither async nor a
+generator, and not in its closures: the collector keeps such a struct only until
+the agent's turn ends.) Each function keeps the heap's views in locals, since
+the heap's size is fixed:
 
 ```js
 const b = bodies[j];

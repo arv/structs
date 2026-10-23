@@ -2,10 +2,21 @@
 // installs the proposal's globals (index.ts).
 
 import './index.ts';
-import {F64, I32} from './heap.ts';
+import {turn} from './gc.ts';
+import {F64, I32, views as heapViews} from './heap.ts';
 // the heap's views, which compiled code indexes with an address from addr():
 // a function keeps them in locals (views()), code elsewhere reads them here
-export {F64, I32, views} from './heap.ts';
+export {F64, I32} from './heap.ts';
+
+// The views, for a function to keep in locals as it begins. It begins this
+// agent's turn too, as the function may read addresses out of slots (elem,
+// ref): the collector keeps what they held until the turn ends (gc.ts).
+export function views() {
+  const v = heapViews();
+  // (none, in an agent that has no heap yet)
+  if (v.I32.length !== 0) turn();
+  return v;
+}
 import {
   addressOf,
   HEAD,
