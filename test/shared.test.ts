@@ -149,6 +149,84 @@ describe('shared struct', () => {
   });
 });
 
+describe('a field declared number', () => {
+  test('holds only Numbers: anything else is a TypeError', async () => {
+    const {S} = await load(
+      `export shared struct S { x: number = 1; y: number; z = 0; }`,
+      'test.ts',
+    );
+    const s = new S();
+    // no initializer: 0, not undefined
+    expect({...s}).toEqual({x: 1, y: 0, z: 0});
+    for (const v of [-0, 1.5, NaN, -Infinity]) {
+      s.x = v;
+      expect(s.x).toBe(v);
+    }
+    for (const v of [undefined, null, true, '1', 1n, Symbol.for('x'), s]) {
+      expect(() => {
+        s.x = v;
+      }).toThrow(TypeError);
+      expect(() => Object.defineProperty(s, 'x', {value: v})).toThrow(
+        TypeError,
+      );
+      expect(() => Atomics.store(s, 'x', v)).toThrow(TypeError);
+      expect(() => Atomics.exchange(s, 'x', v)).toThrow(TypeError);
+      expect(() => Atomics.compareExchange(s, 'x', -Infinity, v)).toThrow(
+        TypeError,
+      );
+    }
+    expect(s.x).toBe(-Infinity);
+    expect(Atomics.exchange(s, 'x', 2)).toBe(-Infinity);
+    expect(Atomics.load(s, 'x')).toBe(2);
+    // an untyped field takes anything
+    s.z = 'z';
+    expect(s.z).toBe('z');
+  });
+
+  test('its initializer must give a Number', async () => {
+    const {S, T} = await load(
+      `export shared struct S { x: number = 'one' as any; }
+       export shared struct T { x: number = (() => null)() as any; }`,
+      'test.ts',
+    );
+    expect(() => new S()).toThrow(TypeError);
+    expect(() => new T()).toThrow(TypeError);
+  });
+
+  test('typed only if every declaration of the key says number', async () => {
+    const {B, C} = await load(
+      `export shared struct A { x: number = 0; y: number = 0; }
+       export shared struct B extends A { y: any; }
+       export shared struct C extends A { z: number = 0; }`,
+      'test.ts',
+    );
+    const b = new B();
+    b.y = 'y';
+    expect(b.y).toBe('y');
+    expect(() => {
+      b.x = 'x';
+    }).toThrow(TypeError);
+    const c = new C();
+    expect(() => {
+      c.z = 'z';
+    }).toThrow(TypeError);
+  });
+
+  test('a struct of the same keys typed differently has another shape', async () => {
+    const {Typed, Untyped} = await load(
+      `export shared struct Typed { x: number = 0; }
+       export const Untyped = (() => { shared struct Typed { x = 0; } return Typed; })();`,
+      'test.ts',
+    );
+    const u = new Untyped();
+    u.x = 'x';
+    expect(u.x).toBe('x');
+    expect(() => {
+      new Typed().x = 'x';
+    }).toThrow(TypeError);
+  });
+});
+
 describe('SharedArray', () => {
   test('a length, or elements', () => {
     const a = new SharedArray(3);

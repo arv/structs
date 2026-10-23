@@ -42,6 +42,18 @@
 // or a generator, which may resume after the heap is attached, and code at the
 // top of the module use the runtime's.
 //
+// A typed field, one declared `: number`, only ever holds a Number: its word
+// says so from the moment the struct is made, and never changes (the layout
+// lists its index, and a struct whose fields are typed differently has
+// another shape, which addr() tells apart). Its Float64 is read and written
+// with no check of the word:
+//
+//   a.x        ($a0 < 0 ? $struct.getAt(a, $a0, $L0, i) : $F[($a0 >> 3) + n])
+//   a.x = v    ($v = v, $a0 < 0 || typeof $v !== 'number'
+//                ? $struct.setAt(a, $a0, $L0, i, $v) : $F[($a0 >> 3) + n] = $v)
+//
+// where setAt throws the TypeError for a value that is not a Number.
+//
 // Better still, the address need not be looked up. Where such a binding takes
 // a struct from the heap, an element of a SharedArray<S> (`arr[i]`) or a field
 // that holds an S (`s.f`), arr or s having addresses of their own, its address
@@ -67,6 +79,8 @@ import type {Node} from './transform.ts';
 
 export interface Layout {
   keys: string[];
+  // the fields declared `: number`, whose slots only hold a Number
+  numbers: string[];
 }
 
 export interface FastContext {
@@ -81,7 +95,8 @@ export interface FastContext {
   elementLayoutOf(expression: Node): Layout | undefined;
   // whether an expression's type is a SharedArray
   isSharedArray(expression: Node): boolean;
-  // the names of the layouts this module uses, by their keys (JSON)
+  // the names of the layouts this module uses, by the arguments of their
+  // $struct.layout(): their keys, and their typed fields' indexes (JSON)
   layouts: Map<string, string>;
   // the field names any shared struct has: a cheap test before the checker
   fieldNames: Set<string>;
@@ -177,7 +192,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       if (index.kind !== K.Identifier && index.kind !== K.NumericLiteral)
         return undefined;
       const element = ctx.elementLayoutOf(arr);
-      if (!element || layoutName(element.keys) !== L) return undefined;
+      if (!element || layoutName(element) !== L) return undefined;
       const a = addressOf(arr, null, decl);
       return a && `${rt}.elem(${a}, ${index.text}, ${L})`;
     }
@@ -185,7 +200,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       const f = field(init),
         holder = init.expression as Node;
       const held = ctx.nullableLayoutOf(init);
-      if (!f || !held || layoutName(held.keys) !== L) return undefined;
+      if (!f || !held || layoutName(held) !== L) return undefined;
       const a = addressOf(holder, f.L, decl);
       return a && `${rt}.ref(${a}, ${f.i}, ${L})`;
     }
@@ -221,10 +236,14 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     visit(blockOf(decl));
     return only;
   };
-  const layoutName = (keys: string[]) => {
-    const json = JSON.stringify(keys);
-    let name = ctx.layouts.get(json);
-    if (!name) ctx.layouts.set(json, (name = `$L${ctx.layouts.size}_${rt}`));
+  const layoutName = ({keys, numbers}: Layout) => {
+    const args =
+      JSON.stringify(keys) +
+      (numbers.length
+        ? `, ${JSON.stringify(numbers.map(k => keys.indexOf(k)))}`
+        : '');
+    let name = ctx.layouts.get(args);
+    if (!name) ctx.layouts.set(args, (name = `$L${ctx.layouts.size}_${rt}`));
     return name;
   };
   // the layout and field number of `o.key`, if it can be made direct
@@ -236,7 +255,9 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     if (!ctx.fieldNames.has(key)) return undefined;
     const layout = ctx.layoutOf(node.expression);
     const i = layout ? layout.keys.indexOf(key) : -1;
-    return i < 0 ? undefined : {L: layoutName(layout!.keys), i};
+    return i < 0
+      ? undefined
+      : {L: layoutName(layout!), i, typed: layout!.numbers.includes(key)};
   };
   const isNumber = (node: Node) => {
     const prop = checker.getSymbolAtLocation(node.name);
@@ -320,7 +341,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
         return;
       }
       const setAt = `${rt}.setAt(${o.text}, ${a}, ${f.L}, ${f.i}`;
-      if (!isNumber(target)) {
+      if (!f.typed && !isNumber(target)) {
         ms.overwrite(target.getStart(), value.getStart(), `${setAt}, `, {
           contentOnly: true,
         });
@@ -335,9 +356,11 @@ export function fastAccess(file: Node, ctx: FastContext): string {
         `${guard(node)}(${scratch} = `,
         {contentOnly: true},
       );
+      // a typed field's word is always a Number's: it is not read
+      const untyped = f.typed ? '' : ` || ${word(v.I, a, f.i)} !== ${W_NUMBER}`;
       ms.appendLeft(
         value.end,
-        `, ${a} < 0 || typeof ${scratch} !== 'number' || ${word(v.I, a, f.i)} !== ${W_NUMBER} ? ${setAt}, ${scratch}) : ${float(v.F, a, f.i)} = ${scratch})`,
+        `, ${a} < 0 || typeof ${scratch} !== 'number'${untyped} ? ${setAt}, ${scratch}) : ${float(v.F, a, f.i)} = ${scratch})`,
       );
       return;
     }
@@ -391,9 +414,11 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     ms.overwrite(
       node.getStart(),
       node.end,
-      numeric
-        ? `${guard(node)}(${a} < 0 || ${word(v.I, a, f.i)} !== ${W_NUMBER} ? ${rt}.getNumberAt(${args}) : ${float(v.F, a, f.i)})`
-        : `${rt}.getAt(${args})`,
+      f.typed
+        ? `${guard(node)}(${a} < 0 ? ${rt}.getAt(${args}) : ${float(v.F, a, f.i)})`
+        : numeric
+          ? `${guard(node)}(${a} < 0 || ${word(v.I, a, f.i)} !== ${W_NUMBER} ? ${rt}.getNumberAt(${args}) : ${float(v.F, a, f.i)})`
+          : `${rt}.getAt(${args})`,
       {contentOnly: true},
     );
   };

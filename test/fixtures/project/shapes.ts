@@ -2,9 +2,10 @@
 
 import '@arv/structs';
 
+// its fields are numbers, but not declared so: untyped (src/runtime/shared.ts)
 export shared struct Vec {
-  x: number = 0;
-  y: number = 0;
+  x = 0;
+  y = 0;
   constructor(x: number, y: number) {
     this.x = x;
     this.y = y;

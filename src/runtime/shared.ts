@@ -12,6 +12,12 @@
 // Float64 beside it: the Float64 is written first, then the word, with
 // Atomics.store, so a field read never tears and never shows a value nobody
 // wrote (§2.1.3, "no tear").
+//
+// A field declared `: number` in TypeScript is typed: its slot only ever holds
+// a Number, and its word says so (W_FLOAT) from the moment the struct is made,
+// so the Float64 alone is its value, which compiled code reads and writes
+// with no check of the word (src/compiler/fast.ts). Writing it anything but a
+// Number is a TypeError.
 
 import {A, alloc, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
 
@@ -30,6 +36,8 @@ const W_UNDEFINED = 0,
   W_FALSE = 16,
   W_TRUE = 24;
 export const W_NUMBER = 1;
+// a typed field's word, which never changes: a Number, in the Float64
+export const W_FLOAT = 6;
 const T_STRING = 2,
   T_BIGINT = 3,
   T_SYMBOL = 4;
@@ -82,6 +90,10 @@ export function create(kind: number, shape: number, slots: number) {
   const a = alloc(HEAD + slots * SLOT);
   I32[a >> 2] = kind;
   I32[(a >> 2) + 1] = shape;
+  // its typed fields hold 0, a Number, from the start
+  if (kind === K_STRUCT)
+    for (const i of shapeAt(shape).numbers)
+      I32[(a + HEAD + i * SLOT) >> 2] = W_FLOAT;
   return handleAt(a);
 }
 
@@ -140,6 +152,7 @@ export function read(s: number): unknown {
     case 0:
       return w === W_UNDEFINED ? undefined : w === W_NULL ? null : w === W_TRUE;
     case W_NUMBER:
+    case W_FLOAT:
       return F64[(s >> 3) + 1];
     case T_STRING:
       return stringAt(w & ~7);
@@ -152,15 +165,20 @@ export function read(s: number): unknown {
   }
 }
 
-// Writes `v`, which can be shared, to the slot at `s`.
-// (WriteSharedStructField, §2.1.4.)
+// Writes `v`, which can be shared, to the slot at `s`: a TypeError if the slot
+// is a typed field's and `v` is not a Number. (WriteSharedStructField, §2.1.4.)
 export function write(s: number, v: unknown) {
+  const w = I32[s >> 2];
   if (typeof v === 'number') {
     F64[(s >> 3) + 1] = v;
     // a reader that sees the word says Number reads this Number or an older
     // one: the word is stored (seq-cst, after the Float64) only as it changes
-    if (I32[s >> 2] !== W_NUMBER) A.store(I32, s >> 2, W_NUMBER);
-  } else A.store(I32, s >> 2, encode(v));
+    if (w !== W_NUMBER && w !== W_FLOAT) A.store(I32, s >> 2, W_NUMBER);
+  } else if (w === W_FLOAT)
+    throw new TypeError(
+      `structs: a field declared number can only hold a Number, not ${v === null ? 'null' : typeof v}`,
+    );
+  else A.store(I32, s >> 2, encode(v));
 }
 
 function encode(v: unknown): number {
@@ -185,6 +203,8 @@ export interface Shape {
   addr: number;
   keys: PropertyKey[];
   index: Map<PropertyKey, number>;
+  // the indexes of its typed fields, those declared `: number`
+  numbers: number[];
   // the Proxy target every struct of this shape shares: sealed, its fields
   // data properties that are writable and not configurable (the spec's
   // [[GetOwnProperty]] says not writable, but its [[DefineOwnProperty]]
@@ -204,11 +224,16 @@ function keyCode(k: PropertyKey) {
   return code;
 }
 
-// The shape of a struct with these keys (in order, without repeats).
-export function shapeFor(keys: PropertyKey[]): Shape {
+// The shape of a struct with these keys (in order, without repeats), those in
+// `numbers` typed. A typed key's code is marked with a '#': structs whose
+// fields differ only in their types have different shapes.
+export function shapeFor(
+  keys: PropertyKey[],
+  numbers: ReadonlySet<PropertyKey> = new Set(),
+): Shape {
   const code = keys
     .map(k => {
-      const c = keyCode(k);
+      const c = (numbers.has(k) ? '#' : '') + keyCode(k);
       return `${c.length}:${c}`;
     })
     .join('');
@@ -219,11 +244,16 @@ function shapeAt(addr: number): Shape {
   let shape = shapes.get(addr);
   if (shape) return shape;
   const code = stringAt(addr),
-    keys: PropertyKey[] = [];
+    keys: PropertyKey[] = [],
+    numbers: number[] = [];
   for (let i = 0; i < code.length;) {
     const colon = code.indexOf(':', i),
-      n = Number(code.slice(i, colon)),
-      c = code.slice(colon + 1, colon + 1 + n);
+      n = Number(code.slice(i, colon));
+    let c = code.slice(colon + 1, colon + 1 + n);
+    if (c[0] === '#') {
+      numbers.push(keys.length);
+      c = c.slice(1);
+    }
     keys.push(c[0] === 's' ? c.slice(1) : symbolOf(c));
     i = colon + 1 + n;
   }
@@ -236,7 +266,13 @@ function shapeAt(addr: number): Shape {
       configurable: false,
     });
   Object.preventExtensions(target);
-  shape = {addr, keys, index: new Map(keys.map((k, i) => [k, i])), target};
+  shape = {
+    addr,
+    keys,
+    index: new Map(keys.map((k, i) => [k, i])),
+    numbers,
+    target,
+  };
   shapes.set(addr, shape);
   return shape;
 }
