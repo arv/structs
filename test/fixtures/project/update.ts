@@ -185,6 +185,13 @@ function directive(c: Cell, s: string) {
   return c.s
 }
 
+// a string after a statement is no directive
+function notDirective(c: Cell) {
+  c.n++;
+  'not a directive';
+  return c.n;
+}
+
 // arrows with an expression body, and functions that keep no views
 function arrows(): unknown[] {
   const cells = new SharedArray<Cell>(new Cell(1), new Cell(2));
@@ -257,7 +264,7 @@ export const cases: Record<string, () => unknown> = {
   untyped,
   structural,
   arrows,
-  directive: () => [directive(new Cell(), 'x')],
+  directive: () => [directive(new Cell(), 'x'), notDirective(new Cell(4))],
   later: async () => {
     const c = new Cell(1);
     return [await later(c), c.n];

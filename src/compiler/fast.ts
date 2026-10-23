@@ -691,15 +691,17 @@ function siteOf(decl: Node, ms: MagicString): Site | null {
 
 // where a function's body begins: after its directives
 function bodyStart(body: Node) {
-  const directives = (body.statements as Node[]).filter(
-    (st, i, all) =>
-      st.kind === K.ExpressionStatement &&
-      st.expression.kind === K.StringLiteral &&
-      all.slice(0, i).every(p => p.kind === K.ExpressionStatement),
-  );
-  return directives.length
-    ? directives[directives.length - 1]!.end
-    : body.getStart() + 1;
+  // the string literal statements it begins with, up to any other
+  let last: Node | undefined;
+  for (const st of body.statements as Node[]) {
+    if (
+      st.kind !== K.ExpressionStatement ||
+      st.expression.kind !== K.StringLiteral
+    )
+      break;
+    last = st;
+  }
+  return last ? last.end : body.getStart() + 1;
 }
 
 // inserts `text` (statements) where a function's body begins: after a `;`
