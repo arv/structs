@@ -10,7 +10,7 @@ import {pages} from './lib/nav.ts';
 const site = fileURLToPath(new URL('.', import.meta.url));
 const repository = fileURLToPath(new URL('..', import.meta.url));
 const github =
-  /^https:\/\/github\.com\/arv\/threads\/(?:blob|tree)\/tc39-proposal\/(.+)$/;
+  /^https:\/\/github\.com\/arv\/structs\/(?:blob|tree)\/main\/(.+)$/;
 
 // Eleventy reads its configuration and the pages relative to the site
 const cwd = process.cwd();

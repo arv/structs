@@ -1,0 +1,20 @@
+{
+  // @arv/structs as npm installs it: the runtime (src/runtime) compiled to
+  // JavaScript with its declarations, in dist/ (build-dist.ts), since node
+  // strips no types under node_modules
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2024", "esnext.disposable", "dom"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "rootDir": "src/runtime",
+    "outDir": "dist",
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  // the API's declarations, written by hand, are read and copied, not emitted
+  "include": ["src/runtime/*.ts"]
+}

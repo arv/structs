@@ -1,4 +1,4 @@
-import {parent} from '../../src/runtime/agent.ts';
+import {parent} from '@arv/structs/agent';
 
 parent.onmessage = ({tally, n}) => {
   for (let i = 0; i < n; i++) {

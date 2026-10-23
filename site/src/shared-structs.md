@@ -28,7 +28,7 @@ agent cannot (a browser's main thread) is a TypeError, as the spec says
 (`AgentCanSuspend`).
 
 The code is in
-[src/runtime/heap.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/heap.ts)
+[src/runtime/heap.ts](https://github.com/arv/structs/blob/main/src/runtime/heap.ts)
 (the heap) and
-[src/runtime/shared.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/shared.ts)
+[src/runtime/shared.ts](https://github.com/arv/structs/blob/main/src/runtime/shared.ts)
 (slots, shapes and the Proxies).

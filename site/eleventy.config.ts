@@ -37,9 +37,9 @@ export default async function (config: Config) {
   config.addPlugin(EleventyHtmlBasePlugin);
 
   config.addGlobalData('sections', sections);
-  config.addGlobalData('repository', 'https://github.com/arv/threads');
+  config.addGlobalData('repository', 'https://github.com/arv/structs');
   // the branch these docs are of
-  config.addGlobalData('branch', 'tc39-proposal');
+  config.addGlobalData('branch', 'main');
   config.addFilter('pager', pager);
   config.addFilter('toc', toc);
   config.addPassthroughCopy({'src/assets': 'assets'});

@@ -1,21 +1,29 @@
 {
   "name": "@arv/structs",
-  "version": "0.0.0",
-  "private": true,
-  "description": "The TC39 structs proposal (structs, shared structs, Mutex and Condition) for JavaScript today: a runtime and a compiler for its syntax",
-  "homepage": "https://github.com/arv/threads/tree/tc39-proposal#readme",
+  "version": "0.1.0",
+  "description": "The TC39 structs proposal for JavaScript today: structs, shared structs, SharedArray, Atomics.Mutex and Atomics.Condition, on Web Workers and worker_threads that share memory",
+  "keywords": [
+    "Atomics",
+    "SharedArrayBuffer",
+    "shared structs",
+    "structs",
+    "tc39",
+    "threads",
+    "workers"
+  ],
+  "homepage": "https://github.com/arv/structs#readme",
   "bugs": {
-    "url": "https://github.com/arv/threads/issues"
+    "url": "https://github.com/arv/structs/issues"
   },
   "license": "Apache-2.0",
   "author": "Erik Arvidsson",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/arv/threads.git"
+    "url": "git+https://github.com/arv/structs.git"
   },
-  "bin": {
-    "structs": "./src/compiler/cli.ts"
-  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -27,21 +35,36 @@
       "types": "./src/runtime/agent-api.d.ts",
       "default": "./src/runtime/agent.ts"
     },
-    "./compiler": "./src/compiler/index.ts",
-    "./register": "./src/register.ts",
     "./package.json": "./package.json"
   },
-  "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/api.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./runtime": {
+        "types": "./dist/emit.d.ts",
+        "default": "./dist/emit.js"
+      },
+      "./agent": {
+        "types": "./dist/agent-api.d.ts",
+        "default": "./dist/agent.js"
+      },
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "provenance": true
   },
-  "dependencies": {
-    "@jridgewell/sourcemap-codec": "^1.6.0",
-    "magic-string": "^1.4.3",
-    "oxc-transform": "^0.153.0",
-    "typescript": "7.1.0-dev.20261011.1"
+  "scripts": {
+    "build-dist": "node build-dist.ts",
+    "prepack": "node build-dist.ts",
+    "test-pack": "node test-pack.ts",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "typescript": "7.1.0-dev.20261011.1",
     "vite-plus": "catalog:"
   },
   "engines": {

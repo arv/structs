@@ -218,7 +218,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
         if (!f || f.L !== L || !direct(parent)) only = false;
       } else node.forEachChild(child => visit(child as Node));
     };
-    visit(scopeOf(decl));
+    visit(blockOf(decl));
     return only;
   };
   const layoutName = (keys: string[]) => {
@@ -471,6 +471,15 @@ function bodyStart(body: Node) {
 
 const hasModifier = (node: Node, kind: K) =>
   !!node.modifiers?.some((m: Node) => m.kind === kind);
+
+// the block a let or const declaration is in, which is its scope (a for
+// statement's, for one in its head)
+function blockOf(decl: Node): Node {
+  const statement = (decl.parent as Node).parent as Node;
+  return statement.kind === K.VariableStatement
+    ? (statement.parent as Node)
+    : statement;
+}
 
 // the function, or the module, a declaration is in
 function scopeOf(node: Node): Node {

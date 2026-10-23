@@ -47,3 +47,18 @@ export async function later(arr: SharedArray<Node>): Promise<number> {
   for (let i = 0; i < arr.length; i++) sum += arr[i]!.x + 1;
   return sum;
 }
+
+// two blocks, each its own `p`: the one used as itself does not keep the
+// other from being an address
+export function twice(arr: SharedArray<Node>): number {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i]!;
+    if (p === arr[0]) sum++;
+  }
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i]!;
+    sum += p.x;
+  }
+  return sum;
+}

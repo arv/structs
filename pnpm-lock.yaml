@@ -205,23 +205,13 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      '@jridgewell/sourcemap-codec':
-        specifier: ^1.6.0
-        version: 1.6.0
-      magic-string:
-        specifier: ^1.4.3
-        version: 1.4.3
-      oxc-transform:
-        specifier: ^0.153.0
-        version: 0.153.0
-      typescript:
-        specifier: 7.1.0-dev.20261011.1
-        version: 7.1.0-dev.20261011.1
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      typescript:
+        specifier: 7.1.0-dev.20261011.1
+        version: 7.1.0-dev.20261011.1
       vite-plus:
         specifier: 'catalog:'
         version: 1.1.0(@types/node@24.19.2)(@vitest/ui@5.0.3)(typescript@7.1.0-dev.20261011.1)
@@ -289,6 +279,28 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 1.1.0(@types/node@24.19.2)(@vitest/ui@5.0.3)(typescript@7.1.0-dev.20261011.1)
+
+  src/compiler:
+    dependencies:
+      '@jridgewell/sourcemap-codec':
+        specifier: ^1.6.0
+        version: 1.6.0
+      magic-string:
+        specifier: ^1.4.3
+        version: 1.4.3
+      oxc-transform:
+        specifier: ^0.153.0
+        version: 0.153.0
+      typescript:
+        specifier: 7.1.0-dev.20261011.1
+        version: 7.1.0-dev.20261011.1
+    devDependencies:
+      '@arv/structs':
+        specifier: workspace:^
+        version: link:../..
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
 
 packages:
 

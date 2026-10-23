@@ -1,4 +1,4 @@
-# Structs
+# @arv/structs
 
 An implementation of the TC39
 [structs proposal](https://tc39.es/proposal-structs/) (Stage 2, the December
@@ -26,9 +26,10 @@ worker.postMessage(counter); // the same object in the worker, not a copy
 You can write programs and run them in your browser, with the compiled
 JavaScript side by side, in [the playground](playground).
 
-> **Status: experimental.** This branch (`tc39-proposal`) replaces the threads
-> library on `main` with something much smaller that stays as close to the spec
-> as JavaScript allows. See [Where it differs](#where-it-differs-from-the-spec).
+> **Status: experimental.** This grew out of
+> [arv/threads](https://github.com/arv/threads), as something much smaller that
+> stays as close to the spec as JavaScript allows. See
+> [Where it differs](#where-it-differs-from-the-spec).
 
 ## What's in it
 
@@ -42,58 +43,60 @@ JavaScript side by side, in [the playground](playground).
 | §4 `Atomics.Mutex`, `UnlockToken` | Futex-style locks on heap words; tokens work with `using`        |
 | §4 `Atomics.Condition`            | `wait`, `waitFor` (with a timeout and a predicate), `notify`     |
 
-Importing the runtime ([src/runtime/index.ts](src/runtime/index.ts)) installs
-the globals. The compiler's output imports it too.
+Importing `@arv/structs` installs the globals. The compiler's output imports
+`@arv/structs/runtime`, which does it too.
+
+## Installing it
+
+There are two packages: the runtime, and the compiler for the proposal's syntax,
+which you need only to build or run code that has it.
+
+```bash
+npm install @arv/structs
+```
+
+```bash
+npm install --save-dev @arv/structs-compiler
+```
 
 ## Running it
 
-Clone the repository, its `tc39-proposal` branch, and install what it needs:
+In Node, the compiler's load hook compiles struct syntax as modules load, in
+workers too:
 
 ```bash
-git clone --branch tc39-proposal https://github.com/arv/threads.git
+node --import @arv/structs-compiler/register main.js
+```
+
+The `structs` command compiles a single file, or a whole TypeScript project with
+type checking:
+
+```bash
+npx structs transpile main.js
 ```
 
 ```bash
-cd threads && pnpm install
-```
-
-In Node, the register hook compiles struct syntax as modules load, in workers
-too:
-
-```bash
-node --import ./src/register.ts examples/counter/main.js
-```
-
-The CLI compiles a single file, or a whole TypeScript project with type
-checking:
-
-```bash
-node src/compiler/cli.ts transpile examples/counter/main.js
-```
-
-```bash
-node src/compiler/cli.ts compile -p examples/nbody/tsconfig.json
+npx structs compile -p tsconfig.json
 ```
 
 From code, use `transpile(source, {fileName})` and `compile(tsconfigPath)` from
-[src/compiler/index.ts](src/compiler/index.ts).
+`@arv/structs-compiler`.
 
 ### Agents
 
-The proposal leaves sharing across agents to the host. The agent module
-([src/runtime/agent.ts](src/runtime/agent.ts)) starts workers that attach to the
-same heap: `worker_threads` in Node, module Web Workers in a browser. Messages
-sent through it carry shared objects as themselves, and everything else as
-`postMessage` copies it.
+The proposal leaves sharing across agents to the host. `@arv/structs/agent`
+starts workers that attach to the same heap: `worker_threads` in Node, module
+Web Workers in a browser. Messages sent through it carry shared objects as
+themselves, and everything else as `postMessage` copies it.
 
 ```js
-// examples/counter/main.js
-import {startWorker} from '../../src/runtime/agent.ts';
+// main.js
+import {startWorker} from '@arv/structs/agent';
 const w = startWorker(new URL('./worker.js', import.meta.url));
 w.postMessage({tally, n: 1000});
 
-// examples/counter/worker.js
-import {parent} from '../../src/runtime/agent.ts';
+// worker.js
+import {parent} from '@arv/structs/agent';
 parent.onmessage = ({tally, n}) => {
   /* tally is the main thread's struct */
 };
@@ -103,7 +106,9 @@ parent.onmessage = ({tally, n}) => {
 worker and settles with what it returns. A module can run its own functions with
 `run(import.meta.url, ...)`. The workers are a pool: one that returns waits for
 the next call, with the code V8 has optimized in it, so a program that runs its
-work again finds its workers warm.
+work again finds its workers warm. Each worker imports the module, so its
+top-level code runs there too: keep what only the main thread does in a
+function, or behind `if (!parent)`.
 
 [examples/counter](examples/counter) has four workers counting to a million
 under a Mutex, with a Condition saying when they are done.
@@ -278,7 +283,7 @@ fields as `undefined`. Spread it instead: `console.log({...s})`.
 | [src/compiler/transform.ts](src/compiler/transform.ts) | Lowers them                                              |
 | [src/compiler/project.ts](src/compiler/project.ts)     | TypeScript projects: type checking                       |
 | [src/compiler/fast.ts](src/compiler/fast.ts)           | Direct field access where the types allow it             |
-| [src/register.ts](src/register.ts)                     | Node's load hook                                         |
+| [src/compiler/register.ts](src/compiler/register.ts)   | Node's load hook                                         |
 | [playground/](playground)                              | The playground: edit, compile and run in the browser     |
 | [site/](site)                                          | These docs as a site, built by Eleventy                  |
 
@@ -287,8 +292,16 @@ edits with magic-string, and strips types with OXC.
 
 ## Development
 
+The repository is a pnpm workspace on [Vite+](https://viteplus.dev) (`vp`): the
+runtime at the root, the compiler in [src/compiler/](src/compiler), the
+playground and these docs in folders of their own.
+
 ```bash
-pnpm install
+git clone https://github.com/arv/structs.git
+```
+
+```bash
+cd structs && pnpm install
 ```
 
 ```bash
@@ -300,7 +313,16 @@ vp test
 ```
 
 `vp check` formats, lints and type checks. `vp test` runs the tests in
-[test/](test), including workers that share the heap.
+[test/](test), including workers that share the heap. `vp run test-pack` packs
+both packages, installs them with npm in a project of its own, and uses them
+there. The examples run from the repository with the load hook's source:
+
+```bash
+node --import ./src/compiler/register.ts examples/counter/main.js
+```
+
+Pushing a version tag (`v0.1.0`) publishes both packages to npm
+([release.yml](.github/workflows/release.yml)).
 
 > **Disclaimer:** This project was mostly built by iterating with the help of
 > Claude Code (Claude Opus 5.5).

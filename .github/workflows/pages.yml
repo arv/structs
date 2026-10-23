@@ -1,6 +1,6 @@
 # The docs and the playground on GitHub Pages: the docs (site/) at the root and
-# the playground under /playground/ (arv.github.io/threads/, or
-# threads.arv.tools/ once the repository's Pages settings name that domain): on
+# the playground under /playground/ (arv.github.io/structs/, or a domain of
+# its own once the repository's Pages settings name one): on
 # every push to main, and by hand. It builds tsgo in WebAssembly for the page,
 # which compiles the programs with @arv/structs's compiler on it: stock
 # TypeScript, at the commit the compiler's typescript package was built from
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # the site's path: /threads on arv.github.io, nothing on a custom domain
+      # the site's path: /structs on arv.github.io, nothing on a custom domain
       - id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       # the Go TypeScript's go.mod asks for (a newer one, it downloads)

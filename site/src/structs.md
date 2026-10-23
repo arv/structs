@@ -8,7 +8,7 @@ description:
 A `struct` is a class with a different construction. The compiler keeps the
 class, which gives the struct its scope, private names and static elements. It
 moves the fields and the constructor into the runtime's hands
-([src/runtime/structs.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/structs.ts)
+([src/runtime/structs.ts](https://github.com/arv/structs/blob/main/src/runtime/structs.ts)
 shows the shape). An instance is made the spec's way (§1.1.6):
 
 1. All of its fields, the base struct's first, are defined as `undefined`, and

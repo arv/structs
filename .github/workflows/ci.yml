@@ -1,5 +1,6 @@
 # On every push to main and every pull request: vp check (formatting, lint and
-# types), vp test (the runtime, the compiler, and workers sharing the heap),
+# types), vp test (the runtime, the compiler, and workers sharing the heap), the
+# packages as npm installs them,
 # the examples, compiled and run on node, and the playground in Chrome
 name: CI
 
@@ -37,10 +38,13 @@ jobs:
           node-version: '24'
           cache: true
       - run: vp test
+      # the packages, packed and installed with npm in a project of their own,
+      # and used there: the load hook, the command line, the types
+      - run: vp run test-pack
       # four workers count to a million under a Mutex
       - name: examples/counter
         run: |
-          out=$(node --import ./src/register.ts examples/counter/main.js)
+          out=$(node --import ./src/compiler/register.ts examples/counter/main.js)
           echo "$out"
           test "$out" = 'count: 1000000 (expected 1000000)'
       # N-body reaches the reference energy, with direct field access and

@@ -8,7 +8,7 @@ description:
 The [playground](/playground/) is a page where you write programs in the
 proposal's syntax, see what they compile to, and run them on Web Workers that
 share memory. Its source is in
-[playground/](https://github.com/arv/threads/tree/tc39-proposal/playground).
+[playground/](https://github.com/arv/structs/tree/main/playground).
 
 ## Using the Playground
 

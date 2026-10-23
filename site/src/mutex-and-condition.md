@@ -30,6 +30,6 @@ shared struct Queue {
 
 `Atomics.load`, `store`, `exchange` and `compareExchange` also take a shared
 struct and a field name (§2.3), for lock-free code on its fields. The code is in
-[src/runtime/sync.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/sync.ts)
+[src/runtime/sync.ts](https://github.com/arv/structs/blob/main/src/runtime/sync.ts)
 and
-[src/runtime/atomics.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/atomics.ts).
+[src/runtime/atomics.ts](https://github.com/arv/structs/blob/main/src/runtime/atomics.ts).

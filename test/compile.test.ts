@@ -82,6 +82,10 @@ describe('compile', () => {
     expect(heap).toMatch(
       /const q = arr\[0\], \$a\d+_\$struct = \$struct\.addr\(q, /,
     );
+    // a `p` of another block, used as itself, is another binding
+    expect(heap).toMatch(
+      /function twice[\s\S]*?const p = arr\[i\];[\s\S]*?\$struct\.elem\(\$a\d+_\$struct, i, \$L\d_\$struct\), p = /,
+    );
     // an async function reads the runtime's views
     expect(heap).toMatch(/async function later[\s\S]*?\$struct\.I32\[/);
   });
@@ -111,6 +115,7 @@ describe('compile', () => {
     expect(heap.sumX(arr)).toBe(0 + 1 + 2);
     expect(heap.firstY(arr)).toBe(0);
     expect(await heap.later(arr)).toBe(6);
+    expect(heap.twice(arr)).toBe(1 + 0 + 1 + 2);
     // the slow paths: an element that is no Node, a next that is null
     const holes = new SharedArray(2);
     expect(() => heap.sumX(holes)).toThrow(TypeError);

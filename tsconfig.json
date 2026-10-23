@@ -17,6 +17,8 @@
     "skipLibCheck": true
   },
   "include": [
+    "build-dist.ts",
+    "test-pack.ts",
     "src/**/*.ts",
     "test/**/*.ts",
     "vite.config.ts",

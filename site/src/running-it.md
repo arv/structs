@@ -1,37 +1,38 @@
 ---
-title: Running It
+title: Installing and Running It
+navTitle: Installing and Running
 description:
   Run struct syntax in Node with the register hook, compile files and TypeScript
   projects with the CLI, or call the compiler from code.
 ---
 
-There is no package to install: clone the repository, its `tc39-proposal`
-branch, and install what it needs:
+There are two packages: the runtime, and the compiler for the proposal's syntax,
+which you need only to build or run code that has it.
 
 ```bash
-git clone --branch tc39-proposal https://github.com/arv/threads.git
+npm install @arv/structs
 ```
 
 ```bash
-cd threads && pnpm install
+npm install --save-dev @arv/structs-compiler
 ```
 
-In Node, the register hook compiles struct syntax as modules load, in workers
-too:
+In Node, the compiler's load hook compiles struct syntax as modules load, in
+workers too:
 
 ```bash
-node --import ./src/register.ts examples/counter/main.js
+node --import @arv/structs-compiler/register main.js
 ```
 
-The CLI compiles a single file, or a whole TypeScript project with type
-checking:
+The `structs` command compiles a single file, or a whole TypeScript project with
+type checking:
 
 ```bash
-node src/compiler/cli.ts transpile examples/counter/main.js
+npx structs transpile main.js
 ```
 
 ```bash
-node src/compiler/cli.ts compile -p examples/nbody/tsconfig.json
+npx structs compile -p tsconfig.json
 ```
 
 `compile` writes each file to the tsconfig's `outDir` (or `build/`), with its
@@ -39,7 +40,7 @@ source map. `--no-fast` leaves every shared struct field access to the Proxy
 (see [TypeScript](/typescript/)), and `--typescript` keeps the types.
 
 From code, use `transpile(source, {fileName})` and `compile(tsconfigPath)` from
-[src/compiler/index.ts](https://github.com/arv/threads/blob/tc39-proposal/src/compiler/index.ts).
+`@arv/structs-compiler`.
 
 ::: note The compiler runs on TypeScript 7
 It parses with TypeScript 7's API, the same parser for JavaScript and for

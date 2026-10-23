@@ -10,3 +10,6 @@ node_modules/
 /playground/public/compiler
 # the docs site's build (vp run structs-site#build)
 /site/dist
+# the packages as pnpm pack builds them (prepack)
+/dist
+/src/compiler/dist

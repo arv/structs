@@ -41,8 +41,7 @@ const bx =
     : $F[($a1 >> 3) + 3];
 ```
 
-On
-[examples/nbody](https://github.com/arv/threads/tree/tc39-proposal/examples/nbody)
+On [examples/nbody](https://github.com/arv/structs/tree/main/examples/nbody)
 (1,000,000 steps, Node 24, Apple Silicon), which keeps its bodies in a
 `SharedArray<Body>`, this takes 0.14 s. The same program on plain JavaScript
 objects takes 0.045 s, and through the Proxy alone 7.5 s. Most of what is left
@@ -50,7 +49,7 @@ is the check of each slot's tag: a field may hold any shareable value, so a read
 checks that it holds a Number.
 
 The code is in
-[src/compiler/project.ts](https://github.com/arv/threads/blob/tc39-proposal/src/compiler/project.ts)
+[src/compiler/project.ts](https://github.com/arv/structs/blob/main/src/compiler/project.ts)
 (the type check) and
-[src/compiler/fast.ts](https://github.com/arv/threads/blob/tc39-proposal/src/compiler/fast.ts)
+[src/compiler/fast.ts](https://github.com/arv/structs/blob/main/src/compiler/fast.ts)
 (the direct access).

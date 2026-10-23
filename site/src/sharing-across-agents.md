@@ -5,20 +5,19 @@ description:
   objects as themselves.
 ---
 
-The proposal leaves sharing across agents to the host. The agent module
-([src/runtime/agent.ts](https://github.com/arv/threads/blob/tc39-proposal/src/runtime/agent.ts))
+The proposal leaves sharing across agents to the host. `@arv/structs/agent`
 starts workers that attach to the same heap: `worker_threads` in Node, module
 Web Workers in a browser. Messages sent through it carry shared objects as
 themselves, and everything else as `postMessage` copies it.
 
 ```js
-// examples/counter/main.js
-import {startWorker} from '../../src/runtime/agent.ts';
+// main.js
+import {startWorker} from '@arv/structs/agent';
 const w = startWorker(new URL('./worker.js', import.meta.url));
 w.postMessage({tally, n: 1000});
 
-// examples/counter/worker.js
-import {parent} from '../../src/runtime/agent.ts';
+// worker.js
+import {parent} from '@arv/structs/agent';
 parent.onmessage = ({tally, n}) => {
   /* tally is the main thread's struct */
 };
@@ -28,8 +27,10 @@ parent.onmessage = ({tally, n}) => {
 worker and settles with what it returns. A module can run its own functions with
 `run(import.meta.url, ...)`. The workers are a pool: one that returns waits for
 the next call, with the code V8 has optimized in it, so a program that runs its
-work again finds its workers warm.
+work again finds its workers warm. Each worker imports the module, so its
+top-level code runs there too: keep what only the main thread does in a
+function, or behind `if (!parent)`.
 
-[examples/counter](https://github.com/arv/threads/tree/tc39-proposal/examples/counter)
+[examples/counter](https://github.com/arv/structs/tree/main/examples/counter)
 has four workers counting to a million under a Mutex, with a Condition saying
 when they are done.

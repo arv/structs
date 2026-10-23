@@ -1,0 +1,19 @@
+{
+  // @arv/structs-compiler as npm installs it: the compiler compiled to
+  // JavaScript with its declarations, in dist/ (build-dist.ts)
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "lib": ["es2024", "dom"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["*.ts"],
+  "exclude": ["build-dist.ts"]
+}
