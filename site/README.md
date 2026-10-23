@@ -19,8 +19,9 @@ vp run structs-site#build   # The docs site's static build, into site/dist/
 
 `BASE` names the path the site is served from, `/` by default. The Pages
 workflow ([pages.yml](../.github/workflows/pages.yml)) builds it for the path
-the repository's Pages settings give it: `/structs/` on arv.github.io, or `/` on
-a domain of its own. Every absolute link in the pages gets that path in front.
+the repository's Pages settings give it: `/` on its domain, structs.arv.tools
+(`/structs/` on arv.github.io, without one). Every absolute link in the pages
+gets that path in front.
 
 `vp test` checks the site as well:
 

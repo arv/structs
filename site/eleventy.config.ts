@@ -1,6 +1,6 @@
 // The docs site: Eleventy turns the Markdown in src/ into static pages in
 // dist/, in the layout of src/_includes/doc.njk. `vp run build` builds it for
-// the site's root, and BASE names another path (/threads/ on arv.github.io,
+// the site's root, and BASE names another path (/structs/ on arv.github.io,
 // which the Pages workflow passes); `vp run dev` serves it, rebuilding as you
 // edit. The playground is built apart (../playground) and published beside it,
 // at /playground/

@@ -1,6 +1,6 @@
 # The docs and the playground on GitHub Pages: the docs (site/) at the root and
-# the playground under /playground/ (arv.github.io/structs/, or a domain of
-# its own once the repository's Pages settings name one): on
+# the playground under /playground/ (structs.arv.tools, the domain the
+# repository's Pages settings name; arv.github.io/structs/ without one): on
 # every push to main, and by hand. It builds tsgo in WebAssembly for the page,
 # which compiles the programs with @arv/structs's compiler on it: stock
 # TypeScript, at the commit the compiler's typescript package was built from
