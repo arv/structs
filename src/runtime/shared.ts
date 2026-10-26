@@ -110,15 +110,15 @@ function newHandle(a: number): object {
 // A new shared object of `kind`, `slots` slots long, its handle.
 export function create(kind: number, shape: number, slots: number) {
   requireHeap();
-  const a = allocObject(HEAD + slots * SLOT);
-  I32[a >> 2] = kind;
-  I32[(a >> 2) + 1] = shape;
-  if (kind === K_STRUCT) {
+  const numbers = kind === K_STRUCT ? shapeAt(shape).numbers : [];
+  const a = allocObject(HEAD + slots * SLOT, a => {
+    I32[a >> 2] = kind;
+    I32[(a >> 2) + 1] = shape;
+    if (kind !== K_STRUCT) return;
     I32[(a >> 2) + 2] = slots;
     // its typed fields hold 0, a Number, from the start
-    for (const i of shapeAt(shape).numbers)
-      I32[(a + HEAD + i * SLOT) >> 2] = W_FLOAT;
-  }
+    for (const i of numbers) I32[(a + HEAD + i * SLOT) >> 2] = W_FLOAT;
+  });
   return newHandle(a);
 }
 

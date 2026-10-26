@@ -307,12 +307,15 @@ export function rootSlot(w: number) {
 
 // A new shared object, `bytes` long: made one of this agent's roots before
 // any collection can see it.
-export function allocObject(bytes: number) {
+// `init` writes its header, before any collection can see it (and must not
+// allocate).
+export function allocObject(bytes: number, init: (a: number) => void) {
   const r = me();
   roomForRoot(r);
   lock(C_ALLOC_LOCK);
   try {
     const a = allocLocked(bytes, B_OBJECT);
+    init(a);
     insert(r, a);
     return a;
   } finally {
