@@ -776,12 +776,16 @@ function blockOf(decl: Node): Node {
 // Proxy (elem, ref): the collector keeps its struct until the turn ends
 // (src/runtime/gc.ts), so only in a function that is neither async nor a
 // generator, with a block body (whose views() begins the turn), not at the
-// top of a module, which may await
+// top of a module, which may await; and in its body, not in a parameter's
+// default, which runs before views()
 function mayHoldRaw(node: Node) {
   const fn = scopeOf(node);
+  const body = fn.body as Node | undefined;
   return !(
     fn.kind === K.SourceFile ||
-    (fn.body as Node | undefined)?.kind !== K.Block ||
+    body?.kind !== K.Block ||
+    node.pos < body.pos ||
+    node.end > body.end ||
     fn.asteriskToken ||
     hasModifier(fn, K.AsyncKeyword)
   );
