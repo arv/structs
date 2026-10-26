@@ -136,7 +136,9 @@ interface Pooled extends Agent {
 }
 
 // `record` is the worker's agent record (gc.ts): retired as it ends, in Node.
-// (A browser does not say when a worker ends: what it held stays held.)
+// (A browser does not say when a worker ends: one is retired a moment after
+// it is terminated, by which time it runs no more; what one that ends itself,
+// with close(), held stays held.)
 function nodeAgent(
   w: import('node:worker_threads').Worker,
   record: number,
@@ -162,13 +164,19 @@ function nodeAgent(
   return agent;
 }
 
+// how long a terminated browser worker may still run, in milliseconds
+const STOPPED = 1000;
+
 function webAgent(w: Worker, record: number): Pooled {
   w.postMessage({[HEAP]: SAB, record});
   const agent: Pooled = {
     postMessage: m => send(e => w.postMessage(e), m),
     onmessage: null,
     onerror: null,
-    terminate: () => w.terminate(),
+    terminate: () => {
+      w.terminate();
+      setTimeout(() => retire(record), STOPPED);
+    },
     exited: new Promise(() => {}),
     hold: () => {},
   };

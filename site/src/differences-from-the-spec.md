@@ -12,7 +12,7 @@ an oversight, this implementation does something else:
   can reach it, but only after each agent that had a Proxy on it has returned to
   its event loop and collected the Proxy. Interned strings (and so shapes,
   BigInts and symbols) are never freed. A browser does not say when a worker
-  ends, so what a worker held there stays held.
+  ends, so what a browser worker that ends itself (`close()`) held stays held.
 - **Symbols.** Only registered (`Symbol.for`) and well-known symbols can be
   shared, as values or as field keys, because other agents don't have the
   others. `Reflect.canBeShared` returns false for the rest.
