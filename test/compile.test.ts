@@ -35,8 +35,10 @@ describe('compile', () => {
     // a parameter that is assigned: checked at each access
     expect(main).toMatch(/b = \$struct\.get\(b, \$L\d_\$struct, 4\)/);
     expect(main).toMatch(/\$struct\.getNumber\(b, \$L\d_\$struct, 0\)/);
-    // compound assignment stays a property access
-    expect(main).toContain('b.x += 1');
+    // a compound assignment: the slot read, and written in place
+    expect(main).toMatch(
+      /(\$t\d+_\$struct) = \((\$a\d_\$struct) < 0 \|\| \$I_\$struct\[\(\2 >> 2\) \+ 4\] !== 1 \? \$struct\.getNumberAt\(b, \2, \$L\d_\$struct, 0\) : \$F_\$struct\[\(\2 >> 3\) \+ 3\]\) \+ 1, \2 < 0 \|\| typeof \1 !== "number" \|\| [^?]+\? \$struct\.setAt\(b, \2, \$L\d_\$struct, 0, \1\) : \$F_\$struct\[\(\2 >> 3\) \+ 3\] = \1;/,
+    );
     // an unshared struct is an ordinary object: nothing to make direct
     expect(code('shapes.ts')).toContain('++this.count');
   });
@@ -62,6 +64,30 @@ describe('compile', () => {
     );
     // a let that is assigned
     expect(hoist).toMatch(/return \$struct\.getNumber\(v, \$L\d_\$struct, 0\)/);
+  });
+
+  test('a field declared number is read and written with no check of its word', () => {
+    const typed = code('typed.ts');
+    // the layout lists its typed fields' indexes
+    expect(typed).toMatch(
+      /\$struct\.layout\(\[\s*"x",\s*"label"\s*\], \[\s*0\s*\]\)/,
+    );
+    expect(typed).toMatch(/key: "x",\s*value: 0,\s*number: true/);
+    expect(typed).toMatch(
+      /return (\$a\d_\$struct) < 0 \? \$struct\.getAt\(p, \1, \$L\d_\$struct, 0\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\];/,
+    );
+    // a Number written in the heap's views, anything else to the runtime
+    expect(typed).toMatch(
+      /\$v_\$struct = x, (\$a\d_\$struct) < 0 \|\| typeof \$v_\$struct !== "number" \? \$struct\.setAt\(p, \1, \$L\d_\$struct, 0, \$v_\$struct\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\] = \$v_\$struct;/,
+    );
+    // compound: the same, read and written with no check of the word
+    const bump = typed.slice(typed.indexOf('function bump'));
+    expect(bump).toMatch(/\$F_\$struct\[/);
+    expect(bump).not.toMatch(/\$I_\$struct\[/);
+    // a subclass's typed fields, its parent's untyped ones
+    expect(code('main.ts')).toMatch(
+      /\$struct\.layout\(\[\s*"x",\s*"y",\s*"mass",\s*"name",\s*"next"\s*\], \[\s*2\s*\]\)/,
+    );
   });
 
   test('a struct from a SharedArray or a field is its address, with no Proxy', () => {
@@ -167,6 +193,107 @@ describe('compile', () => {
     expect(h.dot(a, b)).toBe(7 * 6 + 2 * 8);
     expect(() => h.put(a, {})).toThrow(TypeError);
     expect(a.x).toBe(7);
+
+    const t = await import(pathToFileURL(out + 'typed.js').href);
+    const p = new t.P();
+    expect(t.put(p, 1.5)).toBe(1.5);
+    expect(t.get(p)).toBe(1.5);
+    expect(p.x).toBe(1.5);
+    expect(t.getAssigned(p)).toBe(1.5);
+    // the types do not hold: a typed field still only takes a Number
+    expect(() => t.put(p, 'one')).toThrow(TypeError);
+    expect(() => t.put(p, undefined)).toThrow(TypeError);
+    expect(t.get(p)).toBe(1.5);
+    // a Vec has another layout, a plain object none: read as written
+    expect(t.get(new Vec(3, 4))).toBe(3);
+    expect(t.getAssigned(new Vec(3, 4))).toBe(3);
+    expect(t.put({x: 0}, 2)).toBe(2);
+    expect(t.put({x: 0}, 'two')).toBe('two');
+    // Body's mass is typed, its x (Vec's) is not
+    const body = new Body(1, 2);
+    body.x = 'x';
+    expect(body.x).toBe('x');
+    expect(() => {
+      body.mass = 'heavy';
+    }).toThrow(TypeError);
+    // compound: the same
+    expect(t.bump(p, 1)).toBe(2.5);
+    expect(p.x).toBe(3.5);
+    // a plain object: as plain JavaScript does it
+    const o = {x: 'a' as any};
+    expect(t.bump(o, 1)).toBeNaN();
+    expect(o.x).toBeNaN();
+  });
+
+  test('compound assignments and updates: the slot, with no Proxy', () => {
+    const update = code('update.ts');
+    // none is left a property access, but where its temporaries have no
+    // scope: a parameter's default, a class field's initializer
+    expect(
+      update.match(
+        /\.(n|s|big|v|next) *(\+\+|--|[-+*/%&|^<>?]+=)|(\+\+|--)[\w.()[\]]*\.(n|s|big|v)\b/g,
+      ),
+    ).toEqual(['.n++', '.n++']);
+    expect(update).toContain('function defaults(c, k = c.n++)');
+    expect(update).toContain('first = Holder.top.n++;');
+    // c.n++: the old value, after ToNumeric, kept in a temporary of its own
+    expect(update).toMatch(
+      /\((\$t\d+_\$struct) = \$a\d+_\$struct < 0 [^;]*?\$struct\.getNumberAt\(c, [^;]*?, (\$t\d+_\$struct) = \1\+\+, [^;]*?\$struct\.setAt\(c, \$a\d+_\$struct, \$L\d_\$struct, 0, \1\) : [^;]*? = \1, \2\)/,
+    );
+    // c.v ??= f('first'): written only if it is null or undefined
+    expect(update).toMatch(
+      /\$struct\.getAt\(c, \$a\d+_\$struct, \$L\d_\$struct, 3\) \?\? \((\$t\d+_\$struct) = f\("first"\), \$struct\.setAt\(c, \$a\d+_\$struct, \$L\d_\$struct, 3, \1\)\)/,
+    );
+    // an arrow's expression body, made a block for its temporaries
+    expect(update).toMatch(
+      /const inc = \(c\) => \{\s*let \$t\d+_\$struct, [^;]+;\s*return /,
+    );
+  });
+
+  test('compound assignments and updates do as the Proxy does', async () => {
+    const both = compile(fixture('project'), {
+      runtime: RUNTIME,
+      alsoWithoutFast: true,
+    });
+    const load = async (dir: string, fast: boolean) => {
+      const out = fileURLToPath(new URL(`./.out/${dir}/`, import.meta.url));
+      mkdirSync(out, {recursive: true});
+      for (const f of both.files)
+        writeFileSync(
+          out + f.fileName.split('/').pop()!.replace(/\.ts$/, '.js'),
+          fast ? f.code : f.withoutFast!.code,
+        );
+      return import(pathToFileURL(out + 'update.js').href);
+    };
+    const fast = await load('update-fast', true);
+    const proxy = await load('update-proxy', false);
+    for (const name of Object.keys(proxy.cases)) {
+      const expected = await proxy.cases[name]();
+      expect([name, await fast.cases[name]()]).toEqual([name, expected]);
+    }
+    expect(await fast.cases.nested()).toEqual(await proxy.cases.nested());
+    // a source binding named as the compiler's temporaries would be
+    expect(code('names.ts')).toMatch(/\$t\d+_\$struct_2 = /);
+    const names = await import(
+      pathToFileURL(
+        fileURLToPath(new URL('./.out/update-fast/names.js', import.meta.url)),
+      ).href
+    );
+    const {Vec} = await import(
+      pathToFileURL(
+        fileURLToPath(new URL('./.out/update-fast/shapes.js', import.meta.url)),
+      ).href
+    );
+    expect(names.bump(new Vec(1, 2))).toEqual([11, 3, 60]);
+    // each receiver evaluated once, before the value
+    expect(await proxy.cases.receivers()).toEqual([
+      ['pick 11', 'pick 3'],
+      2,
+      3,
+      122,
+      2,
+      2,
+    ]);
   });
 
   test('type errors and struct errors', () => {

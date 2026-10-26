@@ -40,6 +40,11 @@ an oversight, this implementation does something else:
   constructor. In the spec their home object is null, and `super.x` throws.
 - **Mutexes aren't fair.** A woken waiter competes with newcomers, where the
   spec has a waiter queue.
+- **Fields declared `: number` only hold Numbers.** The spec's fields are
+  untyped. Here a shared struct field declared `: number` in TypeScript is typed
+  (see [Shared structs](/shared-structs/)): writing it anything but a Number
+  throws a TypeError rather than coercing, which would hide the mistake (`"1"`,
+  `undefined`), and before its initializer runs it holds 0, not `undefined`.
 
 ::: note Logging a shared struct in Node
 Node's `console.log` shows a Proxy's target, so it prints a shared struct's

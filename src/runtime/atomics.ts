@@ -14,6 +14,7 @@ import {
   K_ARRAY,
   K_STRUCT,
   read,
+  requireFits,
   requireShareable,
   write,
 } from './shared.ts';
@@ -87,6 +88,8 @@ function compareExchange(o: any, field: any, expected: any, replacement: any) {
   const s = slotOf(o, field);
   if (s < 0) return original.compareExchange(o, field, expected, replacement);
   requireShareable(replacement);
+  // whether or not it is written
+  requireFits(s, replacement);
   return locked(s, () => {
     const old = read(s);
     if (Object.is(old, expected)) write(s, replacement);

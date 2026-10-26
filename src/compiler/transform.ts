@@ -26,6 +26,8 @@ export interface StructInfo {
   // the instance fields' keys, the parent's first, when all are known: a
   // computed key makes it undefined
   ownKeys: string[] | undefined;
+  // those declared `: number` (a shared struct's), whose slots are typed
+  ownNumbers: string[];
 }
 
 export interface Lowered {
@@ -56,11 +58,24 @@ export function skipTrivia(text: string, i: number) {
   }
 }
 
-// A name like `name` that no identifier in `text` is.
+// A name like `name` that no identifier in `text` is, or ends with after a
+// `_`.
 export function uniqueName(text: string, name: string) {
-  const used = new Set(text.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu));
+  // with their escapes decoded: `$t0_\u0024struct` is `$t0_$struct`
+  const decoded = text.replace(
+    /\\u\{([\da-fA-F]+)\}|\\u([\da-fA-F]{4})/g,
+    (escape, braced: string | undefined, four: string | undefined) => {
+      const code = parseInt(braced ?? four!, 16);
+      // one that is no code point (in a comment, say) names nothing
+      return code <= 0x10ffff ? String.fromCodePoint(code) : escape;
+    },
+  );
+  const used = decoded.match(/[\p{ID_Start}$_][\p{ID_Continue}$]*/gu) ?? [];
+  // what the compiler declares beside it ends with it: `$a0_$struct`
+  const taken = (n: string) =>
+    used.some(id => id === n || id.endsWith(`_${n}`));
   let unique = name;
-  for (let n = 1; used.has(unique); n++) unique = `${name}_${n}`;
+  for (let n = 1; taken(unique); n++) unique = `${name}_${n}`;
   return unique;
 }
 
@@ -147,6 +162,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
 
     const fields: string[] = [];
     const keys: string[] = [];
+    const numbers: string[] = [];
     let forwarded = 0;
 
     // A method checks that `this` is an instance of this struct, as a struct
@@ -276,6 +292,15 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
           // the field as it stamps the instance, in the spec's order
           // (a computed key's expression keeps its text where it is: a struct
           // declared in it is edited too)
+          // a shared struct's field declared `: number` only holds a Number
+          // (shared.ts): the runtime is told, as `number: true`. Not one
+          // declared `x?: number`, which may hold undefined
+          const typed =
+            shared &&
+            (member.postfixToken as Node | undefined)?.kind !==
+              K.QuestionToken &&
+            (member.type as Node | undefined)?.kind === K.NumberKeyword;
+          const number = typed ? ', number: true' : '';
           let key: string, expr: Node | undefined;
           if (nameNode.kind === K.ComputedPropertyName) {
             expr = children(nameNode)[0]!;
@@ -284,6 +309,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
             const k = propertyKey(nameNode);
             key = JSON.stringify(k);
             keys.push(k);
+            if (typed) numbers.push(k);
           }
           // the declaration, from the member's start up to `to`, and then
           // what follows it
@@ -300,14 +326,14 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
           };
           if (!initializer) {
             declare(member.end, '');
-            fields.push(`{key: ${key}}`);
+            fields.push(`{key: ${key}${number}}`);
             continue;
           }
           // a literal is its value: an initializer that runs no code and
           // gives the same value for every instance needs no function
           if (isLiteral(initializer)) {
             fields.push(
-              `{key: ${key}, value: ${text.slice(initializer.getStart(), initializer.end)}}`,
+              `{key: ${key}, value: ${text.slice(initializer.getStart(), initializer.end)}${number}}`,
             );
             declare(member.end, '');
             continue;
@@ -318,7 +344,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
           );
           replace(initializer.end, member.end, '); }');
           fields.push(
-            `{key: ${key}, init: ${shared ? `this.${f}` : `o => o.${f}()`}}`,
+            `{key: ${key}, init: ${shared ? `this.${f}` : `o => o.${f}()`}${number}}`,
           );
           n++;
           continue;
@@ -357,6 +383,7 @@ export function lower(text: string, scanned: Scan, file: SourceFile): Lowered {
       shared,
       name: name!,
       ownKeys: computed ? undefined : keys,
+      ownNumbers: numbers,
     });
   }
 

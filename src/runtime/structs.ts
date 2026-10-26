@@ -59,6 +59,8 @@ export interface Field {
   value?: unknown;
   // a private field's initialization: PrivateSet of its initializer's value
   set?: (o: any) => void;
+  // a shared struct's field declared `: number`, which only holds a Number
+  number?: boolean;
 }
 
 export interface StructSpec {
@@ -234,11 +236,16 @@ export function defineSharedStruct(f: Function, spec: SharedStructSpec) {
   const up = sharedStructs.get(Object.getPrototypeOf(f));
   const chain = [...(up?.chain ?? []), ...spec.fields];
   const keys = [...new Set(chain.map(field => field.key!))];
+  // a field is typed if every declaration of its key, in the chain, says
+  // number
+  const numbers = new Set(
+    keys.filter(k => chain.every(field => field.key !== k || field.number)),
+  );
   const init = spec.init;
   sharedStructs.set(f, {
     chain,
     init: init && ((o, args) => void Reflect.apply(init, o, args)),
-    shape: shapeFor(keys),
+    shape: shapeFor(keys, numbers),
   });
   nameOf(f, spec.name);
 }
