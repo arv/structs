@@ -115,12 +115,13 @@ function makeRecordLocked() {
 }
 
 // The agent whose record `r` is has ended: what it held is no longer held.
-// (Under the allocation lock: a collection frees a dead agent's record.)
+// (Its turn is read before it is dead, after which a collection may free the
+// record. It takes no lock: a collection, which holds the allocation lock,
+// may be waiting for that agent to leave a busy window it never will.)
 export function retire(r: number) {
-  lock(C_ALLOC_LOCK);
-  if (I32[(r >> 2) + R_TURN] !== 0) A.sub(I32, C_TURNS, 1);
+  const turns = A.load(I32, (r >> 2) + R_TURN);
   A.store(I32, (r >> 2) + R_STATE, DEAD);
-  unlock(C_ALLOC_LOCK);
+  if (turns !== 0) A.sub(I32, C_TURNS, 1);
 }
 
 declare global {
@@ -460,9 +461,11 @@ function* records() {
     if (I32[(r >> 2) + R_STATE] === ALIVE) yield r >> 2;
 }
 
-// waits until each live agent has been seen out of a busy window
+// waits until each live agent has been seen out of a busy window (or has
+// ended, in one)
 function handshake() {
-  for (const r of records()) while (A.load(I32, r + R_BUSY) !== 0);
+  for (const r of records())
+    while (A.load(I32, r + R_BUSY) !== 0 && A.load(I32, r + R_STATE) === ALIVE);
 }
 
 // Collects, holding the allocation lock.
