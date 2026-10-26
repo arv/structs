@@ -66,9 +66,12 @@ export function decode(value: unknown): unknown {
     const a = (value as any)[MARK];
     // only what encode made: a shared object that a message pins
     if (inFlight(a)) {
-      const h = handleAt(a);
-      unpin(a);
-      return h;
+      // (unpinned even if it fails: the message is not decoded again)
+      try {
+        return handleAt(a);
+      } finally {
+        unpin(a);
+      }
     }
   }
   const out: Record<string, unknown> = {};
