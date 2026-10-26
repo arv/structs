@@ -115,13 +115,13 @@ function makeRecordLocked() {
 }
 
 // The agent whose record `r` is has ended: what it held is no longer held.
-// (Its turn is read before it is dead, after which a collection may free the
-// record. It takes no lock: a collection, which holds the allocation lock,
-// may be waiting for that agent to leave a busy window it never will.)
+// (Its turn is read, and counted out, before it is dead, after which a
+// collection may free the record. It takes no lock: a collection, which holds
+// the allocation lock, may be waiting for that agent to leave a busy window it
+// never will.)
 export function retire(r: number) {
-  const turns = A.load(I32, (r >> 2) + R_TURN);
+  if (A.load(I32, (r >> 2) + R_TURN) !== 0) A.sub(I32, C_TURNS, 1);
   A.store(I32, (r >> 2) + R_STATE, DEAD);
-  if (turns !== 0) A.sub(I32, C_TURNS, 1);
 }
 
 declare global {
@@ -333,11 +333,14 @@ export function turn() {
   if (!turns) beginTurns();
 }
 
+// (Counted before its turn is said: retire, which counts it out by its turn,
+// then never counts out an agent it did not count in. One that ends in
+// between stays counted, which only keeps writers logging their unlinks.)
 function beginTurns() {
   turns = true;
   const r = me();
-  A.store(I32, r + R_TURN, A.load(I32, C_EPOCH) + 1);
   A.add(I32, C_TURNS, 1);
+  A.store(I32, r + R_TURN, A.load(I32, C_EPOCH) + 1);
 }
 
 // the earliest epoch, plus 1, at which a turn still going on began (2 ** 31 - 1

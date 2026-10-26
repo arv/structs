@@ -168,6 +168,7 @@ function nodeAgent(
 const STOPPED = 1000;
 
 function webAgent(w: Worker, record: number): Pooled {
+  let ended = false;
   w.postMessage({[HEAP]: SAB, record});
   const agent: Pooled = {
     postMessage: m => send(e => w.postMessage(e), m),
@@ -175,7 +176,9 @@ function webAgent(w: Worker, record: number): Pooled {
     onerror: null,
     terminate: () => {
       w.terminate();
-      setTimeout(() => retire(record), STOPPED);
+      // (once: a record retired may be freed)
+      if (!ended) setTimeout(() => retire(record), STOPPED);
+      ended = true;
     },
     exited: new Promise(() => {}),
     hold: () => {},
