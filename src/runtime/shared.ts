@@ -13,7 +13,7 @@
 // A slot's word holds the whole value but for a Number, whose bits are in the
 // Float64 beside it: the Float64 is written first, then the word, with
 // Atomics.store, so a field read never tears and never shows a value nobody
-// wrote (§2.1.3, "no tear"). A BigInt that fits in 61 bits is the word and the
+// wrote (§2.1.3, "no tear"). A BigInt from -(2 ** 60) to 2 ** 60 - 1 is the word and the
 // 4 bytes beside it, which are read and written as one 8-byte atomic.
 //
 // A field declared `: number` in TypeScript is typed: its slot only ever holds
@@ -45,7 +45,7 @@ const W_UNDEFINED = 0,
 export const W_NUMBER = 1;
 // a typed field's word, which never changes: a Number, in the Float64
 export const W_FLOAT = 6;
-// A BigInt of 61 bits (-2 ** 60 to 2 ** 60 - 1) is the slot's first 8 bytes,
+// A BigInt from -(2 ** 60) to 2 ** 60 - 1 (61 bits, signed) is the slot's first 8 bytes,
 // its word and the 4 beside it, read and written as one: the BigInt shifted
 // left 3, tagged 7. It leaves the Float64 alone, so a Number's reader never
 // sees its bits. A larger one is interned, as its digits (T_BIGINT).

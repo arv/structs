@@ -151,9 +151,9 @@ A field holds `undefined`, `null`, a boolean, a Number, a string (interned in
 the heap), a BigInt, a registered or well-known symbol, or another shared
 object. Anything else is a TypeError (`CanBeSharedAcrossAgents`, §2.2.4). A read
 never tears: a Number's Float64 is written before its word, and the word is
-stored atomically. A BigInt of up to 61 bits is kept in its slot, its word and
-the 4 bytes beside it read and written as one; a larger one is interned, as its
-digits.
+stored atomically. A BigInt from -(2 ** 60) to 2 ** 60 - 1 is kept in its slot,
+its word and the 4 bytes beside it read and written as one; one outside that
+range is interned, as its digits.
 
 A field declared `: number` in TypeScript (not `x?: number`, which may hold
 `undefined`) is typed. Its word says Number from the moment the struct is made
@@ -297,9 +297,9 @@ an oversight, this implementation does something else:
 - **Memory comes back between turns.** A shared object is freed once no agent
   can reach it, but only after each agent that had a Proxy on it has returned to
   its event loop and collected the Proxy. Interned strings (and so shapes,
-  symbols and BigInts of more than 61 bits) are never freed. A browser does not
-  say when a worker ends, so what a browser worker that ends itself (`close()`)
-  held stays held.
+  symbols and BigInts outside -(2 ** 60) to 2 ** 60 - 1) are never freed. A
+  browser does not say when a worker ends, so what a browser worker that ends
+  itself (`close()`) held stays held.
 - **Symbols.** Only registered (`Symbol.for`) and well-known symbols can be
   shared, as values or as field keys, because other agents don't have the
   others. `Reflect.canBeShared` returns false for the rest.

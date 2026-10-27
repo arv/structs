@@ -50,7 +50,7 @@ describe('shared struct', () => {
     }
   });
 
-  test('a BigInt of 61 bits is kept in its slot, a larger one interned', async () => {
+  test('a BigInt from -(2 ** 60) to 2 ** 60 - 1 is kept in its slot, a larger one interned', async () => {
     const {S} = await load(`export shared struct S { v; n = 1.5; }`);
     const s = new S();
     const inline = [

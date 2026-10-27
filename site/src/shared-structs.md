@@ -21,9 +21,9 @@ A field holds `undefined`, `null`, a boolean, a Number, a string (interned in
 the heap), a BigInt, a registered or well-known symbol, or another shared
 object. Anything else is a TypeError (`CanBeSharedAcrossAgents`, §2.2.4). A read
 never tears: a Number's Float64 is written before its word, and the word is
-stored atomically. A BigInt of up to 61 bits is kept in its slot, its word and
-the 4 bytes beside it read and written as one; a larger one is interned, as its
-digits.
+stored atomically. A BigInt from -(2 ** 60) to 2 ** 60 - 1 is kept in its slot,
+its word and the 4 bytes beside it read and written as one; one outside that
+range is interned, as its digits.
 
 A field declared `: number` in TypeScript (not `x?: number`, which may hold
 `undefined`) is typed. Its word says Number from the moment the struct is made
