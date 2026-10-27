@@ -70,4 +70,17 @@ describe('agents', () => {
     await expect(run(tasks, 'fail')).rejects.toThrow('it failed');
     await expect(run(tasks, 'missing')).rejects.toThrow(/exports no function/);
   });
+
+  test('a field read while workers write Numbers and BigInts to it is one of them', async () => {
+    // (it starts as one of them: a reader may begin before the writers)
+    const {S} = await load(`export shared struct S { v = 1.5; }`);
+    const s = new S();
+    const tasks = new URL('./fixtures/tasks.ts', import.meta.url);
+    const wrong = await Promise.all(
+      [true, true, false, false].map(writes =>
+        run(tasks, 'race', s, 200000, writes),
+      ),
+    );
+    expect(wrong).toEqual([0, 0, 0, 0]);
+  });
 });

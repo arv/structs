@@ -11,8 +11,9 @@ an oversight, this implementation does something else:
 - **Memory comes back between turns.** A shared object is freed once no agent
   can reach it, but only after each agent that had a Proxy on it has returned to
   its event loop and collected the Proxy. Interned strings (and so shapes,
-  BigInts and symbols) are never freed. A browser does not say when a worker
-  ends, so what a browser worker that ends itself (`close()`) held stays held.
+  symbols and BigInts outside -(2 ** 60) to 2 ** 60 - 1) are never freed. A
+  browser does not say when a worker ends, so what a browser worker that ends
+  itself (`close()`) held stays held.
 - **Symbols.** Only registered (`Symbol.for`) and well-known symbols can be
   shared, as values or as field keys, because other agents don't have the
   others. `Reflect.canBeShared` returns false for the rest.

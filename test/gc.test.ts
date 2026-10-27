@@ -5,6 +5,7 @@
 import {describe, expect, test} from 'vite-plus/test';
 import '../src/runtime/index.ts';
 import {decode, encode, run, startWorker} from '../src/runtime/agent.ts';
+import {addr, F64, layout, ref, views} from '../src/runtime/emit.ts';
 import {collect} from '../src/runtime/gc.ts';
 import {heapStats} from '../src/runtime/heap.ts';
 import {load} from './helpers.ts';
@@ -87,6 +88,31 @@ describe('the collector', () => {
     }
     expect(n).toBe(head);
     expect(lone.value).toBe(-1);
+  });
+
+  test('what compiled code read out of a slot is kept until its turn ends, though a BigInt is written over it', async () => {
+    const {Node} = await load(
+      `export shared struct Node { next = null; v = 0; }`,
+    );
+    const L = layout(['next', 'v']);
+    const holder = new Node();
+    // a child that only holder's slot holds: its Proxy is gone by the next turn
+    (() => {
+      const child = new Node();
+      child.v = 42;
+      holder.next = child;
+    })();
+    await nextTurn();
+    collect(true);
+    // compiled code's turn: the child's address, read out of the slot
+    views();
+    const child = ref(addr(holder, L), 0, L);
+    expect(child).toBeGreaterThan(0);
+    holder.next = 5n;
+    collect(true);
+    // garbage of its size, which its block would go to were it freed
+    for (let i = 0; i < 1000; i++) new Node().v = -1;
+    expect(F64[((child + 16 + 16) >> 3) + 1]).toBe(42);
   });
 
   test('a shared object in flight in a message is kept', async () => {

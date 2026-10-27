@@ -1,7 +1,9 @@
 // Shared Structs (§2) and Shared Arrays (§3).
 
 import {describe, expect, test} from 'vite-plus/test';
-import '../src/runtime/index.ts';
+import {F64} from '../src/runtime/heap.ts';
+import {heapStats} from '../src/runtime/index.ts';
+import {addressOf, HEAD} from '../src/runtime/shared.ts';
 import {errors, load} from './helpers.ts';
 
 describe('shared struct', () => {
@@ -46,6 +48,60 @@ describe('shared struct', () => {
       }).toThrow(TypeError);
       expect(Reflect.canBeShared(v)).toBe(false);
     }
+  });
+
+  test('a BigInt from -(2 ** 60) to 2 ** 60 - 1 is kept in its slot, a larger one interned', async () => {
+    const {S} = await load(`export shared struct S { v; n = 1.5; }`);
+    const s = new S();
+    const inline = [
+      0n,
+      1n,
+      -1n,
+      2n ** 60n - 1n,
+      -(2n ** 60n),
+      2n ** 31n,
+      -(2n ** 32n) + 1n,
+    ];
+    for (const v of inline) {
+      s.v = v;
+      expect(s.v).toBe(v);
+    }
+    // from and to the other kinds, the Number beside it untouched
+    for (const v of [1.5, 3n, 'x', 4n, null, -5n, s, 6n, 2.5, 2n ** 60n - 1n]) {
+      s.v = v;
+      expect(s.v).toBe(v);
+      expect(s.n).toBe(1.5);
+    }
+    // a BigInt leaves its slot's Float64 alone, so compiled code that reads a
+    // Number there (its word, then the Float64) never sees a BigInt's bits
+    const float = ((addressOf(s)! + HEAD) >> 3) + 1;
+    s.v = 0.25;
+    s.v = -(2n ** 60n);
+    expect(F64[float]).toBe(0.25);
+    // none of them interned: a counter of BigInts takes no room in the heap
+    const strings = heapStats().strings;
+    for (let i = 0n; i < 1000n; i++) s.v = i * 1_000_003n;
+    expect(heapStats().strings).toBe(strings);
+    // those that do not fit are interned, as their digits
+    for (const v of [2n ** 60n, -(2n ** 60n) - 1n]) {
+      s.v = v;
+      expect(s.v).toBe(v);
+    }
+    // (values no other test writes, so none of them was interned before)
+    const before = heapStats().strings,
+      large = [
+        2n ** 60n + 314159n,
+        -(2n ** 61n) - 271828n,
+        10n ** 30n + 161803n,
+      ];
+    for (const v of large) {
+      s.v = v;
+      expect(s.v).toBe(v);
+    }
+    expect(heapStats().strings).toBe(before + 3);
+    expect(Atomics.exchange(s, 'v', 7n)).toBe(large[2]);
+    expect(Atomics.compareExchange(s, 'v', 7n, -8n)).toBe(7n);
+    expect(Atomics.load(s, 'v')).toBe(-8n);
   });
 
   test('literal initializers, and others, fill the slots', async () => {
