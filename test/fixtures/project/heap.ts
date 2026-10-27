@@ -62,3 +62,19 @@ export function twice(arr: SharedArray<Node>): number {
   }
   return sum;
 }
+
+// an address held while its struct is taken out of the array, and the heap
+// collected and allocated over (`meanwhile`): the struct is kept until the
+// turn ends
+export function held(arr: SharedArray<Node>, meanwhile: () => void): number {
+  const p = arr[0]!;
+  arr[0] = new Node();
+  meanwhile();
+  return p.x;
+}
+
+// in a closure, an address could outlive the turn: the struct is made
+export function inClosure(arr: SharedArray<Node>): () => number {
+  const p = arr[0]!;
+  return () => p.x;
+}

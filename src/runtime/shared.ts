@@ -4,7 +4,8 @@
 // (§2.1.5 to §2.1.10). One Proxy per block per agent, so `===` holds within an
 // agent.
 //
-//   a shared object  [0 kind][4 shape: the keys, or the length][8][12]
+//   a shared object  [0 kind][4 shape: the keys, or the length]
+//                    [8 a struct's number of slots][12]
 //                    then a slot per field, 16 bytes each
 //   a slot           [0 a word: the value, tagged][8 a Float64, for a Number]
 //
@@ -22,7 +23,8 @@
 // those, they rely on an aligned 8-byte store being one store on the hardware
 // (as on x64 and arm64); the language lets a Float64 that races tear.
 
-import {A, alloc, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
+import {allocObject, onGC, root, rootSlot, unroot, writeSlot} from './gc.ts';
+import {A, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
 
 export const K_STRUCT = 1,
   K_ARRAY = 2,
@@ -47,10 +49,21 @@ const T_STRING = 2,
 export const T_REF = 5;
 
 // ---- this agent's handles ----
+// An address is one of this agent's roots (gc.ts) while `handles` has it: the
+// collector frees no object this agent has a Proxy for.
 const addresses = new WeakMap<object, number>();
 const handles = new Map<number, WeakRef<object>>();
-const collected = new FinalizationRegistry<number>(a => {
-  if (handles.get(a)?.deref() === undefined) handles.delete(a);
+const gone = (a: number) => {
+  const h = handles.get(a);
+  // (none: gone already, its root too)
+  if (h === undefined || h.deref() !== undefined) return;
+  handles.delete(a);
+  unroot(a);
+};
+const collected = new FinalizationRegistry<number>(gone);
+// those this agent's GC has collected, before the registry says so
+onGC(() => {
+  for (const [a, h] of handles) if (h.deref() === undefined) gone(a);
 });
 
 // The address of a shared object (a Shared Struct, a Shared Array, a Mutex, a
@@ -63,10 +76,17 @@ export const kindOf = (o: unknown): number => {
   return a === undefined ? 0 : I32[a >> 2]!;
 };
 
-// This agent's handle on the shared object at `a`.
+// This agent's handle on the shared object at `a`, which it holds otherwise
+// for now (a pin, say).
 export function handleAt(a: number): object {
   const known = handles.get(a)?.deref();
   if (known) return known;
+  root(a);
+  return newHandle(a);
+}
+
+// a Proxy on the object at `a`, one of this agent's roots
+function newHandle(a: number): object {
   let h: object;
   switch (I32[a >> 2]) {
     case K_STRUCT:
@@ -90,14 +110,16 @@ export function handleAt(a: number): object {
 // A new shared object of `kind`, `slots` slots long, its handle.
 export function create(kind: number, shape: number, slots: number) {
   requireHeap();
-  const a = alloc(HEAD + slots * SLOT);
-  I32[a >> 2] = kind;
-  I32[(a >> 2) + 1] = shape;
-  // its typed fields hold 0, a Number, from the start
-  if (kind === K_STRUCT)
-    for (const i of shapeAt(shape).numbers)
-      I32[(a + HEAD + i * SLOT) >> 2] = W_FLOAT;
-  return handleAt(a);
+  const numbers = kind === K_STRUCT ? shapeAt(shape).numbers : [];
+  const a = allocObject(HEAD + slots * SLOT, a => {
+    I32[a >> 2] = kind;
+    I32[(a >> 2) + 1] = shape;
+    if (kind !== K_STRUCT) return;
+    I32[(a >> 2) + 2] = slots;
+    // its typed fields hold 0, a Number, from the start
+    for (const i of numbers) I32[(a + HEAD + i * SLOT) >> 2] = W_FLOAT;
+  });
+  return newHandle(a);
 }
 
 // ---- symbols. An agent's symbols are its own: those that are the same in
@@ -151,6 +173,19 @@ const describe = (v: unknown) =>
 // The value in the slot at `s`. (ReadSharedStructField, §2.1.3.)
 export function read(s: number): unknown {
   const w = A.load(I32, s >> 2);
+  if ((w & 7) !== T_REF) return valueOf(w, s);
+  const known = handles.get(w & ~7)?.deref();
+  if (known) return known;
+  // the slot read again, its object one of this agent's roots before its
+  // Proxy is made
+  const v = rootSlot(s >> 2);
+  return (v & 7) === T_REF
+    ? (handles.get(v & ~7)?.deref() ?? newHandle(v & ~7))
+    : valueOf(v, s);
+}
+
+// the value the word `w` of the slot at `s` says, but for an object
+function valueOf(w: number, s: number): unknown {
   switch (w & 7) {
     case 0:
       return w === W_UNDEFINED ? undefined : w === W_NULL ? null : w === W_TRUE;
@@ -161,10 +196,8 @@ export function read(s: number): unknown {
       return stringAt(w & ~7);
     case T_BIGINT:
       return BigInt(stringAt(w & ~7));
-    case T_SYMBOL:
-      return symbolOf(stringAt(w & ~7));
     default:
-      return handleAt(w & ~7);
+      return symbolOf(stringAt(w & ~7));
   }
 }
 
@@ -176,10 +209,10 @@ export function write(s: number, v: unknown) {
     F64[(s >> 3) + 1] = v;
     // a reader that sees the word says Number reads this Number or an older
     // one: the word is stored (seq-cst, after the Float64) only as it changes
-    if (w !== W_NUMBER && w !== W_FLOAT) A.store(I32, s >> 2, W_NUMBER);
+    if (w !== W_NUMBER && w !== W_FLOAT) writeSlot(s >> 2, W_NUMBER);
   } else {
     requireFits(s, v);
-    A.store(I32, s >> 2, encode(v));
+    writeSlot(s >> 2, encode(v));
   }
 }
 

@@ -1,7 +1,8 @@
 // The memory every agent shares: one SharedArrayBuffer, the heap.
 // Shared structs, Shared Arrays, Mutexes and Conditions live in it, and so do
-// the strings their fields hold, interned. Memory is bump allocated and never
-// freed: there is no collector across agents (see README.md).
+// the strings their fields hold, interned. Memory is allocated in blocks, from
+// free lists and then from the end; the collector (gc.ts) frees the shared
+// objects no agent can reach. Interned strings are never freed.
 //
 // An agent (the main thread, a worker) attaches to the heap once. The first
 // one makes it; a worker gets it from whoever started it (agent.ts).
@@ -11,15 +12,26 @@
 // Memory the heap never uses is not committed, so the size is a reservation.
 
 // ---- the control area: the first CTRL bytes, as Int32 indices ----
-const C_TOP = 0; // the bump cursor, in bytes
+const C_TOP = 0; // the end of the blocks, in bytes: memory after it is unused
 const C_STR_LOCK = 1; // guards the string table
 const C_STR_TABLE = 2; // the table's address
 const C_STR_COUNT = 3;
 const C_STR_CAP = 4;
 const C_AGENTS = 5; // the last agent id given out
+// guards the blocks and the free lists, and the collector holds it while it
+// runs (gc.ts)
+export const C_ALLOC_LOCK = 6;
+const C_USED = 7; // the bytes of the blocks in use
+const C_SINCE = 8; // the bytes allocated since the last collection
+const C_LIVE = 9; // the bytes in use after the last collection
+const C_COLLECTIONS = 10;
+const C_HIGH = 11; // the heap is zero after this address: never allocated
+export const C_GC = 16; // the collector's words (gc.ts): 16 to 31
 const C_LOCKS = 64; // striped locks for atomic field access (see fieldLock)
 const LOCKS = 64;
-const CTRL = 1024;
+const C_SMALL = 128; // free lists of blocks up to SMALL bytes, by size / 8
+const C_BINS = 256; // free lists of larger blocks, by log2 of size
+export const CTRL = 2048;
 
 // Atomics as the engine has it: the runtime's own words are typed array
 // elements, and the overloads (atomics.ts) only add a check to those
@@ -70,7 +82,6 @@ export function attach(sab?: SharedArrayBuffer) {
     if (sab && sab !== SAB) throw new Error('structs: already attached');
     return SAB;
   }
-  const fresh = !sab;
   SAB = sab ?? new SharedArrayBuffer(HEAP_SIZE);
   if (
     (SAB as any).growable ||
@@ -83,7 +94,10 @@ export function attach(sab?: SharedArrayBuffer) {
   I32 = new Int32Array(SAB);
   F64 = new Float64Array(SAB);
   U16 = new Uint16Array(SAB);
-  if (fresh) A.store(I32, C_TOP, CTRL);
+  // a heap no agent has used yet: its blocks begin after the control area
+  // (C_HIGH only if no agent has allocated yet: one may have, in between)
+  if (A.compareExchange(I32, C_TOP, 0, CTRL) === 0)
+    A.compareExchange(I32, C_HIGH, 0, CTRL);
   globalThis.__structsHeap = SAB;
   AGENT = A.add(I32, C_AGENTS, 1) + 1;
   return SAB;
@@ -114,19 +128,176 @@ function nodeWorkerHeap(): SharedArrayBuffer | undefined {
 }
 
 // ---- allocation ----
-// `bytes` rounded up to 8, zeroed (nothing is freed, so the heap is zero
-// where it was never allocated). Lock free: the cursor moves.
-export function alloc(bytes: number) {
-  requireHeap();
-  const n = (bytes + 7) & ~7;
-  const p = A.add(I32, C_TOP, n);
-  if (p + n > SAB.byteLength) {
-    // the cursor stays past the end: every allocation after this one fails too
-    throw new RangeError(
-      `structs: the heap is full (${SAB.byteLength >> 20} MB)`,
-    );
+// A block is a header of two words, then what alloc returns, its payload:
+//
+//   [size in bytes, the header's too | its kind][the collector's mark]
+//
+// A free block's payload begins with the next in its free list. Blocks are
+// laid end to end from CTRL to C_TOP, so the collector can walk them.
+export const B_FREE = 0,
+  B_OBJECT = 1, // a shared object: the collector frees it when unreachable
+  B_RAW = 2; // anything else (a string, a table): freed by whoever made it
+const SMALL = 1016;
+// a collection runs once this many bytes have been allocated since the last
+// one, or as many as were in use after it, whichever is more
+const MIN_SINCE = 16 << 20;
+
+// what alloc calls when the heap runs short, holding the allocation lock:
+// the collector, once gc.ts has loaded. Called again (`tries` 1, 2) while
+// the heap is still short, it tries harder.
+let collector: ((tries: number) => void) | null = null;
+export const setCollector = (f: (tries: number) => void) =>
+  void (collector = f);
+
+// the block at `b`'s size and kind
+export const sizeAt = (b: number) => I32[b >> 2]! & ~7;
+export const kindAt = (b: number) => I32[b >> 2]! & 7;
+export const top = () => I32[C_TOP]!;
+
+const listOf = (size: number) =>
+  size <= SMALL ? C_SMALL + (size >> 3) : C_BINS + 31 - Math.clz32(size);
+
+// puts the free block at `b` on its list
+function release(b: number, size: number) {
+  I32[b >> 2] = size | B_FREE;
+  const l = listOf(size);
+  I32[(b >> 2) + 2] = I32[l]!;
+  I32[l] = b;
+}
+
+// a free block of `need` bytes or more, off its list (0 for none): an exact
+// small one, else the first that fits in the bins, split, else from the end
+function take(need: number) {
+  if (need <= SMALL) {
+    const l = C_SMALL + (need >> 3),
+      b = I32[l]!;
+    if (b !== 0) {
+      I32[l] = I32[(b >> 2) + 2]!;
+      return b;
+    }
+    // a larger small one: split, or whole if what is left is too small
+    for (let k = l + 1; k <= C_SMALL + (SMALL >> 3); k++) {
+      const b = I32[k]!;
+      if (b === 0) continue;
+      I32[k] = I32[(b >> 2) + 2]!;
+      const size = sizeAt(b);
+      if (size - need >= 16) {
+        release(b + need, size - need);
+        I32[b >> 2] = need;
+      }
+      return b;
+    }
   }
+  for (let l = listOf(Math.max(need, SMALL + 8)); l < C_BINS + 32; l++) {
+    // `at` is the word that points at b: the list's, or the block before's
+    for (let at = l, b = I32[l]!; b !== 0; at = (b >> 2) + 2, b = I32[at]!) {
+      const size = sizeAt(b);
+      if (size < need) continue;
+      I32[at] = I32[(b >> 2) + 2]!;
+      if (size - need >= 16) {
+        release(b + need, size - need);
+        I32[b >> 2] = need;
+      }
+      return b;
+    }
+  }
+  const b = I32[C_TOP]!;
+  if (b + need > SAB.byteLength) return 0;
+  I32[C_TOP] = b + need;
+  I32[b >> 2] = need;
+  return b;
+}
+
+const full = () =>
+  new RangeError(
+    `structs: the heap is full (${SAB.byteLength >> 20} MB, ${I32[C_USED]! >> 20} MB of it in use)`,
+  );
+
+// A block whose payload is `bytes` long, rounded up to 8, of `kind`, zeroed;
+// its payload's address. The caller holds the allocation lock.
+export function allocLocked(bytes: number, kind: number) {
+  if (bytes > SAB.byteLength) throw full();
+  const need = Math.max(16, (bytes + 15) & ~7);
+  // (a collection that has just run need not run again at once)
+  let tries = 0;
+  if (collector && I32[C_SINCE]! >= Math.max(MIN_SINCE, I32[C_LIVE]!)) {
+    collector(0);
+    tries = 1;
+  }
+  let b = take(need);
+  for (; b === 0 && collector && tries < 3; tries++) {
+    collector(tries);
+    b = take(need);
+  }
+  if (b === 0) throw full();
+  const size = sizeAt(b),
+    p = b + 8,
+    end = b + size,
+    high = I32[C_HIGH]!;
+  I32[b >> 2] = size | kind;
+  I32[(b >> 2) + 1] = 0;
+  if (p < high) I32.fill(0, p >> 2, Math.min(end, high) >> 2);
+  if (end > high) I32[C_HIGH] = end;
+  I32[C_USED] += size;
+  I32[C_SINCE] += size;
   return p;
+}
+
+// A block whose payload is `bytes` long, rounded up to 8, zeroed: its
+// payload's address. Raw: the caller frees it.
+export function alloc(bytes: number, kind = B_RAW) {
+  requireHeap();
+  lock(C_ALLOC_LOCK);
+  try {
+    return allocLocked(bytes, kind);
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
+}
+
+// Frees the block whose payload is at `p`. The caller holds the allocation
+// lock.
+export function freeLocked(p: number) {
+  const size = sizeAt(p - 8);
+  I32[C_USED] -= size;
+  release(p - 8, size);
+}
+
+export function free(p: number) {
+  lock(C_ALLOC_LOCK);
+  try {
+    freeLocked(p);
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
+}
+
+// The collector's sweep: frees every block `dead` says is, joining those
+// side by side, and makes the free lists anew. Under the allocation lock.
+export function sweep(dead: (b: number, kind: number) => boolean) {
+  I32.fill(0, C_SMALL, C_BINS + 32);
+  let used = 0,
+    run = 0;
+  const end = I32[C_TOP]!;
+  for (let b = CTRL; b < end;) {
+    const h = I32[b >> 2]!,
+      size = h & ~7;
+    if ((h & 7) === B_FREE || dead(b, h & 7)) {
+      if (run === 0) run = b;
+    } else {
+      used += size;
+      if (run !== 0) release(run, b - run);
+      run = 0;
+    }
+    b += size;
+  }
+  // the free blocks at the end are the end again
+  if (run !== 0) I32[C_TOP] = run;
+  I32[C_USED] = used;
+  I32[C_LIVE] = used;
+  I32[C_SINCE] = 0;
+  I32[C_COLLECTIONS]++;
+  return used;
 }
 
 // The heap's views, for compiled code to keep in locals (fast.ts); this
@@ -218,6 +389,7 @@ function grow() {
   }
   I32[C_STR_TABLE] = nt;
   I32[C_STR_CAP] = ncap;
+  if (t !== 0) free(t);
 }
 
 // The address of `s`, interned.
@@ -265,12 +437,18 @@ export function stringAt(a: number) {
   return s;
 }
 
-// The heap's size and use, in bytes.
+// The heap's size and use, in bytes, and how many collections have run.
 export function heapStats() {
   requireHeap();
-  return {
-    size: SAB.byteLength,
-    used: A.load(I32, C_TOP),
-    strings: A.load(I32, C_STR_COUNT),
-  };
+  lock(C_ALLOC_LOCK);
+  try {
+    return {
+      size: SAB.byteLength,
+      used: I32[C_USED]!,
+      strings: I32[C_STR_COUNT]!,
+      collections: I32[C_COLLECTIONS]!,
+    };
+  } finally {
+    unlock(C_ALLOC_LOCK);
+  }
 }

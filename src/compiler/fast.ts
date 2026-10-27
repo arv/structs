@@ -65,6 +65,10 @@
 //   const b = arr[i];  const $b = $struct.elem($arr, i, $L0),
 //                        b = $b < 0 ? arr[i] : undefined;
 //
+// Such an address is held without a Proxy, and the collector keeps its struct
+// only for the rest of the turn (src/runtime/gc.ts): so only in a function
+// that is neither async nor a generator, and with no use in its closures.
+//
 // And a SharedArray's length, which its header holds and never changes, is
 // read from there: arr.length is ($arr < 0 ? arr.length : $I[($arr >> 2) + 1]).
 //
@@ -215,6 +219,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
   // where the address is -1.
   const sourceOf = (decl: Node, L: string, name: string) => {
     if (decl.kind !== K.VariableDeclaration) return undefined;
+    if (!mayHoldRaw(decl)) return undefined;
     let init = decl.initializer as Node | undefined;
     if (!init || !onlyFieldUses(decl, name, L)) return undefined;
     // through what only TypeScript sees: `arr[i]!`, `(s.f as S)`
@@ -234,6 +239,8 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       const element = ctx.elementLayoutOf(arr);
       if (!element || layoutName(element) !== L) return undefined;
       const a = addressOf(arr, null, decl);
+      // the function's views() begins the turn the address is kept for
+      if (a) viewsAt(decl);
       return a && `${rt}.elem(${a}, ${index.text}, ${L})`;
     }
     if (init.kind === K.PropertyAccessExpression) {
@@ -242,16 +249,24 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       const held = ctx.nullableLayoutOf(init);
       if (!f || !held || layoutName(held) !== L) return undefined;
       const a = addressOf(holder, f.L, decl);
+      if (a) viewsAt(decl);
       return a && `${rt}.ref(${a}, ${f.i}, ${L})`;
     }
     return undefined;
   };
   // whether every use of `name` in its scope is `name.key` made direct, of
-  // layout L
+  // layout L, and none is in a function or class inside it
   const onlyFieldUses = (decl: Node, name: string, L: string) => {
     let only = true;
+    let inner = 0;
     const visit = (node: Node) => {
       if (!only) return;
+      if (isFunctionLike(node) || isClass(node)) {
+        inner++;
+        node.forEachChild(child => visit(child as Node));
+        inner--;
+        return;
+      }
       if (
         node.kind === K.Identifier &&
         node.text === name &&
@@ -270,7 +285,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
           same(node, parent.expression)
             ? field(parent)
             : undefined;
-        if (!f || f.L !== L || !direct(parent)) only = false;
+        if (!f || f.L !== L || !direct(parent) || inner > 0) only = false;
       } else node.forEachChild(child => visit(child as Node));
     };
     visit(blockOf(decl));
@@ -413,7 +428,8 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       kept: Node | undefined,
       before = '',
       after = '';
-    const element = !a && elementOf(o, f.L);
+    // (an address held without a Proxy only where the turn bounds it)
+    const element = !a && mayHoldRaw(node) && elementOf(o, f.L);
     const arr = element && addressOf(element.expression, null, node);
     if (a) r = o.text as string;
     else if (o.kind === K.ThisKeyword) {
@@ -756,22 +772,41 @@ function blockOf(decl: Node): Node {
     : statement;
 }
 
+// Whether code at `node` may hold an address read out of a slot without a
+// Proxy (elem, ref): the collector keeps its struct until the turn ends
+// (src/runtime/gc.ts), so only in a function that is neither async nor a
+// generator, with a block body (whose views() begins the turn), not at the
+// top of a module, which may await; and in its body, not in a parameter's
+// default, which runs before views()
+function mayHoldRaw(node: Node) {
+  const fn = scopeOf(node);
+  const body = fn.body as Node | undefined;
+  return !(
+    fn.kind === K.SourceFile ||
+    body?.kind !== K.Block ||
+    node.pos < body.pos ||
+    node.end > body.end ||
+    fn.asteriskToken ||
+    hasModifier(fn, K.AsyncKeyword)
+  );
+}
+
+const isFunctionLike = (n: Node) =>
+  n.kind === K.FunctionDeclaration ||
+  n.kind === K.FunctionExpression ||
+  n.kind === K.ArrowFunction ||
+  n.kind === K.MethodDeclaration ||
+  n.kind === K.GetAccessor ||
+  n.kind === K.SetAccessor ||
+  n.kind === K.Constructor;
+
+const isClass = (n: Node) =>
+  n.kind === K.ClassDeclaration || n.kind === K.ClassExpression;
+
 // the function, or the module, a declaration is in
 function scopeOf(node: Node): Node {
   let n = node;
-  while (
-    n.parent &&
-    n.kind !== K.SourceFile &&
-    !(
-      n.kind === K.FunctionDeclaration ||
-      n.kind === K.FunctionExpression ||
-      n.kind === K.ArrowFunction ||
-      n.kind === K.MethodDeclaration ||
-      n.kind === K.GetAccessor ||
-      n.kind === K.SetAccessor ||
-      n.kind === K.Constructor
-    )
-  )
+  while (n.parent && n.kind !== K.SourceFile && !isFunctionLike(n))
     n = n.parent as Node;
   return n;
 }

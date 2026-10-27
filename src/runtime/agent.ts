@@ -18,6 +18,7 @@
 
 // a worker that is sent shared objects needs the proposal's globals
 import './index.ts';
+import {inFlight, makeRecord, pin, retire, unpin} from './gc.ts';
 import {attach, attached, requireHeap, SAB} from './heap.ts';
 import {addressOf, handleAt} from './shared.ts';
 
@@ -26,15 +27,34 @@ const HEAP = '__structs.heap';
 
 // A message as postMessage can copy it: its shared objects as their
 // addresses, in arrays and plain objects (others are copied as they are).
-export function encode(value: unknown): unknown {
+// Each is pinned until the message is decoded, so that the collector keeps it
+// while it is in flight (a message that never arrives keeps it for good), and
+// its address goes in `pins`, if given.
+export function encode(value: unknown, pins?: number[]): unknown {
   if (typeof value !== 'object' || value === null) return value;
   const a = addressOf(value);
-  if (a !== undefined) return {[MARK]: a};
-  if (Array.isArray(value)) return value.map(encode);
+  if (a !== undefined) {
+    pin(a);
+    pins?.push(a);
+    return {[MARK]: a};
+  }
+  if (Array.isArray(value)) return value.map(v => encode(v, pins));
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) out[k] = encode(v);
+  for (const [k, v] of Object.entries(value)) out[k] = encode(v, pins);
   return out;
+}
+
+// Posts `message` encoded with `post`; a message it fails to encode or post
+// (one that postMessage cannot copy) is never decoded, so its pins go.
+function send(post: (encoded: unknown) => void, message: unknown) {
+  const pins: number[] = [];
+  try {
+    post(encode(message, pins));
+  } catch (e) {
+    for (const a of pins) unpin(a);
+    throw e;
+  }
 }
 
 export function decode(value: unknown): unknown {
@@ -43,7 +63,16 @@ export function decode(value: unknown): unknown {
   if (Object.getPrototypeOf(value) !== Object.prototype) return value;
   if (MARK in value) {
     requireHeap();
-    return handleAt((value as any)[MARK]);
+    const a = (value as any)[MARK];
+    // only what encode made: a shared object that a message pins
+    if (inFlight(a)) {
+      // (unpinned even if it fails: the message is not decoded again)
+      try {
+        return handleAt(a);
+      } finally {
+        unpin(a);
+      }
+    }
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value)) out[k] = decode(v);
@@ -78,14 +107,29 @@ export function startWorker(
 ): Agent {
   requireHeap();
   const wt = nodeThreads();
-  return wt
-    ? nodeAgent(
-        new wt.Worker(url, {
-          name: options.name,
-          workerData: {__structsHeap: SAB},
-        }),
-      )
-    : webAgent(new Worker(url, {type: 'module', name: options.name}));
+  return withRecord(record =>
+    wt
+      ? nodeAgent(
+          new wt.Worker(url, {
+            name: options.name,
+            workerData: {__structsHeap: SAB, __structsAgent: record},
+          }),
+          record,
+        )
+      : webAgent(new Worker(url, {type: 'module', name: options.name}), record),
+  );
+}
+
+// `start`, given a record for the agent it starts (gc.ts), which is retired
+// if the agent does not start
+function withRecord(start: (record: number) => Pooled): Pooled {
+  const record = makeRecord();
+  try {
+    return start(record);
+  } catch (e) {
+    retire(record);
+    throw e;
+  }
 }
 
 // an agent that `run` keeps for its next call: in Node, whether it keeps the
@@ -94,10 +138,17 @@ interface Pooled extends Agent {
   hold(busy: boolean): void;
 }
 
-function nodeAgent(w: import('node:worker_threads').Worker): Pooled {
+// `record` is the worker's agent record (gc.ts): retired as it ends, in Node.
+// (A browser does not say when a worker ends: one is retired a moment after
+// it is terminated, by which time it runs no more; what one that ends itself,
+// with close(), held stays held.)
+function nodeAgent(
+  w: import('node:worker_threads').Worker,
+  record: number,
+): Pooled {
   let exited!: (code: number) => void;
   const agent: Pooled = {
-    postMessage: m => w.postMessage(encode(m)),
+    postMessage: m => send(e => w.postMessage(e), m),
     onmessage: null,
     onerror: null,
     terminate: () => void w.terminate(),
@@ -109,17 +160,29 @@ function nodeAgent(w: import('node:worker_threads').Worker): Pooled {
     if (agent.onerror) agent.onerror(e);
     else throw e;
   });
-  w.on('exit', code => exited(code));
+  w.on('exit', code => {
+    retire(record);
+    exited(code);
+  });
   return agent;
 }
 
-function webAgent(w: Worker): Pooled {
-  w.postMessage({[HEAP]: SAB});
+// how long a terminated browser worker may still run, in milliseconds
+const STOPPED = 1000;
+
+function webAgent(w: Worker, record: number): Pooled {
+  let ended = false;
+  w.postMessage({[HEAP]: SAB, record});
   const agent: Pooled = {
-    postMessage: m => w.postMessage(encode(m)),
+    postMessage: m => send(e => w.postMessage(e), m),
     onmessage: null,
     onerror: null,
-    terminate: () => w.terminate(),
+    terminate: () => {
+      w.terminate();
+      // (once: a record retired may be freed)
+      if (!ended) setTimeout(() => retire(record), STOPPED);
+      ended = true;
+    },
     exited: new Promise(() => {}),
     hold: () => {},
   };
@@ -155,17 +218,21 @@ const POOL = 64;
 
 function startPooled(): Pooled {
   const wt = nodeThreads();
-  return wt
-    ? nodeAgent(
-        new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
-          workerData: {__structsHeap: SAB},
-        }),
-      )
-    : webAgent(
-        new Worker(new URL('./agent-worker.ts', import.meta.url), {
-          type: 'module',
-        }),
-      );
+  return withRecord(record =>
+    wt
+      ? nodeAgent(
+          new wt.Worker(new URL('./agent-worker.ts', import.meta.url), {
+            workerData: {__structsHeap: SAB, __structsAgent: record},
+          }),
+          record,
+        )
+      : webAgent(
+          new Worker(new URL('./agent-worker.ts', import.meta.url), {
+            type: 'module',
+          }),
+          record,
+        ),
+  );
 }
 
 // Starts workers for `run` until `n` wait idle: so that the calls that follow
@@ -248,7 +315,7 @@ export const parent: Omit<Agent, 'terminate' | 'exited' | 'onerror'> | null =
       let handler: ((m: any) => void) | null = null;
       const listener = (m: unknown) => handler?.(decode(m));
       return {
-        postMessage: (m: unknown) => port.postMessage(encode(m)),
+        postMessage: (m: unknown) => send(e => port.postMessage(e), m),
         // listening keeps the worker alive: only while there is a handler
         get onmessage() {
           return handler;
@@ -264,12 +331,13 @@ export const parent: Omit<Agent, 'terminate' | 'exited' | 'onerror'> | null =
       return null;
     const self = globalThis as any;
     const agent = {
-      postMessage: (m: unknown) => self.postMessage(encode(m)),
+      postMessage: (m: unknown) => send(e => self.postMessage(e), m),
       onmessage: null as ((m: any) => void) | null,
     };
     self.addEventListener('message', (e: MessageEvent) => {
       const data = e.data;
       if (!attached() && data && typeof data === 'object' && HEAP in data) {
+        globalThis.__structsAgent = data.record;
         attach(data[HEAP]);
         return;
       }
