@@ -21,7 +21,9 @@ A field holds `undefined`, `null`, a boolean, a Number, a string (interned in
 the heap), a BigInt, a registered or well-known symbol, or another shared
 object. Anything else is a TypeError (`CanBeSharedAcrossAgents`, §2.2.4). A read
 never tears: a Number's Float64 is written before its word, and the word is
-stored atomically.
+stored atomically. A BigInt of up to 61 bits is kept in its slot, its word and
+the 4 bytes beside it read and written as one; a larger one is interned, as its
+digits.
 
 A field declared `: number` in TypeScript (not `x?: number`, which may hold
 `undefined`) is typed. Its word says Number from the moment the struct is made
@@ -56,8 +58,8 @@ loop that allocates in one synchronous run keeps what it makes until it returns
 to its event loop. An engine's collector does not see the heap fill up, so as it
 does, each agent in Node runs its own (with V8's `--expose-gc`, set as it runs);
 in a browser, the engine's runs when it will. Interned strings, and with them
-shapes, BigInts and symbols, are never freed. `heapStats()` says how much is in
-use and how many collections have run.
+shapes, symbols and BigInts too large for a slot, are never freed. `heapStats()`
+says how much is in use and how many collections have run.
 
 The code is in
 [src/runtime/heap.ts](https://github.com/arv/structs/blob/main/src/runtime/heap.ts)

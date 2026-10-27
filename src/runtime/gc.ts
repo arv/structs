@@ -36,11 +36,13 @@
 // An object's mark is the cycle that marked it: 2 * cycle, or 2 * cycle + 1
 // while it is gray, in the second word of its block's header (heap.ts).
 //
-// Interned strings, and so shapes, BigInts and symbols, are never freed.
+// Interned strings, and so shapes, symbols and BigInts too large for a slot
+// (shared.ts), are never freed.
 
 import {
   A,
   allocLocked,
+  B64,
   B_OBJECT,
   B_RAW,
   C_ALLOC_LOCK,
@@ -388,12 +390,16 @@ function roomForUnlink(r: number) {
 }
 
 // Writes the word `v` to I32[w], a slot's: an object it held is kept while a
-// turn that began by now goes on.
-export function writeSlot(w: number, v: number) {
+// turn that began by now goes on. A BigInt `v` is the slot's first 8 bytes,
+// its word and the 4 beside it, written as one (shared.ts).
+export function writeSlot(w: number, v: number | bigint) {
   const r = me();
   roomForUnlink(r);
   enter(r);
-  const old = A.exchange(I32, w, v);
+  const old =
+    typeof v === 'number'
+      ? A.exchange(I32, w, v)
+      : Number(BigInt.asIntN(32, A.exchange(B64, w >> 1, v)));
   // an agent that read `old` out of a slot without a Proxy said so (turn)
   // before it did, so is counted
   if ((old & 7) === T_REF && A.load(I32, C_TURNS) !== 0) {

@@ -59,6 +59,8 @@ declare global {
 export let SAB: SharedArrayBuffer;
 export let I32: Int32Array;
 export let F64: Float64Array;
+// a slot's first 8 bytes, as one: its word, and the 4 beside it (shared.ts)
+export let B64: BigInt64Array;
 let U16: Uint16Array;
 // this agent's id, for a Mutex's owner: 1 and up
 export let AGENT = 0;
@@ -82,6 +84,10 @@ export function attach(sab?: SharedArrayBuffer) {
     if (sab && sab !== SAB) throw new Error('structs: already attached');
     return SAB;
   }
+  // a slot's word and the 4 bytes beside it are one BigInt64 (shared.ts) only
+  // with the low bytes first
+  if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1)
+    throw new Error('structs: the heap needs a little-endian platform');
   SAB = sab ?? new SharedArrayBuffer(HEAP_SIZE);
   if (
     (SAB as any).growable ||
@@ -93,6 +99,7 @@ export function attach(sab?: SharedArrayBuffer) {
     );
   I32 = new Int32Array(SAB);
   F64 = new Float64Array(SAB);
+  B64 = new BigInt64Array(SAB);
   U16 = new Uint16Array(SAB);
   // a heap no agent has used yet: its blocks begin after the control area
   // (C_HIGH only if no agent has allocated yet: one may have, in between)

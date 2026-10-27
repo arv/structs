@@ -7,12 +7,14 @@
 //   a shared object  [0 kind][4 shape: the keys, or the length]
 //                    [8 a struct's number of slots][12]
 //                    then a slot per field, 16 bytes each
-//   a slot           [0 a word: the value, tagged][8 a Float64, for a Number]
+//   a slot           [0 a word: the value, tagged][4 a BigInt's high bits]
+//                    [8 a Float64, for a Number]
 //
 // A slot's word holds the whole value but for a Number, whose bits are in the
 // Float64 beside it: the Float64 is written first, then the word, with
 // Atomics.store, so a field read never tears and never shows a value nobody
-// wrote (§2.1.3, "no tear").
+// wrote (§2.1.3, "no tear"). A BigInt that fits in 61 bits is the word and the
+// 4 bytes beside it, which are read and written as one 8-byte atomic.
 //
 // A field declared `: number` in TypeScript is typed: its slot only ever holds
 // a Number, and its word says so (W_FLOAT) from the moment the struct is made,
@@ -24,7 +26,7 @@
 // (as on x64 and arm64); the language lets a Float64 that races tear.
 
 import {allocObject, onGC, root, rootSlot, unroot, writeSlot} from './gc.ts';
-import {A, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
+import {A, B64, F64, I32, intern, requireHeap, stringAt} from './heap.ts';
 
 export const K_STRUCT = 1,
   K_ARRAY = 2,
@@ -34,8 +36,8 @@ export const HEAD = 16,
   SLOT = 16;
 
 // a word: tagged in its low 3 bits. Tag 0 holds the constants (zeroed memory
-// is undefined); the others an address, of an interned string or a shared
-// object
+// is undefined); 1 and 6 say the Float64 holds a Number; 7 a BigInt, inline;
+// the others an address, of an interned string or a shared object
 const W_UNDEFINED = 0,
   W_NULL = 8,
   W_FALSE = 16,
@@ -43,6 +45,13 @@ const W_UNDEFINED = 0,
 export const W_NUMBER = 1;
 // a typed field's word, which never changes: a Number, in the Float64
 export const W_FLOAT = 6;
+// A BigInt of 61 bits (-2 ** 60 to 2 ** 60 - 1) is the slot's first 8 bytes,
+// its word and the 4 beside it, read and written as one: the BigInt shifted
+// left 3, tagged 7. It leaves the Float64 alone, so a Number's reader never
+// sees its bits. A larger one is interned, as its digits (T_BIGINT).
+const T_INLINE = 7,
+  INLINE_MIN = -(2n ** 60n),
+  INLINE_MAX = 2n ** 60n - 1n;
 const T_STRING = 2,
   T_BIGINT = 3,
   T_SYMBOL = 4;
@@ -172,19 +181,26 @@ const describe = (v: unknown) =>
 // ---- slots ----
 // The value in the slot at `s`. (ReadSharedStructField, §2.1.3.)
 export function read(s: number): unknown {
-  const w = A.load(I32, s >> 2);
-  if ((w & 7) !== T_REF) return valueOf(w, s);
-  const known = handles.get(w & ~7)?.deref();
-  if (known) return known;
-  // the slot read again, its object one of this agent's roots before its
-  // Proxy is made
-  const v = rootSlot(s >> 2);
-  return (v & 7) === T_REF
-    ? (handles.get(v & ~7)?.deref() ?? newHandle(v & ~7))
-    : valueOf(v, s);
+  for (;;) {
+    let w = A.load(I32, s >> 2);
+    if ((w & 7) === T_REF) {
+      const known = handles.get(w & ~7)?.deref();
+      if (known) return known;
+      // the slot read again, its object one of this agent's roots before its
+      // Proxy is made
+      w = rootSlot(s >> 2);
+      if ((w & 7) === T_REF)
+        return handles.get(w & ~7)?.deref() ?? newHandle(w & ~7);
+    }
+    if ((w & 7) !== T_INLINE) return valueOf(w, s);
+    const v = A.load(B64, s >> 3);
+    // (unless written over since its word was read: then read again)
+    if (Number(v & 7n) === T_INLINE) return v >> 3n;
+  }
 }
 
-// the value the word `w` of the slot at `s` says, but for an object
+// the value the word `w` of the slot at `s` says, but for an object or an
+// inline BigInt
 function valueOf(w: number, s: number): unknown {
   switch (w & 7) {
     case 0:
@@ -224,7 +240,8 @@ export function requireFits(s: number, v: unknown) {
     );
 }
 
-function encode(v: unknown): number {
+// the word `v` is, or for an inline BigInt the slot's first 8 bytes
+function encode(v: unknown): number | bigint {
   switch (typeof v) {
     case 'undefined':
       return W_UNDEFINED;
@@ -233,7 +250,9 @@ function encode(v: unknown): number {
     case 'string':
       return intern(v) | T_STRING;
     case 'bigint':
-      return intern(v.toString()) | T_BIGINT;
+      return v >= INLINE_MIN && v <= INLINE_MAX
+        ? (v << 3n) | BigInt(T_INLINE)
+        : intern(v.toString()) | T_BIGINT;
     case 'symbol':
       return intern(symbolCode(v)!) | T_SYMBOL;
     default:
