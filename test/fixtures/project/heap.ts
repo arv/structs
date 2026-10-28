@@ -78,3 +78,26 @@ export function inClosure(arr: SharedArray<Node>): () => number {
   const p = arr[0]!;
   return () => p.x;
 }
+
+// arr[i].x with no binding: the element's address, the struct made only for
+// the slow path
+export function sumDirect(arr: SharedArray<Node>): number {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) sum += arr[i]!.x;
+  return sum;
+}
+
+// an index that is no identifier, evaluated once; a field that is no number
+export function nextAfter(arr: SharedArray<Node>, k: number): Node | null {
+  return arr[k + 1]!.next;
+}
+
+// arr[i].x = v: the receiver before the value, its index evaluated once
+export function setX(arr: SharedArray<Node>, i: number, v: number): number {
+  return (arr[i]!.x = v);
+}
+export function setNext(arr: SharedArray<Node>): number {
+  let j = 0;
+  arr[j++]!.x = j;
+  return j;
+}

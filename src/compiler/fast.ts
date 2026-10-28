@@ -62,8 +62,15 @@
 // access made direct, the binding itself is made only where that address is
 // -1 (the slow path, which reads it as written):
 //
-//   const b = arr[i];  const $b = $struct.elem($arr, i, $L0),
+//   const b = arr[i];  const $b = $struct.elem($arr, i, $L0, $I),
 //                        b = $b < 0 ? arr[i] : undefined;
+//
+// (elem and ref take the function's $I, which V8 reads as a local.) An
+// element's field read or written with no binding, `arr[i].x`, is the same,
+// its address in a temporary ($e, below) and its index evaluated once:
+//
+//   arr[i].x   (($e = $struct.elem($arr, i, $L0, $I)) < 0
+//                ? $struct.getNumber(arr[i], $L0, k) : $F[($e >> 3) + n])
 //
 // Such an address is held without a Proxy, and the collector keeps its struct
 // only for the rest of the turn (src/runtime/gc.ts): so only in a function
@@ -87,8 +94,10 @@
 // SharedArray whose address is known is its slot's address, its index
 // evaluated once ($i), and the struct made only for the slow path:
 //
-//   --arr[i].y  ($i = i, $a = $struct.elem($arr, $i, $L0),
+//   --arr[i].y  ($i = i, $a = $struct.elem($arr, $i, $L0, $I),
 //                $r = $a < 0 ? arr[$i] : undefined, $t = <$r.y read>, ...)
+//
+// and `arr[i].y = v` is written the same way, its value into $t.
 //
 // Its temporaries are locals of its function (`let` at the start of its body,
 // which an arrow's expression body is made a block for), or of the module at
@@ -240,8 +249,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       if (!element || layoutName(element) !== L) return undefined;
       const a = addressOf(arr, null, decl);
       // the function's views() begins the turn the address is kept for
-      if (a) viewsAt(decl);
-      return a && `${rt}.elem(${a}, ${index.text}, ${L})`;
+      return a && `${rt}.elem(${a}, ${index.text}, ${L}, ${viewsAt(decl).I})`;
     }
     if (init.kind === K.PropertyAccessExpression) {
       const f = field(init),
@@ -249,8 +257,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       const held = ctx.nullableLayoutOf(init);
       if (!f || !held || layoutName(held) !== L) return undefined;
       const a = addressOf(holder, f.L, decl);
-      if (a) viewsAt(decl);
-      return a && `${rt}.ref(${a}, ${f.i}, ${L})`;
+      return a && `${rt}.ref(${a}, ${f.i}, ${L}, ${viewsAt(decl).I})`;
     }
     return undefined;
   };
@@ -396,13 +403,21 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     const element = ctx.elementLayoutOf(o.expression);
     return element && layoutName(element) === L ? o : undefined;
   };
+  // overwrites the source from `from` to `to`, keeping what was written around
+  // and in it
+  const replace = (from: number, to: number, text: string) =>
+    from < to
+      ? ms.overwrite(from, to, text, {contentOnly: true})
+      : ms.prependRight(from, text);
   // A compound assignment or an update of a field: its receiver evaluated
   // once, the slot read and written as for a read and `=`, and its value what
   // it would be through the Proxy. Whether it was rewritten.
   const update = (node: Node) => {
     let target: Node, value: Node | undefined, op: string;
     if (node.kind === K.BinaryExpression) {
-      const o = COMPOUND[node.operatorToken.kind as K];
+      // (`=` too, of an element of a SharedArray: below)
+      const kind = node.operatorToken.kind as K;
+      const o = kind === K.EqualsToken ? '=' : COMPOUND[kind];
       if (!o) return false;
       target = skipParens(node.left);
       value = node.right;
@@ -416,7 +431,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       op = node.operator === K.PlusPlusToken ? '++' : '--';
     } else return false;
     const f = field(target);
-    const scope = f && updateOf(target) && tempScopeOf(node);
+    const scope = f && (op === '=' || updateOf(target)) && tempScopeOf(node);
     if (!f || !scope) return false;
     const o = target.expression as Node;
     if (o.kind === K.SuperKeyword) return false;
@@ -431,6 +446,8 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     // (an address held without a Proxy only where the turn bounds it)
     const element = !a && mayHoldRaw(node) && elementOf(o, f.L);
     const arr = element && addressOf(element.expression, null, node);
+    // `o.key = v` is the visitor's, but for arr[i]
+    if (op === '=' && !(element && arr)) return false;
     if (a) r = o.text as string;
     else if (o.kind === K.ThisKeyword) {
       r = 'this';
@@ -443,7 +460,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       r = temp(scope);
       a = temp(scope);
       before = `${i} = (`;
-      after = `), ${a} = ${rt}.elem(${arr}, ${i}, ${f.L}), ${r} = ${a} < 0 ? ${element.expression.text}[${i}] : undefined, `;
+      after = `), ${a} = ${rt}.elem(${arr}, ${i}, ${f.L}, ${v.I}), ${r} = ${a} < 0 ? ${element.expression.text}[${i}] : undefined, `;
     } else {
       kept = o;
       r = temp(scope);
@@ -468,7 +485,10 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     // what comes after the receiver, up to the value, and after the value
     let rest: string,
       tail = '';
-    if (!value) {
+    if (op === '=') {
+      rest = `${t} = (`;
+      tail = `), ${write(t)})`;
+    } else if (!value) {
       if (node.kind === K.PrefixUnaryExpression)
         rest = `${t} = ${read}, ${op}${t}, ${write(t)})`;
       else {
@@ -482,12 +502,6 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       rest = `${t} = ${read} ${op} (`;
       tail = `), ${write(t)})`;
     }
-    // overwrites the source from `from` to `to`, keeping what was written
-    // around and in it
-    const replace = (from: number, to: number, text: string) =>
-      from < to
-        ? ms.overwrite(from, to, text, {contentOnly: true})
-        : ms.prependRight(from, text);
     const start = node.getStart();
     const end = value ? value.getStart() : node.end;
     const open = `${guard(node)}(`;
@@ -496,6 +510,42 @@ export function fastAccess(file: Node, ctx: FastContext): string {
       replace(kept.end, end, `${after}${rest}`);
     } else replace(start, end, `${open}${before}${rest}`);
     if (tail) ms.appendLeft(node.end, tail);
+    return true;
+  };
+  // `arr[i].key` read, arr a SharedArray whose address is known: the element's
+  // address is the word of arr's slot, and the struct is made only for the
+  // slow path, its index evaluated once (an identifier or a number as it is,
+  // anything else into a temporary), as above. Whether it was rewritten.
+  const elementRead = (
+    node: Node,
+    f: {L: string; i: number; typed: boolean},
+    numeric: boolean,
+  ) => {
+    const element = mayHoldRaw(node) && elementOf(node.expression, f.L);
+    const arr = element && addressOf(element.expression, null, node);
+    const scope = arr && tempScopeOf(node);
+    if (!element || !arr || !scope) return false;
+    const v = viewsAt(node);
+    const index = element.argumentExpression as Node;
+    const kept =
+      index.kind !== K.Identifier && index.kind !== K.NumericLiteral
+        ? index
+        : undefined;
+    const i = kept ? temp(scope) : (index.text as string);
+    const e = temp(scope);
+    const args = `undefined, ${e}, ${f.L}, ${f.i}`;
+    const slow = `${rt}.${numeric ? 'getNumber' : 'get'}(${element.expression.text}[${i}], ${f.L}, ${f.i})`;
+    const fast = f.typed
+      ? float(v.F, e, f.i)
+      : numeric
+        ? `${word(v.I, e, f.i)} !== ${W_NUMBER} ? ${rt}.getNumberAt(${args}) : ${float(v.F, e, f.i)}`
+        : `${rt}.getAt(${args})`;
+    const rest = `(${e} = ${rt}.elem(${arr}, ${i}, ${f.L}, ${v.I})) < 0 ? ${slow} : ${fast})`;
+    const open = `${guard(node)}(`;
+    if (kept) {
+      replace(node.getStart(), kept.getStart(), `${open}${i} = (`);
+      replace(kept.end, node.end, `), ${rest}`);
+    } else replace(node.getStart(), node.end, `${open}${rest}`);
     return true;
   };
   // after the children: what they write stays inside what this writes
@@ -584,6 +634,7 @@ export function fastAccess(file: Node, ctx: FastContext): string {
     const numeric = isNumber(node);
     const o = node.expression as Node;
     const a = addressOf(o, f.L, node);
+    if (!a && elementRead(node, f, numeric)) return;
     if (!a) {
       ms.prependRight(
         node.getStart(),
