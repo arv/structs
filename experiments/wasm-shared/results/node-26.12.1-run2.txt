@@ -1,0 +1,45 @@
+# v26.12.1, V8 14.6.202.34-node.40
+## sharing
+worker read x: 7 (main wrote 7)
+worker: bodies[0] === posted body: true
+worker: any_get_x(body), a ref.cast inside: RuntimeError: illegal cast
+worker: xget_x(body), a ref.cast inside: RuntimeError: illegal cast
+main: xget_x(body): 7
+worker read the string in a Box: "made on main"
+main reads the string the worker stored: "from worker 0.95" string
+main sees worker write of y: 1234.5 (worker wrote 1234.5)
+posted back === original: true
+worker, spinning, saw main write z = 99 after 5624632 spins
+## inlining
+unshared types
+  add1(f64) -> f64             1.22 ns/call
+  get_x((ref null $Body))      8.88 ns/call
+  any_get_x(anyref)            8.35 ns/call
+  xget_x(externref)            1.00 ns/call
+shared types
+  add1(f64) -> f64             1.30 ns/call
+  get_x((ref null $Body))      8.87 ns/call
+  any_get_x((shared any))      8.88 ns/call
+  xget_x((shared extern))      3.78 ns/call
+## micro
+plain  bump 0.65 ns/op  sum 0.38 ns/op
+js-shared  bump 2.12 ns/op  sum 2.52 ns/op
+wasm  bump 19.27 ns/op  sum 19.41 ns/op
+wasm-shared  bump 18.58 ns/op  sum 18.91 ns/op
+xwasm  bump 2.99 ns/op  sum 0.83 ns/op
+xwasm-shared  bump 7.24 ns/op  sum 7.11 ns/op
+fast  bump 3.69 ns/op  sum 129.47 ns/op
+proxy  bump 35.01 ns/op  sum 146.18 ns/op
+## nbody, 1M steps
+1000000 steps in 104 ms
+plain: 1000000 steps in 42 ms
+typed: 1000000 steps in 3469 ms
+typed-shared: 1000000 steps in 3473 ms
+x: 1000000 steps in 42 ms
+x-shared: 1000000 steps in 1180 ms
+wasm: 1000000 steps in 38 ms
+wasm-shared: 1000000 steps in 38 ms
+## nbody-parallel
+ours (fast): 1: 223 ms (1.00x)  2: 149 ms (1.50x)  4: 81 ms (2.74x)  8: 60 ms (3.74x)
+wasm-shared (wasm): 1: 65 ms (1.00x)  2: 33 ms (1.93x)  4: 18 ms (3.50x)  8: 17 ms (3.70x)
+wasm-shared (js): 1: 3126 ms (1.00x)  2: 1635 ms (1.91x)  4: 808 ms (3.87x)  8: 456 ms (6.85x)

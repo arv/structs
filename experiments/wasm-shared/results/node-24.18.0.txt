@@ -1,0 +1,125 @@
+# v24.18.0, V8 13.6.233.17-node.50
+## sharing
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/share.js:19:11
+
+Node.js v24.18.0
+## inlining
+unshared types
+  add1(f64) -> f64             1.41 ns/call
+  get_x((ref null $Body))      10.83 ns/call
+  any_get_x(anyref)            10.19 ns/call
+  xget_x(externref)            1.00 ns/call
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/inline.js:12:11
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0
+## micro
+plain  bump 0.68 ns/op  sum 0.47 ns/op
+js-shared  bump 2.20 ns/op  sum 2.54 ns/op
+wasm  bump 21.45 ns/op  sum 21.39 ns/op
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/micro.js:53:13
+
+Node.js v24.18.0
+xwasm  bump 2.99 ns/op  sum 0.71 ns/op
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/micro.js:53:13
+
+Node.js v24.18.0
+fast  bump 1.00 ns/op  sum 132.49 ns/op
+proxy  bump 33.62 ns/op  sum 147.00 ns/op
+## nbody, 1M steps
+1000000 steps in 104 ms
+plain: 1000000 steps in 42 ms
+typed: 1000000 steps in 4010 ms
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at structs (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:37:13)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:46:35
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0
+x: 1000000 steps in 40 ms
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at structs (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:37:13)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:46:35
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0
+wasm: 1000000 steps in 43 ms
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at structs (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:37:13)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/nbody.js:46:35
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0
+## nbody-parallel
+ours (fast): 1: 288 ms (1.00x)  2: 148 ms (1.94x)  4: 80 ms (3.58x)  8: 60 ms (4.77x)
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/par-wasm.js:18:11
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0
+file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249
+  new WebAssembly.Instance(new WebAssembly.Module(bodyModule(opts))).exports;
+                           ^
+
+CompileError: WebAssembly.Module(): Compiling function #20 failed: any.convert_extern[0] expected type externref, found local.get of type shared externref @+1020
+    at instantiate (file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/body-module.js:249:28)
+    at file:///Users/arv-roci/src/arv/threads/.claude/worktrees/memory-reclamation-8c3657/experiments/wasm-shared/par-wasm.js:18:11
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0

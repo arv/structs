@@ -18,6 +18,7 @@ export default defineConfig({
       'examples/**',
       'test/fixtures/**',
       'playground/programs/**',
+      'experiments/wasm-shared/ts/**',
     ],
   },
   test: {
@@ -37,6 +38,7 @@ export default defineConfig({
       'examples/**',
       'test/fixtures/**',
       'playground/programs/**',
+      'experiments/wasm-shared/ts/**',
     ],
   },
 });

@@ -1,0 +1,19 @@
+{
+  // node src/compiler/cli.ts compile -p experiments/wasm-shared/ts/tsconfig.json --outDir experiments/wasm-shared/fast
+  // node src/compiler/cli.ts compile -p experiments/wasm-shared/ts/tsconfig.json --outDir experiments/wasm-shared/proxy --no-fast
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["esnext", "dom"],
+    "types": ["node"],
+    "outDir": "../fast",
+    "paths": {
+      "@arv/structs": ["../../../src/runtime/api.d.ts"],
+      "@arv/structs/agent": ["../../../src/runtime/agent-api.d.ts"]
+    }
+  },
+  "include": ["*.ts"]
+}
