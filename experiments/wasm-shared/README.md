@@ -212,10 +212,3 @@ What would change the answer, in order:
    unflagged.
 
 Worth re-running when Node moves past V8 14.6: `run.sh` does it all.
-
-## Draft reply to Thomas (not posted)
-
-> Tried it on V8 14.6 (Node 26): n-body all in Wasm on shared structs, 38 ms vs
-> 104 for our SAB heap. But JS→shared-type accessors don't inline yet (externref
-> ones do): 1.2 s. And ref.cast fails cross-thread.
-> github.com/arv/structs/tree/arv/wasm-shared-experiment/experiments/wasm-shared
