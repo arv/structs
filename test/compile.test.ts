@@ -94,7 +94,7 @@ describe('compile', () => {
     const heap = code('heap.ts');
     // arr[i]: the element's word, and arr itself checked once
     expect(heap).toMatch(
-      /const (\$a\d+_\$struct) = \$struct\.elem\((\$a\d+_\$struct), i, \$L\d_\$struct\), p = \1 < 0 \? arr\[i\] : undefined;/,
+      /const (\$a\d+_\$struct) = \$struct\.elem\((\$a\d+_\$struct), i, \$L\d_\$struct, \$I_\$struct\), p = \1 < 0 \? arr\[i\] : undefined;/,
     );
     expect(heap).toMatch(/\$a\d+_\$struct = \$struct\.addrArray\(arr\)/);
     // its length, from its header
@@ -103,7 +103,7 @@ describe('compile', () => {
     );
     // s.next: the field's word
     expect(heap).toMatch(
-      /const (\$a\d+_\$struct) = \$struct\.ref\(\$a\d+_\$struct, 1, \$L\d_\$struct\), n = \1 < 0 \?/,
+      /const (\$a\d+_\$struct) = \$struct\.ref\(\$a\d+_\$struct, 1, \$L\d_\$struct, \$I_\$struct\), n = \1 < 0 \?/,
     );
     // used other than for its fields: made, and checked
     expect(heap).toMatch(
@@ -111,8 +111,22 @@ describe('compile', () => {
     );
     // a `p` of another block, used as itself, is another binding
     expect(heap).toMatch(
-      /function twice[\s\S]*?const p = arr\[i\];[\s\S]*?\$struct\.elem\(\$a\d+_\$struct, i, \$L\d_\$struct\), p = /,
+      /function twice[\s\S]*?const p = arr\[i\];[\s\S]*?\$struct\.elem\(\$a\d+_\$struct, i, \$L\d_\$struct, \$I_\$struct\), p = /,
     );
+    // arr[i].x, with no binding: the element's address, the struct made
+    // only for the slow path
+    expect(heap).toMatch(
+      /sum \+= \((\$t\d+_\$struct) = \$struct\.elem\(\$a\d+_\$struct, i, \$L\d_\$struct, \$I_\$struct\)\) < 0 \? \$struct\.getNumber\(arr\[i\], \$L\d_\$struct, 0\) : \$F_\$struct\[\(\1 >> 3\) \+ 3\]/,
+    );
+    // an index evaluated once, into a temporary; a field that is no number
+    expect(heap).toMatch(
+      /return (\$t\d+_\$struct) = k \+ 1, \((\$t\d+_\$struct) = \$struct\.elem\(\$a\d+_\$struct, \1, \$L\d_\$struct, \$I_\$struct\)\) < 0 \? \$struct\.get\(arr\[\1\], \$L\d_\$struct, 1\) : \$struct\.getAt\(undefined, \2, \$L\d_\$struct, 1\)/,
+    );
+    // arr[i].x = v: the same, and the struct made before the value
+    expect(heap).toMatch(
+      /function setX[\s\S]*?\$struct\.elem\([^;]*?arr\[\$t\d+_\$struct\] : undefined, \$t\d+_\$struct = v, /,
+    );
+    expect(heap).not.toMatch(/\$struct\.(get|getNumber|set)\(arr\[i\]!?\)/);
     // an async function reads the runtime's views
     expect(heap).toMatch(/async function later[\s\S]*?\$struct\.I32\[/);
     // a binding used in a closure is made: its address could outlive the
@@ -146,8 +160,32 @@ describe('compile', () => {
     expect(heap.firstY(arr)).toBe(0);
     expect(await heap.later(arr)).toBe(6);
     expect(heap.twice(arr)).toBe(1 + 0 + 1 + 2);
-    // the slow paths: an element that is no Node, a next that is null
     const holes = new SharedArray(2);
+    expect(heap.sumDirect(arr)).toBe(0 + 1 + 2);
+    expect(heap.nextAfter(arr, 0)).toBe(null);
+    arr[1].next = arr[2];
+    expect(heap.nextAfter(arr, 0)).toBe(arr[2]);
+    arr[1].next = null;
+    expect(heap.setX(arr, 2, 2.5)).toBe(2.5);
+    expect(arr[2].x).toBe(2.5);
+    expect(heap.setNext(arr)).toBe(1);
+    expect(arr[0].x).toBe(1);
+    expect(heap.setX(arr, 2, 2)).toBe(2);
+    arr[0].x = 0;
+    // the slow paths: an element that is no Node, or none; an index out of
+    // bounds or that is no Number
+    expect(() => heap.sumDirect(holes)).toThrow(TypeError);
+    const mixed = new SharedArray<any>(2);
+    mixed[0] = new Vec(5, 6);
+    mixed[1] = new heap.Node();
+    mixed[1].x = 1;
+    expect(heap.sumDirect(mixed)).toBe(6);
+    expect(heap.nextAfter(mixed, -1)).toBe(undefined);
+    expect(() => heap.setX(arr, 3, 1)).toThrow(TypeError);
+    expect(heap.setX(mixed, 0, 9)).toBe(9);
+    expect(mixed[0].x).toBe(9);
+    expect(heap.setX(arr, '1' as any, 1)).toBe(1);
+    // the slow paths: an element that is no Node, a next that is null
     expect(() => heap.sumX(holes)).toThrow(TypeError);
     const lone = new heap.Node();
     expect(() => heap.nextX(lone)).toThrow(TypeError);

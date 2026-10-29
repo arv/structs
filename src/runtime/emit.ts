@@ -19,17 +19,24 @@ export function views() {
 }
 import {
   addressOf,
-  HEAD,
+  HEAD as HEAD_,
   K_ARRAY,
-  K_STRUCT,
+  K_STRUCT as K_STRUCT_,
   read,
   requireShareable,
   shapeFor,
-  SLOT,
-  T_REF,
+  SLOT as SLOT_,
+  T_REF as T_REF_,
   W_NUMBER,
   write,
 } from './shared.ts';
+
+// The constants elem and ref read, which compiled code inlines: V8 folds a
+// const of this module, where it loads an imported one every time.
+const HEAD = HEAD_,
+  K_STRUCT = K_STRUCT_,
+  SLOT = SLOT_,
+  T_REF = T_REF_;
 
 export {
   beginStruct,
@@ -91,27 +98,34 @@ export function addrArray(o: unknown) {
 }
 
 // The address of the Shared Struct of layout `l` that the slot whose word is
-// I32[w] holds, or -1: what that word says without making its Proxy. (A slot
-// that holds anything else is read as written, through its holder.)
-function refIn(w: number, l: Layout) {
-  const v = I32[w]!;
+// I[w] holds, or -1: what that word says without making its Proxy. (A slot
+// that holds anything else is read as written, through its holder.) `I` is
+// the heap's I32: compiled code passes its function's own (views()), which
+// V8 reads as a local, where this module's is a binding it loads every time.
+function refIn(I: Int32Array, w: number, l: Layout) {
+  const v = I[w]!;
   if ((v & 7) !== T_REF) return -1;
   const r = v & ~7;
-  return I32[r >> 2] === K_STRUCT && I32[(r >> 2) + 1] === shapeOf(l) ? r : -1;
+  // (shapeOf's test written out: nbody runs a twentieth faster than with its
+  // call, which V8 inlines)
+  return I[r >> 2] === K_STRUCT &&
+    I[(r >> 2) + 1] === (l.addr === 0 ? shapeOf(l) : l.addr)
+    ? r
+    : -1;
 }
 
 // The address of the struct of layout `l` in field `i` of the struct at `a`
 // (-1 for none: an address that is -1, or another value).
-export const ref = (a: number, i: number, l: Layout) =>
-  a < 0 ? -1 : refIn((a + HEAD + i * SLOT) >> 2, l);
+export const ref = (a: number, i: number, l: Layout, I = I32) =>
+  a < 0 ? -1 : refIn(I, (a + HEAD + i * SLOT) >> 2, l);
 
 // The address of the struct of layout `l` at index `i` of the Shared Array at
 // `a` (-1 for none: an index out of its bounds, too, or that is no Number,
 // which the slow path converts, once).
-export const elem = (a: number, i: unknown, l: Layout) =>
-  a < 0 || typeof i !== 'number' || i >>> 0 !== i || i >= I32[(a >> 2) + 1]!
+export const elem = (a: number, i: unknown, l: Layout, I = I32) =>
+  a < 0 || typeof i !== 'number' || i >>> 0 !== i || i >= I[(a >> 2) + 1]!
     ? -1
-    : refIn((a + HEAD + i * SLOT) >> 2, l);
+    : refIn(I, (a + HEAD + i * SLOT) >> 2, l);
 
 // the slot of field `i` of `o`, if `o` is a Shared Struct of layout `l`
 function slot(o: unknown, l: Layout, i: number) {
