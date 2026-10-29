@@ -58,7 +58,7 @@
     "@jridgewell/sourcemap-codec": "^1.6.0",
     "magic-string": "^1.4.3",
     "oxc-transform": "^0.153.0",
-    "typescript": "7.1.0-dev.20261011.1"
+    "typescript": "7.1.0-beta"
   },
   "devDependencies": {
     "@arv/structs": "workspace:^",
