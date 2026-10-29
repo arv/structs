@@ -37,9 +37,10 @@ once V8 inlines JS-to-Wasm calls on shared types, fixes the cross-thread
     value could not be cloned" for every shared value. That includes JS shared
     structs: Deno has no shared-value conveyor.
   - Chrome 156 is installed but wasn't needed once Node 26 worked.
-- No toolchain here encodes the shared types (no wasm-tools, wabt or Binaryen),
-  so [body-module.js](body-module.js) writes the binary itself. It holds the
-  `Body` struct (seven `mut f64` fields) and a `Bodies` array of
+- No toolchain was installed here (no wasm-tools, wabt or Binaryen), so
+  [body-module.js](body-module.js) writes the binary itself. Binaryen fully
+  supports shared types (per Thomas Lively), so a re-run could use it instead.
+  It holds the `Body` struct (seven `mut f64` fields) and a `Bodies` array of
   `(ref null Body)`. Both are shared (the `0x65` prefix on the composite type)
   or not, so each variant differs from its control by sharedness alone. The
   exports are allocation, accessors, and n-body's `advance`, `energy` and
@@ -77,7 +78,8 @@ two instances on one thread. The JS-to-Wasm boundary check on a typed
 `(ref null $Body)` parameter accepts the same object in the worker. So the check
 inside Wasm seems to compare per-isolate type data, while the boundary check
 compares canonical types. This bug is what rules out the inlinable accessors in
-workers (next section).
+workers (next section). Thomas Lively reports it is fixed in upstream V8, after
+14.6.
 
 ## Inlining: the open question
 
@@ -178,17 +180,17 @@ measure the barrier rather than field access.
 
 ## What Wasm would replace, and what it wouldn't
 
-| our runtime                                                      | with shared Wasm GC                                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the 256 MB SharedArrayBuffer heap (`heap.ts`)                    | **gone**: V8's shared heap, no fixed size                                                                                                                                                                                                                                                                                                |
-| the cross-agent collector (`gc.ts`), pins for messages in flight | **gone**: V8 collects shared objects, and `WeakRef` / `Map` keys work on them                                                                                                                                                                                                                                                            |
-| one Proxy per address per agent, and its handle table            | **gone**: `postMessage` keeps identity (`===` both ways)                                                                                                                                                                                                                                                                                 |
-| interned strings, never freed                                    | **probably gone**: JS strings fit in `(shared extern)` and cross threads (tested), and V8 collects them                                                                                                                                                                                                                                  |
-| 16-byte tagged slots; untyped fields hold any shareable value    | `(shared extern)` fields take strings, numbers, null and shared objects, including `Atomics.Mutex` / `Condition` and `SharedStructType` instances. They reject plain objects (TypeError), as ours do. Numbers in an externref field are boxed, so untyped fields would still pay for that                                                |
-| `Atomics.Mutex` / `Atomics.Condition` (`sync.ts`)                | **not yet**: the proposal's `waitqueue` (`struct.wait`, `waitqueue.notify`, `WebAssembly.WaitQueue`) is absent from V8 14.6. V8's own `Atomics.Mutex` (`--harmony-struct`) fits in a `(shared extern)` field: a second experimental flag. Untested: `struct.atomic.*` (`0xfe 0x5c`...)                                                   |
-| shapes made at run time, by any agent                            | **awkward**: Wasm struct types are fixed per module, so each `shared struct` declaration would compile a small module at run time. Iso-recursive canonicalization makes two declarations with the same field types the _same_ type, so struct identity (`instanceof`, the spec's per-declaration types) needs a brand field              |
-| property access (`o.x`), methods, prototypes                     | **missing**: Wasm structs are opaque to JS: `b.x` is `undefined`, the prototype is `null`, and adding a property throws "WebAssembly objects are opaque". Every access needs an accessor call, so uncompiled code can't use them. The proposal's realm-local prototypes (and custom descriptors) would fix that, but V8 14.6 has neither |
-| works in today's Node 24, browsers, Deno                         | **no**: needs a flag, Node ≥ 26 for `postMessage`, nothing in Deno, and is untested in Chrome                                                                                                                                                                                                                                            |
+| our runtime                                                      | with shared Wasm GC                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the 256 MB SharedArrayBuffer heap (`heap.ts`)                    | **gone**: V8's shared heap, no fixed size                                                                                                                                                                                                                                                                                                                                                                      |
+| the cross-agent collector (`gc.ts`), pins for messages in flight | **gone**: V8 collects shared objects, and `WeakRef` / `Map` keys work on them                                                                                                                                                                                                                                                                                                                                  |
+| one Proxy per address per agent, and its handle table            | **gone**: `postMessage` keeps identity (`===` both ways)                                                                                                                                                                                                                                                                                                                                                       |
+| interned strings, never freed                                    | **probably gone**: JS strings fit in `(shared extern)` and cross threads (tested), and V8 collects them                                                                                                                                                                                                                                                                                                        |
+| 16-byte tagged slots; untyped fields hold any shareable value    | `(shared extern)` fields take strings, numbers, null and shared objects, including `Atomics.Mutex` / `Condition` and `SharedStructType` instances. They reject plain objects (TypeError), as ours do. Numbers in an externref field are boxed, so untyped fields would still pay for that                                                                                                                      |
+| `Atomics.Mutex` / `Atomics.Condition` (`sync.ts`)                | **not yet**: the proposal's `waitqueue` (`struct.wait`, `waitqueue.notify`, `WebAssembly.WaitQueue`) is absent from V8 14.6 (implemented in upstream V8 since). V8's own `Atomics.Mutex` (`--harmony-struct`) fits in a `(shared extern)` field: a second experimental flag. Untested: `struct.atomic.*` (`0xfe 0x5c`...)                                                                                      |
+| shapes made at run time, by any agent                            | **awkward**: Wasm struct types are fixed per module, so each `shared struct` declaration would compile a small module at run time. Iso-recursive canonicalization makes two declarations with the same field types the _same_ type, so struct identity (`instanceof`, the spec's per-declaration types) needs a brand field                                                                                    |
+| property access (`o.x`), methods, prototypes                     | **missing**: Wasm structs are opaque to JS: `b.x` is `undefined`, the prototype is `null`, and adding a property throws "WebAssembly objects are opaque". Every access needs an accessor call, so uncompiled code can't use them. The proposal's realm-local prototypes (and custom descriptors) would fix that, but V8 14.6 has neither. Custom descriptors are coming, then need to work with shared structs |
+| works in today's Node 24, browsers, Deno                         | **no**: needs a flag, Node ≥ 26 for `postMessage`, nothing in Deno, and is untested in Chrome                                                                                                                                                                                                                                                                                                                  |
 
 ## Recommendation: wait for V8
 
@@ -205,10 +207,15 @@ What would change the answer, in order:
 1. V8 inlines JS-to-Wasm calls on `(shared extern)` the way it does on
    `externref`. The unshared row says that would put JS on shared structs at
    plain-JS speed, about 2.5 times our fast path.
-2. `ref.cast` works on a shared struct allocated by another thread.
+2. `ref.cast` works on a shared struct allocated by another thread. Fixed in
+   upstream V8.
 3. Realm-local prototypes on shared Wasm structs, so `o.x` works without a
-   compiler.
+   compiler. Custom descriptors will let a module install accessors on structs,
+   once they work with shared structs.
 4. `waitqueue` (or `Atomics.Mutex` without `--harmony-struct`), and the feature
-   unflagged.
+   unflagged. Waitqueues are implemented in upstream V8.
 
-Worth re-running when Node moves past V8 14.6: `run.sh` does it all.
+The fixes for 2 and 4 come from Thomas Lively's
+[reply to these results](https://bsky.app/profile/arv.tools/post/3myxmak7csc2z),
+not from a run here. Worth re-running when Node ships a V8 that has them:
+`run.sh` does it all.
