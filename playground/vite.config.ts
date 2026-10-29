@@ -19,7 +19,9 @@ const ISOLATED = {
 
 // TypeScript 7.1's API client in the browser: its channel to tsgo is ours
 // (tsgo/channel.ts), on pipes to tsgo in WebAssembly, rather than its own,
-// which spawns tsgo; node's path and Buffer are pathe and buffer; and what
+// which spawns tsgo; it never dumps its timing (tsgo/timing-dump.ts), which
+// would read the environment and write to disk; node's path and Buffer are
+// pathe and buffer; and what
 // else it (or the compiler) imports from node, it never calls here
 // (tsgo/node-stubs.ts)
 function apiInBrowser(): Plugin {
@@ -32,13 +34,13 @@ function apiInBrowser(): Plugin {
     name: 'structs-playground:api-in-browser',
     enforce: 'pre',
     async resolveId(source, importer) {
-      if (
-        source === '../syncChannel.js' &&
-        /\/dist\/api\/sync\/client\.js(\?|$)/.test(
-          importer?.replace(/\\/g, '/') ?? '',
-        )
-      )
+      const fromClient = /\/dist\/api\/sync\/client\.js(\?|$)/.test(
+        importer?.replace(/\\/g, '/') ?? '',
+      );
+      if (fromClient && source === '../syncChannel.js')
         return here('tsgo/channel.ts');
+      if (fromClient && source === '../timingDump.js')
+        return here('tsgo/timing-dump.ts');
       if (!source.startsWith('node:')) return null;
       const instead = modules[source];
       if (instead)
